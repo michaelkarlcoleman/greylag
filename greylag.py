@@ -19,6 +19,9 @@ import sys
 
 import elementtree.ElementTree
 
+import spectrum
+
+
 #import gc
 #gc.disable()
 #gc.set_debug(gc.DEBUG_STATS|gc.DEBUG_LEAK)
@@ -41,158 +44,123 @@ def fileerror(s):
 #     pass
 
 
-class Spectrum:
-    def __init__(self, mass, charge, peaklist, idno=None, name='anonymous'):
-        # peaklist must be sorted!
-        self.mass = mass
-        self.charge = charge
-        self.peaklist = peaklist
-        self.idno = idno                # serial number, as read from file
-        self.name = name                # e.g., '0022.0022.3'
+def filter_spectrum(sp, XTP):
+    """Returns a reason (a string) if spectrum to be dropped, else None.
+    (This function alters the spectrum peaklist.)
+    """
 
-    def __repr__(self):
-        return ("<Spectrum: %d: '%s' %+d (m=%s, %d peaks)>"
-                % (self.idno, self.name, self.charge, self.mass,
-                   len(self.peaklist)))
+    # corresponds to mspectrumcondition::condition
+    # FIX: currently this redundantly analyzes shared peaklists
 
-    def filter(self, XTP):
-        """Returns a reason (a string) if spectrum to be dropped, else None.
-        (This function alters the spectrum peaklist.)
-        """
+    #max_parent_charge = parameters.get("spectrum, maximum parent charge", 4)
+    #if sp.charge > max_parent_charge:
+    #    return 'charge > %s' % max_parent_charge
+    # noise suppression check (probably redundant)
+    # if sp.mass < 500.0:     # m_fMinMass; "spectrum, minimum parent m+h"
+    #    return 'parent mass < "spectrum, minimum parent m+h"'
 
-        # corresponds to mspectrumcondition::condition
-        # FIX: currently this redundantly analyzes shared peaklists
-
-        #max_parent_charge = parameters.get("spectrum, maximum parent charge", 4)
-        #if self.charge > max_parent_charge:
-        #    return 'charge > %s' % max_parent_charge
-        # noise suppression check (probably redundant)
-        # if self.mass < 500.0:     # m_fMinMass; "spectrum, minimum parent m+h"
-        #    return 'parent mass < "spectrum, minimum parent m+h"'
-
-        # remove_isotopes (XXX: redundant w/below?)
-        # >>> removes multiple entries within 0.95 Da of each other, retaining
-        # the highest value. this is necessary because of the behavior of some
-        # peak finding routines in commercial software
-        peakpairs = len(self.peaklist) - 1
-        i = 0
-        while i < peakpairs:
-            p0, p1 = self.peaklist[i:i+2]
-            if p1[0] - p0[0] < 0.95:
-                peakpairs -= 1
-                if p1[1] > p0[1]:
-                    del self.peaklist[i]
-                else:
-                    del self.peaklist[i+1]
+    # remove_isotopes (XXX: redundant w/below?)
+    # >>> removes multiple entries within 0.95 Da of each other, retaining
+    # the highest value. this is necessary because of the behavior of some
+    # peak finding routines in commercial software
+    peakpairs = len(sp.peaks) - 1
+    i = 0
+    while i < peakpairs:
+        p0, p1 = sp.peaks[i:i+2]
+        if p1.mz - p0.mz < 0.95:
+            peakpairs -= 1
+            if p1.intensity > p0.intensity:
+                del sp.peaks[i]
             else:
-                i += 1
+                del sp.peaks[i+1]
+        else:
+            i += 1
 
-        # remove parent
-        # >>> set up m/z regions to ignore: those immediately below the m/z of
-        # the parent ion which will contain uninformative neutral loss ions,
-        # and those immediately above the parent ion m/z, which will contain
-        # the parent ion and its isotope pattern
-        parentMZ = 1.00727 + (self.mass - 1.00727) / self.charge
-        self.peaklist = [ (mz, i) for mz, i in self.peaklist
-                          if (parentMZ >= mz
-                              and parentMZ - mz >= 50.0 / self.charge
-                              or parentMZ < mz
-                              and mz - parentMZ >= 5.0 / self.charge) ]
+    # remove parent
+    # >>> set up m/z regions to ignore: those immediately below the m/z of
+    # the parent ion which will contain uninformative neutral loss ions,
+    # and those immediately above the parent ion m/z, which will contain
+    # the parent ion and its isotope pattern
+    parentMZ = 1.00727 + (sp.mass - 1.00727) / sp.charge
+    sp.peaks[:] = [ p for p in sp.peaks
+                    if (parentMZ >= p.mz
+                        and parentMZ - p.mz >= 50.0 / sp.charge
+                        or parentMZ < p.mz
+                        and p.mz - parentMZ >= 5.0 / sp.charge) ]
 
-        # remove_low_masses
-        LOWESTMASS = XTP["spectrum, minimum fragment mz"]
-        self.peaklist = [ (mz, i) for mz, i in self.peaklist
-                          if mz > LOWESTMASS ]
+    # remove_low_masses
+    LOWESTMASS = XTP["spectrum, minimum fragment mz"]
+    sp.peaks[:] = [ p for p in sp.peaks if p.mz > LOWESTMASS ]
 
-        # normalize spectrum
-        # dynamic_range
-        # * use the dynamic range parameter to set the maximum intensity value for the spectrum.
-        # * then remove all peaks with a normalized intensity < 1
-        DYNAMICRANGE = XTP["spectrum, dynamic range"]
-        if not self.peaklist:
-            return "no remaining peaks"
-        factor = max(1.0, max(i for mz, i in self.peaklist)) / DYNAMICRANGE
-        self.peaklist = [ (mz, i/factor) for mz, i in self.peaklist
-                          if i/factor >= 1.0 ]
+    # normalize spectrum
+    # dynamic_range
+    # * use the dynamic range parameter to set the maximum intensity value for the spectrum.
+    # * then remove all peaks with a normalized intensity < 1
+    DYNAMICRANGE = XTP["spectrum, dynamic range"]
+    if not sp.peaks:
+        return "no remaining peaks"
+    factor = max(1.0, max(p.intensity for p in sp.peaks)) / DYNAMICRANGE
+    sp.peaks[:] = [ (p.mz, p.intensity/factor) for p in sp.peaks
+                    if p.intensity/factor >= 1.0 ]
+    
+    # reject the spectrum if there aren't enough peaks 
+    MINIMUMPEAKS = XTP["spectrum, minimum peaks"]
+    if len(sp.peaks) < MINIMUMPEAKS:
+        return "fewer than %s remaining peaks" % MINIMUMPEAKS
 
-        # reject the spectrum if there aren't enough peaks 
-        MINIMUMPEAKS = XTP["spectrum, minimum peaks"]
-        if len(self.peaklist) < MINIMUMPEAKS:
-            return "fewer than %s remaining peaks" % MINIMUMPEAKS
+    # check is_noise (NYI)
+    # * is_noise attempts to determine if the spectrum is simply noise. if the spectrum
+    # * does not have any peaks within a window near the parent ion mass, it is considered
+    # * noise.
+    #limit = sp.mass / sp.charge
+    #if sp.charge < 3:
+    #    limit = sp.mass - 600.0
+    #if not [ True for mz, i in sp.peaks if mz > limit ]:
+    #    return "looks like noise"
 
-        # check is_noise (NYI)
-        # * is_noise attempts to determine if the spectrum is simply noise. if the spectrum
-        # * does not have any peaks within a window near the parent ion mass, it is considered
-        # * noise.
-        #limit = self.mass / self.charge
-        #if self.charge < 3:
-        #    limit = self.mass - 600.0
-        #if not [ True for mz, i in self.peaklist if mz > limit ]:
-        #    return "looks like noise"
-
-        # clean_isotopes removes peaks that are probably C13 isotopes
-        # FIX: this seems almost identical to remove_isotopes above (kill one off?)
-        peakpairs = len(self.peaklist) - 1
-        i = 0
-        while i < peakpairs:
-            p0, p1 = self.peaklist[i:i+2]
-            if p1[0] - p0[0] < 1.5:
-                peakpairs -= 1
-                if p1[1] > p0[1]:
-                    del self.peaklist[i]
-                else:
-                    del self.peaklist[i+1]
+    # clean_isotopes removes peaks that are probably C13 isotopes
+    # FIX: this seems almost identical to remove_isotopes above (kill one off?)
+    peakpairs = len(sp.peaks) - 1
+    i = 0
+    while i < peakpairs:
+        p0, p1 = sp.peaks[i:i+2]
+        if p1.mz - p0.mz < 1.5:
+            peakpairs -= 1
+            if p1.intensity > p0.intensity:
+                del sp.peaks[i]
             else:
-                i += 1
+                del sp.peaks[i+1]
+        else:
+            i += 1
 
-        # keep the MAXPEAKS most intense peaks
-        MAXPEAKS = XTP["spectrum, total peaks"]
-        self.peaklist.sort(key=operator.itemgetter(1), reverse=True)
-        del self.peaklist[MAXPEAKS:]
-        self.peaklist.sort()
+    # keep the MAXPEAKS most intense peaks
+    MAXPEAKS = XTP["spectrum, total peaks"]
+    sp.peaks[:] = sorted(sp.peaks, key=lambda x: x.intensity, reverse=True)
+    if MAXPEAKS < len(sp.peaks):
+        del sp.peaks[MAXPEAKS:]
+    sp.peaks[:] = sorted(sp.peaks)
 
-        return None
+    return None
 
 
 def read_spectra_from_ms2_file(fn):
     """Return a list of spectrum objects read from an ms2 file."""
-    # FIX: could check input further
-
-    spectra = [None] * 260000
-    idno = 0
-    name = None                         # '003.003.2'
-    headers = []                        # [ ('003.003.2', 1243.3, 2), ... ]
-    peaklist = []                       # [ (mz, v), ... ]
-
-    for line in file(fn):
-        assert line, "bogus empty line in ms2 file"
-        if line[0] == ':':
-            assert not name, "bad ms2 file format (missing mass/charge line?)"
-            if peaklist:
-                for name0, mass0, charge0 in headers:
-                    #yield Spectrum(mass0, charge0, peaklist, idno, name0)
-                    spectra[idno] = (mass0, charge0, peaklist, idno, name0)
-                    idno += 1
-                    if idno % 1000 == 0:
-                        sys.stderr.write('.')
-                headers, peaklist = [], []
-            name = line.strip(':\r\n')
-        elif name:
-            # FIX: better msg on bad input?
-            mass, charge = line.split()
-            headers.append((name, float(mass), int(charge)))
-            name = None
-        else:
-            assert headers, "bad ms2 file format (missing header?)"
-            mz, intensity = line.split()
-            peaklist.append((float(mz), float(intensity)))
-    assert headers and peaklist, "bad ms2 file format (unexpected EOF)"
-    for name0, mass0, charge0 in headers:
-        #yield Spectrum(mass0, charge0, peaklist, idno, name0)
-        spectra[idno] = (mass0, charge0, peaklist, idno, name0)
-        idno += 1
+    f = file(fn)
+    spectra = []
+    while True:
+        s = spectrum.spectrum()
+        if not s.read(f):
+            break
+        spectra.append(s)
     return spectra
 
+aa_sequence = re.compile(r'[^ARNDCQEGHILKMFPSTWYV]+')
+
+def split_sequence_into_aa_runs(sequence, defline):
+    """Given an amino-acid sequence, uppercase it and split into runs of amino
+    acids suitable for meaningful search (no intervening '*', etc.)."""
+    return [ (m.group(), m.start(), defline)
+             for m in aa_sequence.finditer(sequence) ]
 
 def read_fasta_files(filenames):
     """Yield (defline, sequence) pairs as read from FASTA files."""
@@ -390,20 +358,21 @@ def main():
     taxonomy = read_taxonomy(XTP["list path, taxonomy information"])
 
     # read sequence dbs
-    db = list(read_fasta_files(taxonomy[XTP["protein, taxon"]]))
-    print "read %s sequences" % len(db)
+    fasta_db = list(read_fasta_files(taxonomy[XTP["protein, taxon"]]))
+    db = [ split_sequence_into_aa_runs(sequence, defline)
+           for sequence, defline in fasta_db ]
+    print "read %s sequences (%s runs)" % (len(fasta_db), len(db))
 
     # read spectra
     spectrum_fn = XTP["spectrum, path"]
-    #spectra = list(read_spectra_from_ms2_file(spectrum_fn))
     spectra = read_spectra_from_ms2_file(spectrum_fn)
     print "read %s spectra" % len(spectra)
 
     # filter spectra
     # NI: optionally using "contrast angle" (mprocess::subtract)
     if XTP["spectrum, use conditioning"]:
-        spectra = [ s for s in spectra if not s.filter(XTP) ]
-    #pprint(spectra)
+        spectra = [ s for s in spectra if not filter_spectrum(s, XTP) ]
+    pprint(spectra)
     print "     %s spectra after filtering" % len(spectra)
 
 
