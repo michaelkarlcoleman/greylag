@@ -8,6 +8,7 @@ Partial re-implementation of X!Tandem, with extra features.
 __version__ = "$Id$"
 
 
+import bisect
 import fileinput
 import operator
 import optparse
@@ -44,103 +45,117 @@ def fileerror(s):
 #     pass
 
 
-def filter_spectrum(sp, XTP):
-    """Returns a reason (a string) if spectrum to be dropped, else None.
-    (This function alters the spectrum peaklist.)
-    """
+# name -> value map of processed XML parameters
+XTP = {}
 
-    # corresponds to mspectrumcondition::condition
-    # FIX: currently this redundantly analyzes shared peaklists
+# handle to the singleton parameter object shared with the C++ module
+CParam = spectrum.cvar.parameters_the
 
-    #max_parent_charge = parameters.get("spectrum, maximum parent charge", 4)
-    #if sp.charge > max_parent_charge:
-    #    return 'charge > %s' % max_parent_charge
-    # noise suppression check (probably redundant)
-    # if sp.mass < 500.0:     # m_fMinMass; "spectrum, minimum parent m+h"
-    #    return 'parent mass < "spectrum, minimum parent m+h"'
+# atom -> (monoisotopic mass, average mass)
+ATOMIC_MASS = {
+    'H' : (  1.007825035, 1.00794  ),
+    'O' : ( 15.99491463, 15.9994   ),
+    'N' : ( 14.003074,   14.0067   ),
+    'C' : ( 12.0,        12.0107   ),
+    'S' : ( 31.9720707,  32.065    ),
+    'P' : ( 30.973762,   30.973761 ),
+    }
 
-    # remove_isotopes (XXX: redundant w/below?)
-    # >>> removes multiple entries within 0.95 Da of each other, retaining
-    # the highest value. this is necessary because of the behavior of some
-    # peak finding routines in commercial software
-    peakpairs = len(sp.peaks) - 1
-    i = 0
-    while i < peakpairs:
-        p0, p1 = sp.peaks[i:i+2]
-        if p1.mz - p0.mz < 0.95:
-            peakpairs -= 1
-            if p1.intensity > p0.intensity:
-                del sp.peaks[i]
-            else:
-                del sp.peaks[i+1]
-        else:
-            i += 1
+def formula_mass(formula, monoisotopic=True):
+    """Return the mass of formula."""
+    parts = [ p or '1' for p in re.split(r'([A-Z][a-z]*)', formula)[1:] ]
+    # parts for alanine is ('C', '3', 'H', '5', 'O', '1', 'N', '1')
+    return sum(ATOMIC_MASS[parts[i]][int(not monoisotopic)] * int(parts[i+1])
+               for i in range(0, len(parts), 2))
 
-    # remove parent
-    # >>> set up m/z regions to ignore: those immediately below the m/z of
-    # the parent ion which will contain uninformative neutral loss ions,
-    # and those immediately above the parent ion m/z, which will contain
-    # the parent ion and its isotope pattern
-    parentMZ = 1.00727 + (sp.mass - 1.00727) / sp.charge
-    sp.peaks[:] = [ p for p in sp.peaks
-                    if (parentMZ >= p.mz
-                        and parentMZ - p.mz >= 50.0 / sp.charge
-                        or parentMZ < p.mz
-                        and p.mz - parentMZ >= 5.0 / sp.charge) ]
+# residue -> formula
+RESIDUE_FORMULA = {
+    'A' : "C3H5ON",
+    'C' : "C3H5ONS",
+    'D' : "C4H5O3N",
+    'E' : "C5H7O3N",
+    'F' : "C9H9ON",
+    'G' : "C2H3ON",
+    'H' : "C6H7ON3",
+    'I' : "C6H11ON",
+    'K' : "C6H12ON2",
+    'L' : "C6H11ON",
+    'M' : "C5H9ONS",
+    'N' : "C4H6O2N2",
+    'P' : "C5H7ON",
+    'Q' : "C5H8O2N2",
+    'R' : "C6H12ON4",
+    'S' : "C3H5O2N",
+    'T' : "C4H7O2N",
+    'V' : "C5H9ON",
+    'W' : "C11H10ON2",
+    'Y' : "C9H9O2N",
+    }
 
-    # remove_low_masses
-    LOWESTMASS = XTP["spectrum, minimum fragment mz"]
-    sp.peaks[:] = [ p for p in sp.peaks if p.mz > LOWESTMASS ]
+# residue -> (monoisotopic mass, average mass)
+RESIDUE_MASS = {
+    'A' : [ 0.0,   71.0788 ],
+    'C' : [ 0.0 , 103.1388 ],
+    'D' : [ 0.0 , 115.0886 ],
+    'E' : [ 0.0 , 129.1155 ],
+    'F' : [ 0.0 , 147.1766 ],
+    'G' : [ 0.0 ,  57.0519 ],
+    'H' : [ 0.0 , 137.1411 ],
+    'I' : [ 0.0 , 113.1594 ],
+    'K' : [ 0.0 , 128.1741 ],
+    'L' : [ 0.0 , 113.1594 ],
+    'M' : [ 0.0 , 131.1926 ],
+    'N' : [ 0.0 , 114.1038 ],
+    'P' : [ 0.0 ,  97.1167 ],
+    'Q' : [ 0.0 , 128.1307 ],
+    'R' : [ 0.0 , 156.1875 ],
+    'S' : [ 0.0 ,  87.0782 ],
+    'T' : [ 0.0 , 101.1051 ],
+    'V' : [ 0.0 ,  99.1326 ],
+    'W' : [ 0.0 , 186.2132 ], 
+    'Y' : [ 0.0 , 163.1760 ],
+    }
 
-    # normalize spectrum
-    # dynamic_range
-    # * use the dynamic range parameter to set the maximum intensity value for the spectrum.
-    # * then remove all peaks with a normalized intensity < 1
-    DYNAMICRANGE = XTP["spectrum, dynamic range"]
-    if not sp.peaks:
-        return "no remaining peaks"
-    factor = max(1.0, max(p.intensity for p in sp.peaks)) / DYNAMICRANGE
-    sp.peaks[:] = [ (p.mz, p.intensity/factor) for p in sp.peaks
-                    if p.intensity/factor >= 1.0 ]
+for residue in RESIDUE_MASS:
+    RESIDUE_MASS[residue][0] = formula_mass(RESIDUE_FORMULA[residue])
     
-    # reject the spectrum if there aren't enough peaks 
-    MINIMUMPEAKS = XTP["spectrum, minimum peaks"]
-    if len(sp.peaks) < MINIMUMPEAKS:
-        return "fewer than %s remaining peaks" % MINIMUMPEAKS
 
-    # check is_noise (NYI)
-    # * is_noise attempts to determine if the spectrum is simply noise. if the spectrum
-    # * does not have any peaks within a window near the parent ion mass, it is considered
-    # * noise.
-    #limit = sp.mass / sp.charge
-    #if sp.charge < 3:
-    #    limit = sp.mass - 600.0
-    #if not [ True for mz, i in sp.peaks if mz > limit ]:
-    #    return "looks like noise"
+def initialize_spectrum_parameters():
+    """Initialize parameters known to the spectrum module."""
 
-    # clean_isotopes removes peaks that are probably C13 isotopes
-    # FIX: this seems almost identical to remove_isotopes above (kill one off?)
-    peakpairs = len(sp.peaks) - 1
-    i = 0
-    while i < peakpairs:
-        p0, p1 = sp.peaks[i:i+2]
-        if p1.mz - p0.mz < 1.5:
-            peakpairs -= 1
-            if p1.intensity > p0.intensity:
-                del sp.peaks[i]
-            else:
-                del sp.peaks[i+1]
-        else:
-            i += 1
+    CParam.monoisotopic_atomic_mass.resize(128, 0.0)
+    CParam.average_atomic_mass.resize(128, 0.0)
+    for atom, (monomass, avgmass) in ATOMIC_MASS.iteritems():
+        CParam.monoisotopic_atomic_mass[ord(atom)] = monomass
+        CParam.average_atomic_mass[ord(atom)] = avgmass
 
-    # keep the MAXPEAKS most intense peaks
-    MAXPEAKS = XTP["spectrum, total peaks"]
-    sp.peaks[:] = sorted(sp.peaks, key=lambda x: x.intensity, reverse=True)
-    if MAXPEAKS < len(sp.peaks):
-        del sp.peaks[MAXPEAKS:]
-    sp.peaks[:] = sorted(sp.peaks)
+    CParam.monoisotopic_residue_mass.resize(128, 0.0)
+    CParam.average_residue_mass.resize(128, 0.0)
+    for residue, (monomass, avgmass) in RESIDUE_MASS.iteritems():
+        CParam.monoisotopic_residue_mass[ord(residue)] = monomass
+        CParam.average_residue_mass[ord(residue)] = avgmass
 
-    return None
+    CParam.modification_mass.resize(128)
+    for residue, modvalue in XTP["residue, modification mass"]:
+        CParam.modification_mass[ord(residue)] = modvalue
+
+    CParam.potential_modification_mass.resize(128)
+    for residue, modvalue in XTP["residue, potential modification mass"]:
+        # FIX: figure out why this doesn't work!
+        # CParam.potential_modification_mass[ord(residue)].append(modvalue)
+        CParam.potential_modification_mass[ord(residue)] \
+            = list(CParam.potential_modification_mass[ord(residue)]) + [modvalue]
+    CParam.potential_modification_mass_refine.resize(128)
+    for residue, modvalue in XTP["refine, potential modification mass"]:
+        # FIX: figure out why this doesn't work!
+        # CParam.potential_modification_mass_refine[ord(residue)].append(modvalue)
+        CParam.potential_modification_mass_refine[ord(residue)] \
+            = list(CParam.potential_modification_mass_refine[ord(residue)]) + [modvalue]
+
+    CParam.cleave_N_modification_mass = XTP["protein, N-terminal residue modification mass"]
+    CParam.cleave_C_modification_mass = XTP["protein, C-terminal residue modification mass"]
+
+    CParam.proton_mass = 1.007276
 
 
 def read_spectra_from_ms2_file(fn):
@@ -154,16 +169,42 @@ def read_spectra_from_ms2_file(fn):
         spectra.append(s)
     return spectra
 
-aa_sequence = re.compile(r'[^ARNDCQEGHILKMFPSTWYV]+')
 
-def split_sequence_into_aa_runs(sequence, defline):
-    """Given an amino-acid sequence, uppercase it and split into runs of amino
-    acids suitable for meaningful search (no intervening '*', etc.)."""
-    return [ (m.group(), m.start(), defline)
-             for m in aa_sequence.finditer(sequence) ]
+def generate_peptides(seq, cleavage_points, maximum_missed_cleavage_sites):
+    """Yield (begin, end) for each apt peptide in sequence."""
+    len_cp = len(cleavage_points)
+    for begin_i in range(len_cp-1):
+        for end_i in range(begin_i+1,
+                           min(len_cp,
+                               begin_i+2+maximum_missed_cleavage_sites)):
+            begin, end = cleavage_points[begin_i], cleavage_points[end_i]
+            if end - begin >= 4:        # make 4 a param!
+                yield begin, end
+
+
+def generate_cleavage_points(sequence):
+    """Yields the offsets of the cleavages in sequence."""
+    yield 0
+    for m in re.finditer(r'[KR][^P]', sequence):
+        yield(m.start() + 1)
+    yield len(sequence)
+
+aa_sequence = re.compile(r'[ARNDCQEGHILKMFPSTWYV]+')
+
+def split_sequence_into_aa_runs(idno, defline, sequence):
+    """Returns a tuple (idno, start, defline, seq, is_N, is_C) for each
+    contiguous run of residues in sequence, where 'start' is the position or
+    'seq' in 'sequence', and 'is_N' and 'is_C' are flags indicating whether
+    the the beginning/end of 'seq' is at the beginning/end of 'sequence'."""
+    matches = list(aa_sequence.finditer(sequence))
+    return [ (idno, m.start(), defline, m.group(),
+              n==0 and m.start()==0,
+              n==len(matches)-1 and m.end()==len(sequence))
+             for n, m in enumerate(matches) ]
 
 def read_fasta_files(filenames):
-    """Yield (defline, sequence) pairs as read from FASTA files."""
+    """Yield (defline, sequence) pairs as read from FASTA files (uppercasing
+    sequence)."""
     defline = None
     seqs = []
     for line in fileinput.input(filenames):
@@ -176,7 +217,7 @@ def read_fasta_files(filenames):
             defline = line[1:]
             seqs = []
         else:
-            seqs.append(line)
+            seqs.append(line.upper())
     if defline:
         yield (defline, ''.join(seqs))
 
@@ -197,55 +238,114 @@ def read_xml_parameters(filename):
                 if e.get("type") == "input")
 
 # name -> (type, default, check_fn)
-# type may be bool, int, float, str, or a tuple of values
+# type may be bool, int, float, str, modlist, or a tuple of values
 # default, as a string value, or None if value must be explicitly specified
 # check_fn is an optional function that returns True iff the value is valid
 # *1: param required, as has differing defaults based on other params, in
 # xtandem
 
-# "ni" means check verifies that only implemented functionality is used
+def mod_list(modification_list_specification, unique_mods=True):
+    """Check and return a list of (residue, modification) tuples.  If
+    unique_mods is True, also check that each residue is specified only once."""
+    if not modification_list_specification:
+        return []
+    speclist = []
+    for modspec in modification_list_specification.split(','):
+        parts = modspec.split('@')
+        if len(parts) != 2:
+            raise ValueError("invalid modification list specification"
+                             " (missing or extra '@'?)")
+        value = float(parts[0])
+        residue = parts[1]
+        if len(residue) != 1:
+            raise ValueError("invalid modification list specification"
+                             " (single-letter residue expected)")
+        speclist.append((residue, value))
+    if unique_mods:
+        if len(set(residue for residue, value in speclist)) != len(speclist):
+            raise ValueError("invalid modification list specification"
+                             " (residue specified multiple times)")
+    return speclist
+
+def potential_mod_list(modification_list_specification):
+    """Check and return a list of (residue, modification) tuples."""
+    return mod_list(modification_list_specification, unique_mods=False)
+        
+
+# "ni" means check verifies that "not implemented" functionality is not
+# specified
 def p_ni_true(x): return x
 def p_ni_false(x): return not x
-def p_ni_emptystring(x): return x == ""
+def p_ni_empty(x): return len(x) == 0
 def p_ni_daltons(x): return x == "Daltons"
 def p_positive(x): return x > 0
 def p_negative(x): return x < 0
 def p_nonnegative(x): return x >= 0
 
-# FIX: add all params
 XML_PARAMETER_INFO = {
-    "list path, default parameters" : (str, ''),
+    "list path, default parameters" : (str, ""),
     "list path, taxonomy information" : (str, None),
-    "output, path" : (str, ''),
-    "output, message" : (str, '.'),     # ignored
+    "output, histogram column width" : (int, 30, p_positive),
+    "output, histograms" : (bool, "no"),
+    "output, log path" : (str, ""),     # ignored
+    "output, maximum valid expectation value" : (float, None),
+    "output, message" : (str, "."),     # ignored
+    "output, one sequence copy" : (bool, "no"),
+    "output, parameters" : (bool, "no"),
+    "output, path hashing" : (bool, "no"),
+    "output, path" : (str, ""),
+    "output, performance" : (bool, "no"),
+    "output, proteins" : (bool, "no"),
+    "output, results" : (('all', 'valid', 'stochastic'), "all"),
+    "output, sequence path" : (str, "", p_ni_empty),
+    "output, sequences" : (bool, "no"),
+    "output, sort results by" : (('protein', 'spectrum'), "spectrum"),
+    "output, spectra" : (bool, "no"),
+    "output, xsl path" : (str, ""),
     "protein, C-terminal residue modification mass" : (float, "0.0"),
     "protein, N-terminal residue modification mass" : (float, "0.0"),
-    "protein, cleavage C-terminal mass change" : (float, None), # actually calcMass("OH")
-    "protein, cleavage N-terminal mass change" : (float, None), # actually calcMass("H")
+    "protein, cleavage C-terminal mass change" : (float, formula_mass("OH")),
     "protein, cleavage N-terminal limit" : (int, "100000000", p_positive),
+    "protein, cleavage N-terminal mass change" : (float, formula_mass("H")),
     "protein, cleavage semi" : (bool, "no", p_ni_false),
     "protein, cleavage site" : (("[RK]|{P}",), None),
     "protein, homolog management" : (bool, "no", p_ni_false),
-    "protein, modified residue mass file" : (str, "", p_ni_emptystring),
+    "protein, modified residue mass file" : (str, "", p_ni_empty),
     "protein, taxon" : (str, None),
-    "residue, modification mass" : (str, ""),
-    "residue, potential modification mass" : (str, ""),
-    "residue, potential modification motif" : (str, ""),
+    "refine" : (bool, "no", p_ni_false),
+    "refine, cleavage semi" : (bool, "no", p_ni_false),
+    "refine, maximum valid expectation value" : (float, None),
+    "refine, modification mass" : (mod_list, "", p_ni_empty),
+    "refine, point mutations" : (bool, "no", p_ni_false),
+    "refine, potential C-terminus modifications": (potential_mod_list, "", p_ni_empty),
+    "refine, potential N-terminus modifications": (potential_mod_list, "", p_ni_empty),
+    "refine, potential N-terminus modification position limit" : (int, 50),
+    "refine, potential modification mass" : (potential_mod_list, "", p_ni_empty),
+    "refine, potential modification motif" : (str, "", p_ni_empty),
+    "refine, sequence path" : (str, "", p_ni_empty),
+    "refine, spectrum synthesis" : (bool, "no"),
+    "refine, tic percent" : (float, 20.0, p_nonnegative),
+    "refine, unanticipated cleavage" : (bool, p_ni_false),
+    "refine, use potential modifications for full refinement" : (bool, "no", p_ni_false),
+    "residue, modification mass" : (mod_list, ""),
+    "residue, potential modification mass" : (potential_mod_list, ""),
+    "residue, potential modification motif" : (str, "", p_ni_empty),
     "scoring, a ions" : (bool, "no", p_ni_false),
     "scoring, b ions" : (bool, "yes", p_ni_true),
     "scoring, c ions" : (bool, "no", p_ni_false),
     "scoring, cyclic permutation" : (bool, "no", p_ni_false),
     "scoring, include reverse" : (bool, "no", p_ni_false),
-    "scoring, minimum ion count" : (int, None, p_positive), # v-1 -> m_lIonCount!
     "scoring, maximum missed cleavage sites" : (int, None, p_nonnegative),
-    "scoring, pluggable scoring" : (bool, "no", p_ni_false),
+    "scoring, minimum ion count" : (int, None, p_positive), # v-1 -> m_lIonCount!
+    "scoring, pluggable scoring" : (bool, "no"), # ignored
     "scoring, x ions" : (bool, "no", p_ni_false),
     "scoring, y ions" : (bool, "yes", p_ni_true),
     "scoring, z ions" : (bool, "no", p_ni_false),
+    "spectrum, check all charges" : (bool, "no", p_ni_false),
     "spectrum, dynamic range" : (float, "100", p_positive),
+    "spectrum, fragment mass error units" : (("Daltons", "ppm"), "Daltons", p_ni_daltons),
     "spectrum, fragment mass error" : (float, "0.45", p_positive),
     "spectrum, fragment mass type" : (("average", "monoisotopic"), "monoisotopic"),
-    "spectrum, fragment monoisotopic mass error units" : (("Daltons", "ppm"), "Daltons", p_ni_daltons),
     "spectrum, homology error" : (float, "4.5", p_positive),
     "spectrum, maximum parent charge" : (int, "4", p_positive),
     "spectrum, minimum fragment mz" : (float, "200.0", p_positive),
@@ -262,13 +362,10 @@ XML_PARAMETER_INFO = {
     "spectrum, threads" : (int, 1),     # ignored
     "spectrum, total peaks" : (int, "50", p_positive),
     "spectrum, use conditioning" : (bool, "yes"),
+    "spectrum, use contrast angle" : (bool, "no", p_ni_false),
     "spectrum, use neutral loss window" : (bool, "no", p_ni_false),
     "spectrum, use noise suppression" : (bool, "yes", p_ni_false),
 }
-
-# name -> value map of processed XML parameters
-XTP = {}
-
 
 def validate_parameters(parameters):
     """Verify that parameters are valid, have valid values, and correspond to
@@ -276,19 +373,20 @@ def validate_parameters(parameters):
     name/value dict returned."""
 
     pmap = {}
-    for name, info in XML_PARAMETER_INFO.iteritems():
+    for name, info in sorted(XML_PARAMETER_INFO.items()):
         type_ = info[0]
         default = info[1]
         check_fn = len(info) > 2 and info[2] or None
 
         v = parameters.get(name)
+        if isinstance(v, str):
+            v = v.strip()
         if v == None:
             if default != None:
                 warn("parameter '%s' defaulting to '%s'" % (name, default))
                 v = default
             else:
                 error("missing required parameter '%s'" % name)
-
         if isinstance(type_, tuple):
             if not v in type_:
                 error("parameter '%s' value '%s' not in %s (feature not implemented?)"
@@ -344,6 +442,7 @@ def main():
         default_parameters = read_xml_parameters(default_parameter_fn)
         default_parameters.update(parameters)
         parameters = default_parameters
+    global XTP
     XTP = validate_parameters(parameters)
     #pprint(XTP)
 
@@ -357,23 +456,102 @@ def main():
 
     taxonomy = read_taxonomy(XTP["list path, taxonomy information"])
 
+    initialize_spectrum_parameters()
+
     # read sequence dbs
     fasta_db = list(read_fasta_files(taxonomy[XTP["protein, taxon"]]))
-    db = [ split_sequence_into_aa_runs(sequence, defline)
-           for sequence, defline in fasta_db ]
+    db = []
+    for idno, (defline, sequence) in enumerate(fasta_db):
+        db.extend(split_sequence_into_aa_runs(idno, defline, sequence))
     print "read %s sequences (%s runs)" % (len(fasta_db), len(db))
+    if not db:
+        error("sequence database is empty")
+
+    db = [ (idno, offset, defline, seq, is_N, is_C,
+            list(generate_cleavage_points(seq)))
+           for idno, offset, defline, seq, is_N, is_C in db ]
+    print "cleavage_points found"
 
     # read spectra
     spectrum_fn = XTP["spectrum, path"]
     spectra = read_spectra_from_ms2_file(spectrum_fn)
     print "read %s spectra" % len(spectra)
 
-    # filter spectra
+    spectra.sort(key=lambda x: x.mass)
+    print "sorted spectra"
+
+    # filter and normalize spectra
     # NI: optionally using "contrast angle" (mprocess::subtract)
     if XTP["spectrum, use conditioning"]:
-        spectra = [ s for s in spectra if not filter_spectrum(s, XTP) ]
-    pprint(spectra)
+        spectra = [ s for s in spectra
+                    if s.filter_and_normalize(XTP["spectrum, minimum fragment mz"],
+                                              XTP["spectrum, dynamic range"],
+                                              XTP["spectrum, minimum peaks"],
+                                              XTP["spectrum, total peaks"]) ]
     print "     %s spectra after filtering" % len(spectra)
+
+    spectrum_mass_index = ([ (sp.mass, sp.charge, n) for n, sp in enumerate(spectra) ]
+                           + [ (sp.secondary_mass, sp.secondary_charge, n)
+                               for n, sp in enumerate(spectra)
+                               if sp.secondary_charge ])
+    spectrum_mass_index.sort()
+
+    # just a stub, 0 == "no mod", first and last are "[" and "]"
+    def generate_mod_patterns(seq, begin, end):
+        # just the no-mod pattern for now
+        return ([0] * (end - begin + 2),)
+
+    # probably moves to C++, mods NYI
+    # parent mass assumed to be average (CHECK!)
+    def calculate_peptide_mass(peptide_seq, is_N, is_C):
+        NC_mods = 0
+        if is_N:
+            NC_mods += CParam.modification_mass[ord('[')]
+        if is_C:
+            NC_mods += CParam.modification_mass[ord(']')]
+        return (sum((CParam.average_residue_mass[ord(r)]
+                     + CParam.modification_mass[ord(r)])
+                    for r in peptide_seq)
+                + NC_mods
+                + CParam.cleave_N_modification_mass
+                + CParam.cleave_C_modification_mass
+                + CParam.proton_mass)
+    # probably moves to C++, mods NYI
+    # parent mass assumed to be average (CHECK!)
+    def calculate_peptide_mod_mass(peptide_seq, potential_mod_pattern,
+                                   is_N, is_C):
+        return 0
+
+
+    peptide_count = 0
+    peptides_w_candidate_spectra = 0
+    for idno, offset, defline, seq, is_N, is_C, cleavage_points in db:
+        #print '#', idno, offset, defline, seq, is_N, is_C, cleavage_points
+        for begin, end in generate_peptides(seq, cleavage_points,
+                                            XTP["scoring, maximum missed cleavage sites"]):
+            peptide_count += 1
+            peptide_seq = seq[begin:end]
+            peptide_mass = calculate_peptide_mass(peptide_seq, is_N, is_C)
+            for potential_mod_pattern in generate_mod_patterns(peptide_seq,
+                                                               begin, end):
+                peptide_mod_mass = (peptide_mass +
+                                    calculate_peptide_mod_mass(peptide_seq,
+                                                               potential_mod_pattern,
+                                                               is_N, is_C))
+                sp_mass_lb = peptide_mod_mass - XTP["spectrum, parent monoisotopic mass error plus"]
+                sp_mass_ub = peptide_mod_mass - XTP["spectrum, parent monoisotopic mass error minus"]
+                candidate_spectra_info \
+                    = spectrum_mass_index[bisect.bisect_left(spectrum_mass_index, (sp_mass_lb,))
+                                          :bisect.bisect_right(spectrum_mass_index, (sp_mass_ub,))]
+                if candidate_spectra_info:
+                    peptides_w_candidate_spectra += 1
+                #print peptide_mod_mass, candidate_spectra_info, \
+                #      [ spectra[c[2]] for c in candidate_spectra_info ]
+
+    print 'generated %s peptides' % peptide_count
+    print '          %s peptides have candidate spectra' % peptides_w_candidate_spectra
+
+
 
 
     # - spectrum preparation tricks:
