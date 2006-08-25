@@ -49,7 +49,9 @@ def fileerror(s):
 XTP = {}
 
 # handle to the singleton parameter object shared with the C++ module
-CParam = spectrum.cvar.parameters_the
+CP = spectrum.cvar.parameters_the
+
+PROTON_MASS = 1.007276
 
 # atom -> (monoisotopic mass, average mass)
 ATOMIC_MASS = {
@@ -123,39 +125,40 @@ for residue in RESIDUE_MASS:
 def initialize_spectrum_parameters():
     """Initialize parameters known to the spectrum module."""
 
-    CParam.monoisotopic_atomic_mass.resize(128, 0.0)
-    CParam.average_atomic_mass.resize(128, 0.0)
+    CP.monoisotopic_atomic_mass.resize(128, 0.0)
+    CP.average_atomic_mass.resize(128, 0.0)
     for atom, (monomass, avgmass) in ATOMIC_MASS.iteritems():
-        CParam.monoisotopic_atomic_mass[ord(atom)] = monomass
-        CParam.average_atomic_mass[ord(atom)] = avgmass
+        CP.monoisotopic_atomic_mass[ord(atom)] = monomass
+        CP.average_atomic_mass[ord(atom)] = avgmass
 
-    CParam.monoisotopic_residue_mass.resize(128, 0.0)
-    CParam.average_residue_mass.resize(128, 0.0)
+    CP.monoisotopic_residue_mass.resize(128, 0.0)
+    CP.average_residue_mass.resize(128, 0.0)
     for residue, (monomass, avgmass) in RESIDUE_MASS.iteritems():
-        CParam.monoisotopic_residue_mass[ord(residue)] = monomass
-        CParam.average_residue_mass[ord(residue)] = avgmass
+        CP.monoisotopic_residue_mass[ord(residue)] = monomass
+        CP.average_residue_mass[ord(residue)] = avgmass
 
-    CParam.modification_mass.resize(128)
+    CP.modification_mass.resize(128)
     for residue, modvalue in XTP["residue, modification mass"]:
-        CParam.modification_mass[ord(residue)] = modvalue
+        CP.modification_mass[ord(residue)] = modvalue
 
-    CParam.potential_modification_mass.resize(128)
+    CP.potential_modification_mass.resize(128)
     for residue, modvalue in XTP["residue, potential modification mass"]:
         # FIX: figure out why this doesn't work!
-        # CParam.potential_modification_mass[ord(residue)].append(modvalue)
-        CParam.potential_modification_mass[ord(residue)] \
-            = list(CParam.potential_modification_mass[ord(residue)]) + [modvalue]
-    CParam.potential_modification_mass_refine.resize(128)
+        # CP.potential_modification_mass[ord(residue)].append(modvalue)
+        CP.potential_modification_mass[ord(residue)] \
+            = list(CP.potential_modification_mass[ord(residue)]) + [modvalue]
+    CP.potential_modification_mass_refine.resize(128)
     for residue, modvalue in XTP["refine, potential modification mass"]:
         # FIX: figure out why this doesn't work!
-        # CParam.potential_modification_mass_refine[ord(residue)].append(modvalue)
-        CParam.potential_modification_mass_refine[ord(residue)] \
-            = list(CParam.potential_modification_mass_refine[ord(residue)]) + [modvalue]
+        # CP.potential_modification_mass_refine[ord(residue)].append(modvalue)
+        CP.potential_modification_mass_refine[ord(residue)] \
+            = list(CP.potential_modification_mass_refine[ord(residue)]) + [modvalue]
 
-    CParam.cleave_N_modification_mass = XTP["protein, N-terminal residue modification mass"]
-    CParam.cleave_C_modification_mass = XTP["protein, C-terminal residue modification mass"]
+    CP.cleave_N_terminal_mass_change = XTP["protein, cleavage N-terminal mass change"]
+    CP.cleave_C_terminal_mass_change = XTP["protein, cleavage C-terminal mass change"]
 
-    CParam.proton_mass = 1.007276
+    CP.proton_mass = PROTON_MASS
+    CP.water_mass = formula_mass("H2O")
 
 
 def read_spectra_from_ms2_file(fn):
@@ -259,7 +262,11 @@ def mod_list(modification_list_specification, unique_mods=True):
         residue = parts[1]
         if len(residue) != 1:
             raise ValueError("invalid modification list specification"
-                             " (single-letter residue expected)")
+                             " (single-letter residue expected, got '%s')"
+                             % residue)
+        if residue not in RESIDUE_FORMULA and residue not in '[]':
+            raise ValueError("invalid modification list specification"
+                             " (invalid residue '%s')" % residue)
         speclist.append((residue, value))
     if unique_mods:
         if len(set(residue for residue, value in speclist)) != len(speclist):
@@ -278,6 +285,7 @@ def p_ni_true(x): return x
 def p_ni_false(x): return not x
 def p_ni_empty(x): return len(x) == 0
 def p_ni_daltons(x): return x == "Daltons"
+def p_ni_zero(x): return x == 0
 def p_positive(x): return x > 0
 def p_negative(x): return x < 0
 def p_nonnegative(x): return x >= 0
@@ -302,8 +310,8 @@ XML_PARAMETER_INFO = {
     "output, sort results by" : (('protein', 'spectrum'), "spectrum"),
     "output, spectra" : (bool, "no"),
     "output, xsl path" : (str, ""),
-    "protein, C-terminal residue modification mass" : (float, "0.0"),
-    "protein, N-terminal residue modification mass" : (float, "0.0"),
+    "protein, C-terminal residue modification mass" : (float, "0.0", p_ni_zero), # eliminate, obsolete
+    "protein, N-terminal residue modification mass" : (float, "0.0", p_ni_zero), # eliminate, obsolete
     "protein, cleavage C-terminal mass change" : (float, formula_mass("OH")),
     "protein, cleavage N-terminal limit" : (int, "100000000", p_positive),
     "protein, cleavage N-terminal mass change" : (float, formula_mass("H")),
@@ -418,6 +426,88 @@ def validate_parameters(parameters):
     return pmap
 
 
+
+# probably moves to C++
+# just a stub, 0 == "no mod", first and last are "[" and "]"
+def generate_mod_patterns(seq, begin, end):
+    # just the no-mod pattern for now
+    return ([0] * (end - begin + 2),)
+
+# probably moves to C++, mods NYI
+# parent mass assumed to be average (CHECK!)
+def peptide_mass(peptide_seq, is_N, is_C):
+    NC_mods = 0
+    if is_N:
+        NC_mods += CP.modification_mass[ord('[')]
+    if is_C:
+        NC_mods += CP.modification_mass[ord(']')]
+    return (sum((CP.average_residue_mass[ord(r)]
+                 + CP.modification_mass[ord(r)])
+                for r in peptide_seq)
+            + NC_mods
+            + CP.cleave_N_terminal_mass_change
+            + CP.cleave_C_terminal_mass_change
+            + CP.proton_mass)
+# probably moves to C++, mods NYI
+# parent mass assumed to be average (CHECK!)
+def peptide_mod_mass(peptide_seq, potential_mod_pattern,
+                     is_N, is_C):
+    return 0
+
+
+
+def synthetic_B_spectrum(ion_type, peptide_mass, charge, peptide_seq,
+                         peptide_mod_pattern, peptide_is_N):
+    m = (CP.cleave_N_terminal_mass_change - formula_mass("H"))
+    if peptide_is_N:
+        m += CP.modification_mass[ord('[')]
+        if False:                       # [ is diff modded
+            #m += CP.potential_modification_mass[ord('[')]...
+            pass
+        
+        
+                       
+                       
+
+
+
+def synthetic_spectrum(ion_type, peptide_mass, charge, peptide_seq,
+                       peptide_mod_pattern, peptide_is_N, peptide_is_C):
+    if ion_type == 'B':
+        return synthetic_B_spectrum(ion_type, peptide_mass, charge,
+                                    peptide_seq, peptide_mod_pattern,
+                                    peptide_is_N)
+    elif ion_type == 'Y':
+        return synthetic_Y_spectrum(ion_type, peptide_mass, charge,
+                                    peptide_seq, peptide_mod_pattern,
+                                    peptide_is_C)
+    assert False, "unimplemented ion type"
+
+
+# probably moves to C++, mods NYI
+def score_spectrum(peptide_seq, peptide_mod_pattern, peptide_mass,
+                   peptide_is_N, peptide_is_C, spectrum, spectrum_mass,
+                   spectrum_charge):
+
+    #search_charges = { 1 : [1], 2 : [1,2], 3 : [1,2,3], 4 : [1,2,3,4] }
+    search_charges = { 1 : [1], 2 : [1], 3 : [1,2], 4 : [1,2,3] } # WRONG?
+    
+    for ion_type in ('B', 'Y'):
+        for charge in search_charges[spectrum_charge]:
+            synth_sp = synthetic_spectrum(ion_type, peptide_mass, charge,
+                                          peptide_seq, peptide_mod_pattern,
+                                          peptide_is_N, peptide_is_C)
+
+            # convolution score is just sum over charges/ions
+            # hyperscore is product of p! over charges/ions (where p is corr
+            # peak count) times the convolution score (clipped to FLT_MAX)
+            # > blurred!
+            peaks, score = correlate_spectra(synth_sp, spectrum)
+
+    # sum peaks, score over ?
+    return hyperscore?
+
+
 def main():
     parser = optparse.OptionParser(usage=
                                    "usage: %prog [options] <parameter-file>",
@@ -496,33 +586,6 @@ def main():
                                if sp.secondary_charge ])
     spectrum_mass_index.sort()
 
-    # just a stub, 0 == "no mod", first and last are "[" and "]"
-    def generate_mod_patterns(seq, begin, end):
-        # just the no-mod pattern for now
-        return ([0] * (end - begin + 2),)
-
-    # probably moves to C++, mods NYI
-    # parent mass assumed to be average (CHECK!)
-    def calculate_peptide_mass(peptide_seq, is_N, is_C):
-        NC_mods = 0
-        if is_N:
-            NC_mods += CParam.modification_mass[ord('[')]
-        if is_C:
-            NC_mods += CParam.modification_mass[ord(']')]
-        return (sum((CParam.average_residue_mass[ord(r)]
-                     + CParam.modification_mass[ord(r)])
-                    for r in peptide_seq)
-                + NC_mods
-                + CParam.cleave_N_modification_mass
-                + CParam.cleave_C_modification_mass
-                + CParam.proton_mass)
-    # probably moves to C++, mods NYI
-    # parent mass assumed to be average (CHECK!)
-    def calculate_peptide_mod_mass(peptide_seq, potential_mod_pattern,
-                                   is_N, is_C):
-        return 0
-
-
     peptide_count = 0
     peptides_w_candidate_spectra = 0
     for idno, offset, defline, seq, is_N, is_C, cleavage_points in db:
@@ -531,13 +594,14 @@ def main():
                                             XTP["scoring, maximum missed cleavage sites"]):
             peptide_count += 1
             peptide_seq = seq[begin:end]
-            peptide_mass = calculate_peptide_mass(peptide_seq, is_N, is_C)
+            peptide_mass = peptide_mass(peptide_seq, is_N, is_C)
+            # pyro?
             for potential_mod_pattern in generate_mod_patterns(peptide_seq,
                                                                begin, end):
                 peptide_mod_mass = (peptide_mass +
-                                    calculate_peptide_mod_mass(peptide_seq,
-                                                               potential_mod_pattern,
-                                                               is_N, is_C))
+                                    peptide_mod_mass(peptide_seq,
+                                                     potential_mod_pattern,
+                                                     is_N, is_C))
                 sp_mass_lb = peptide_mod_mass - XTP["spectrum, parent monoisotopic mass error plus"]
                 sp_mass_ub = peptide_mod_mass - XTP["spectrum, parent monoisotopic mass error minus"]
                 candidate_spectra_info \
@@ -547,6 +611,12 @@ def main():
                     peptides_w_candidate_spectra += 1
                 #print peptide_mod_mass, candidate_spectra_info, \
                 #      [ spectra[c[2]] for c in candidate_spectra_info ]
+
+                for c_sp_mass, c_sp_charge, c_sp_n in candidate_spectra_info:
+                    sc = score_spectrum(peptide_seq, potential_mod_pattern,
+                                        peptide_mod_mass, is_N, is_C,
+                                        spectra[c_sp_n], c_sp_mass,
+                                        c_sp_charge) 
 
     print 'generated %s peptides' % peptide_count
     print '          %s peptides have candidate spectra' % peptides_w_candidate_spectra
