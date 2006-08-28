@@ -1,5 +1,5 @@
 
-
+//	$Id$
 
 
 #ifndef SPECTRUM_H
@@ -7,10 +7,31 @@
 
 
 #include <cassert>
-#include <cstdlib>
-#include <cmath>
+#include <cstdio>
+#include <list>
 #include <vector>
 #include <string>
+
+
+class parameters {
+public:
+  // these are indexed by residue char (plus '[' and ']' for N and C termini)
+  std::vector<double> average_residue_mass;
+  std::vector<double> monoisotopic_residue_mass;
+  std::vector<double> average_atomic_mass;
+  std::vector<double> monoisotopic_atomic_mass;
+  std::vector<double> modification_mass;
+  std::vector< std::vector<double> > potential_modification_mass;
+  std::vector< std::vector<double> > potential_modification_mass_refine;
+
+  double cleave_N_terminal_mass_change;
+  double cleave_C_terminal_mass_change;
+
+  double proton_mass;
+  double water_mass;		// monoisotopic, for now (?)
+
+  static parameters the;
+};
 
 
 class peak {
@@ -19,6 +40,13 @@ class peak {
   double intensity;
 
   peak() : mz(0), intensity(0) { }
+
+  char *__repr__() const;
+
+  static bool less_mz(peak x, peak y) { return x.mz < y.mz; }
+  static bool less_intensity(peak x, peak y) {
+    return x.intensity < y.intensity;
+  }
 };
 
 
@@ -26,110 +54,38 @@ class spectrum {
 public:
   double mass;
   int charge;
-  bool ambiguous_charge;	// means charge could be charge+1, too
+  double secondary_mass;
+  int secondary_charge;		// charge+1 if present, else 0
   std::vector<peak> peaks;
   int id;
   std::string name;
 
-  spectrum() : mass(0), charge(0), ambiguous_charge(false) {
+  spectrum() : mass(0), charge(0), secondary_mass(0), secondary_charge(0) {
     id = next_id++;
     assert(next_id > 0);
   }
 
-  double ambiguous_mass() const {
-    return (mass-1.008) / charge * (charge+1); // check this
+  char *__repr__() const;
+
+  // this doesn't quite work (error over 0.1)
+  double predicted_secondary_mass() const {
+    const double proton = 1.008;
+    return proton + (mass-proton) / charge * (secondary_charge);
   }
 
+  // Read a spectrum, in ms2 format, returning true on success.
+  bool read(FILE *f);
+
+  // Examine this spectrum to see if it should be kept.  If so, return true
+  // and sort the peaks by mz, normalize them and limit their number.
+  bool filter_and_normalize(double minimum_fragment_mz, double dynamic_range,
+			    int minimum_peaks, int total_peaks);
+
 protected:
-  int next_id = 0;
+  static int next_id;		// start at 0
 
 };
 
-
-// Read a spectrum, in ms2 format, setting failbit on invalid format.
-// (Currently our spectra either have charge 1, or 2 and 3 both--in the latter
-// case, we set 'ambiguous_charge'.)
-template<typename T, typename charT, typename traits>
-std::basic_istream<charT, traits>&
-operator>>(std::basic_istream<charT, traits>& in, spectrum& sp) {
-  // FIX: This is hideous--there must a better way.
-  // read the primary header line pair
-  string s;
-  if (!std::getline(in, s))
-    return in;
-  if (s.size() < 1 or s[0] != ':') {
-    in.setstate(std::ios_base::failbit);
-    return in;
-  }
-  sp.name = s;
-  if (!std::getline(in, s))
-    return in;
-  const char *cs = s.c_str();
-  char *endp;
-  std::errno = 0;
-  sp.mass = strtod(cs, &endp);
-  if (endp == cs or std::errno) {
-    in.setstate(std::ios_base::failbit);
-    return in;
-  }
-  cs = endp;
-  std::errno = 0;
-  sp.charge = strtol(cs, &endp);
-  if (endp == cs or std::errno) {
-    in.setstate(std::ios_base::failbit);
-    return in;
-  }
-  // read the secondary (ambiguous) header line pair, if present
-  if (in.peek() == ':') {
-    if (!std::getline(in, s))	// discard name
-      return in;
-    if (!std::getline(in, s))
-      return in;
-    const char *cs = s.c_str();
-    char *endp;
-    std::errno = 0;
-    double mass2 = strtod(cs, &endp);
-    if (endp == cs or std::errno) {
-      in.setstate(std::ios_base::failbit);
-      return in;
-    }
-    cs = endp;
-    std::errno = 0;
-    int charge2 = strtol(cs, &endp);
-    if (endp == cs or std::errno) {
-      in.setstate(std::ios_base::failbit);
-      return in;
-    }
-    if (charge2 != sp.charge+1 or fabs(mass2 - sp.ambiguous_mass()) > 0.1) {
-      in.setstate(std::ios_base::failbit);
-      return in;
-    }      
-    sp.ambiguous_charge = true;
-  }
-  // now read peaks
-  while (in and in.peek() != ':') {
-    peak p;
-    if (!std::getline(in, s))
-      return in;
-    const char *cs = s.c_str();
-    char *endp;
-    std::errno = 0;
-    p.mz = strtod(cs, &endp);
-    if (endp == cs or std::errno) {
-      in.setstate(std::ios_base::failbit);
-      return in;
-    }
-    cs = endp;
-    std::errno = 0;
-    p.intensity = strtod(cs, &endp);
-    if (endp == cs or std::errno) {
-      in.setstate(std::ios_base::failbit);
-      return in;
-    }
-    sp.peaks.push_back(p);
-  }
-  return in;
-}
 
 
 #endif
