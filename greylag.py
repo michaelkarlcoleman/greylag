@@ -20,7 +20,7 @@ import sys
 
 import elementtree.ElementTree
 
-import spectrum
+import cxtpy
 
 
 #import gc
@@ -49,7 +49,7 @@ def fileerror(s):
 XTP = {}
 
 # handle to the singleton parameter object shared with the C++ module
-CP = spectrum.cvar.parameters_the
+CP = cxtpy.cvar.parameters_the
 
 PROTON_MASS = 1.007276
 
@@ -94,6 +94,7 @@ RESIDUE_FORMULA = {
     'Y' : "C9H9O2N",
     }
 
+# FIX: selenocysteine (U), etc
 # residue -> (monoisotopic mass, average mass)
 RESIDUE_MASS = {
     'A' : [ 0.0,   71.0788 ],
@@ -143,16 +144,15 @@ def initialize_spectrum_parameters():
 
     CP.potential_modification_mass.resize(128)
     for residue, modvalue in XTP["residue, potential modification mass"]:
-        # FIX: figure out why this doesn't work!
+        # NB: swig currently only exposes inner vector as tuple
         # CP.potential_modification_mass[ord(residue)].append(modvalue)
         CP.potential_modification_mass[ord(residue)] \
-            = list(CP.potential_modification_mass[ord(residue)]) + [modvalue]
+            = CP.potential_modification_mass[ord(residue)] + (modvalue,)
     CP.potential_modification_mass_refine.resize(128)
     for residue, modvalue in XTP["refine, potential modification mass"]:
-        # FIX: figure out why this doesn't work!
         # CP.potential_modification_mass_refine[ord(residue)].append(modvalue)
         CP.potential_modification_mass_refine[ord(residue)] \
-            = list(CP.potential_modification_mass_refine[ord(residue)]) + [modvalue]
+            = CP.potential_modification_mass_refine[ord(residue)] + (modvalue,)
 
     CP.cleave_N_terminal_mass_change = XTP["protein, cleavage N-terminal mass change"]
     CP.cleave_C_terminal_mass_change = XTP["protein, cleavage C-terminal mass change"]
@@ -160,13 +160,48 @@ def initialize_spectrum_parameters():
     CP.proton_mass = PROTON_MASS
     CP.water_mass = formula_mass("H2O")
 
+    # CP.factorial[n] == (double) n!
+    CP.factorial.resize(100, 1.0)
+    for n in range(2, len(CP.factorial)):
+        CP.factorial[n] = CP.factorial[n-1] * n
+
+
+def cleavage_motif_re(motif):
+    """Return (regexp, pos), where regexp is a regular expression that will
+    match a cleavage motif, and pos is the position of the cleavage with
+    respect to the match (e.g., 1 for '[KR]|{P}', or None if absent).
+    """
+    cleavage_pos = None
+    re_parts = []
+    motif_re = re.compile(r'(\||(\[(X|[A-WYZ]+)\])|({([A-WYZ]+)}))')
+    parts = [ p[0] for p in motif_re.findall(motif) ]
+    if ''.join(parts) != motif:
+        raise ValueError('invalid cleavage motif pattern')
+    i = 0
+    for part in parts:
+        if part == '|':
+            if cleavage_pos != None:
+                raise ValueError("invalid cleavage motif pattern (multiple '|'s)")
+            cleavage_pos = i
+            continue
+        if part == '[X]':
+            re_parts.append('.')
+        elif part[0] == '[':
+            re_parts.append('[%s]' % part[1:-1])
+        elif part[0] == '{':
+            re_parts.append('[^%s]' % part[1:-1])
+        else:
+            assert False, "unknown cleavage motif syntax"
+        i += 1
+    return (''.join(re_parts), cleavage_pos)
+
 
 def read_spectra_from_ms2_file(fn):
     """Return a list of spectrum objects read from an ms2 file."""
     f = file(fn)
     spectra = []
     while True:
-        s = spectrum.spectrum()
+        s = cxtpy.spectrum()
         if not s.read(f):
             break
         spectra.append(s)
@@ -426,7 +461,6 @@ def validate_parameters(parameters):
     return pmap
 
 
-
 # probably moves to C++
 # just a stub, 0 == "no mod", first and last are "[" and "]"
 def generate_mod_patterns(seq, begin, end):
@@ -435,78 +469,206 @@ def generate_mod_patterns(seq, begin, end):
 
 # probably moves to C++, mods NYI
 # parent mass assumed to be average (CHECK!)
-def peptide_mass(peptide_seq, is_N, is_C):
-    NC_mods = 0
-    if is_N:
-        NC_mods += CP.modification_mass[ord('[')]
-    if is_C:
-        NC_mods += CP.modification_mass[ord(']')]
-    return (sum((CP.average_residue_mass[ord(r)]
-                 + CP.modification_mass[ord(r)])
-                for r in peptide_seq)
-            + NC_mods
-            + CP.cleave_N_terminal_mass_change
-            + CP.cleave_C_terminal_mass_change
-            + CP.proton_mass)
-# probably moves to C++, mods NYI
-# parent mass assumed to be average (CHECK!)
-def peptide_mod_mass(peptide_seq, potential_mod_pattern,
+def get_peptide_mod_mass(peptide_seq, potential_mod_pattern,
                      is_N, is_C):
     return 0
 
 
+def get_mz(mass, charge):
+    return mass/charge + CP.proton_mass
 
-def synthetic_B_spectrum(ion_type, peptide_mass, charge, peptide_seq,
-                         peptide_mod_pattern, peptide_is_N):
-    m = (CP.cleave_N_terminal_mass_change - formula_mass("H"))
+
+def synthetic_B_spectrum(peptide_mass, peptide_seq, peptide_mod_pattern,
+                         peptide_is_N):
+    m = 0 + (CP.cleave_N_terminal_mass_change - formula_mass("H"))
     if peptide_is_N:
         m += CP.modification_mass[ord('[')]
         if False:                       # [ is diff modded
             #m += CP.potential_modification_mass[ord('[')]...
             pass
-        
-        
-                       
-                       
+    ladder = [None] * (len(peptide_seq)-1)
+    for i in range(len(ladder)):
+        m += CP.monoisotopic_residue_mass[ord(peptide_seq[i])]
+        # m += the mod delta, too
+        intensity = 1.0
+        if i == 1:
+            if peptide_seq[0] == 'P':
+                intensity = 10.0
+            else:
+                intensity = 3.0
+        ladder[i] = (m, intensity)
+    return ladder
 
 
+def synthetic_Y_spectrum(peptide_mass, peptide_seq, peptide_mod_pattern,
+                         peptide_is_C):
+    m = CP.water_mass + (CP.cleave_C_terminal_mass_change - formula_mass("OH"))
+    if peptide_is_C:
+        m += CP.modification_mass[ord(']')]
+        if False:                       # ] is diff modded
+            #m += CP.potential_modification_mass[ord(']')]...
+            pass
+    ladder = [None] * (len(peptide_seq)-1)
+    for i in range(len(ladder)-1, -1, -1):
+        m += CP.monoisotopic_residue_mass[ord(peptide_seq[i])]
+        # m += the mod delta, too
+        intensity = 1.0
+        if i == 1:
+            if peptide_seq[0] == 'P':
+                intensity = 10.0
+            else:
+                intensity = 3.0
+        ladder[len(ladder)-1-i] = (m, intensity)
+    return ladder
+
+
+# move intesity synthesis and get_mz down here?
 
 def synthetic_spectrum(ion_type, peptide_mass, charge, peptide_seq,
                        peptide_mod_pattern, peptide_is_N, peptide_is_C):
+    assert XTP["spectrum, fragment mass type"] == "monoisotopic", "frag avg NYI"
     if ion_type == 'B':
-        return synthetic_B_spectrum(ion_type, peptide_mass, charge,
-                                    peptide_seq, peptide_mod_pattern,
-                                    peptide_is_N)
+        ladder = synthetic_B_spectrum(peptide_mass, peptide_seq,
+                                      peptide_mod_pattern, peptide_is_N)
     elif ion_type == 'Y':
-        return synthetic_Y_spectrum(ion_type, peptide_mass, charge,
-                                    peptide_seq, peptide_mod_pattern,
-                                    peptide_is_C)
-    assert False, "unimplemented ion type"
+        ladder = synthetic_Y_spectrum(peptide_mass, peptide_seq,
+                                      peptide_mod_pattern, peptide_is_C)
+    else:
+        assert False, "unimplemented ion type"
+
+    sp = cxtpy.spectrum(peptide_mass, charge)
+    #sp.peaks[:] = [ cxtpy.peak(get_mz(mass, charge), intensity)
+    #                for mass, intensity in ladder ]
+    sp.set_peaks_from_matrix([ (get_mz(mass, charge), intensity)
+                               for mass, intensity in ladder ])
+    return sp
 
 
 # probably moves to C++, mods NYI
-def score_spectrum(peptide_seq, peptide_mod_pattern, peptide_mass,
-                   peptide_is_N, peptide_is_C, spectrum, spectrum_mass,
-                   spectrum_charge):
+def synthetic_spectra(peptide_seq, peptide_mod_pattern, peptide_mass,
+                      peptide_is_N, peptide_is_C, max_spectrum_charge):
+    # This follows xtandem's assumption that precursors with charge z can
+    # produce fragments with charge at most z-1, except that charge 1
+    # precursors can produce charge 1 fragments.
 
-    #search_charges = { 1 : [1], 2 : [1,2], 3 : [1,2,3], 4 : [1,2,3,4] }
-    search_charges = { 1 : [1], 2 : [1], 3 : [1,2], 4 : [1,2,3] } # WRONG?
-    
-    for ion_type in ('B', 'Y'):
-        for charge in search_charges[spectrum_charge]:
-            synth_sp = synthetic_spectrum(ion_type, peptide_mass, charge,
-                                          peptide_seq, peptide_mod_pattern,
-                                          peptide_is_N, peptide_is_C)
+    return [ (ion_type, [ (charge,
+                           synthetic_spectrum(ion_type, peptide_mass, charge,
+                                              peptide_seq, peptide_mod_pattern,
+                                              peptide_is_N, peptide_is_C)) 
+                          for charge in range(1, max(2, max_spectrum_charge)) ])
+             for ion_type in ('B', 'Y') ]
 
+
+# probably moves to C++, mods NYI
+def score_spectrum(synth_spectra, spectrum):
+    # IDEA: could we combine all these spectra and just do the correlation
+    # once?
+
+    hyper_score = 1.0
+    convolution_score = 0
+    ion_peaks = []
+    ion_scores = []
+    for ion_type, ion_spectra in synth_spectra:
+        i_peaks = 0
+        i_scores = 0
+        for charge, ion_spectrum in ion_spectra:
             # convolution score is just sum over charges/ions
             # hyperscore is product of p! over charges/ions (where p is corr
             # peak count) times the convolution score (clipped to FLT_MAX)
             # > blurred!
-            peaks, score = correlate_spectra(synth_sp, spectrum)
 
-    # sum peaks, score over ?
-    return hyperscore?
+            conv_score, common_peak_count \
+                        = cxtpy.spectrum.score_similarity(ion_spectrum,
+                                                             spectrum)
+            i_peaks += common_peak_count
+            i_scores += conv_score
+            hyper_score *= CP.factorial[common_peak_count]
+            convolution_score += conv_score
+        ion_peaks.append((ion_type, i_peaks))
+        ion_scores.append((ion_type, i_scores))
 
+    # want to know:
+    # - total peaks (over charges) for each ion_type
+    # - total convolution score (over charges) for each ion_type
+    # - maybe grand total convolution score
+    # - hyper score: product of all factorial(peak count) times
+    #                grand total convolution score
+    #   [xtandem clips hyper score to FLTMAX]
+
+    hyper_score *= convolution_score
+    return hyper_score, convolution_score, ion_scores, ion_peaks
+
+
+def scale_hyperscore(hyper_score):
+    return int(round(4 * math.log10(hyper_score)))
+
+
+def get_spectrum_expectation(hyper_score, hyperscore_histogram):
+    """Return the expectation value for this hyperscore, based on the
+    histogram."""
+    scaled_hyper_score = scale_hyperscore(hyper_score)
+    max_histogram_index = max(hyper_score)
+    assert max_histogram_index < 1000
+    # histogram as a list
+    histogram = [0] * max_histogram_index
+    for score, count in hyperscore_histogram.iteritems():
+        histogram[score] = count
+
+    counts = sum(histogram)
+    if counts < 200:
+        # use default line
+        return 10.0 ** (3.5 + -0.18 * scaled_hyper_score)
+    c = counts
+    # survival is merely a reverse cumulative distribution
+    survival = [0] * len(histogram)
+    for i in range(len(histogram)):
+        survival[i] = c
+        c -= histogram[i]
+    # note: neither histogram nor survival have 0 as rightmost element
+
+    # this next looks bogus, but use for now to replicate xtandem
+    # "remove potentially valid scores from the stochastic distribution"
+    # makes the survival function non-monotonic?
+    lPos = survival[0] / 5
+    for lMid in range(len(survival)):
+        if survival[lMid] <= lPos:
+            break
+    a = len(survival) - 1
+    assert survival[a] != 0
+    lSum = 0
+    while a > 0:
+        if (survival[a] == survival[a-1] and survival[a] != survival[0]
+            and a > lMid):
+            lSum = survival[a]
+            a -= 1
+            while survival[a] == lSum:
+                assert a >= 0
+                survival[a] -= lSum
+                a -= 1
+        else:
+            survival[a] -= lSum
+            a -= 1
+    survival[a] -= lSum
+    # end bogus
+    
+    min_limit = 10
+    max_limit = int(round(survival[0]/2.0))
+    max_i = min(i for i in range(len(survival)) if survival[i] <= max_limit)
+    min_i = min(i for i in range(max_i, len(survival)) if survival[i] <= min_limit)
+    data_X = range(max_i, min_i)
+    data_Y = [ math.log10(survival[x]) for x in data_X ]
+    assert data_Y[0] == max(data_Y), "impossible xtandem case?"
+
+    # fit least-squares line
+    n = len(data_X)
+    sum_X, sum_Y = sum(data_X), sum(data_Y)
+    sum_XX = sum(x**2 for x in data_X)
+    sum_XY = sum(x*y for x,y in zip(data_X, data_Y))
+
+    m = (n*sum_XY - sum_X*sum_Y) / (n*sum_XX - sum_X**2)
+    b = (sum_Y - m*sum_X) / n
+    return 10.0 ** (b + m * scaled_hyper_score)
+    
 
 def main():
     parser = optparse.OptionParser(usage=
@@ -586,73 +748,151 @@ def main():
                                if sp.secondary_charge ])
     spectrum_mass_index.sort()
 
+    # spectrum index is wrt 'spectra' above
+    # spectrum index -> [ <match info>, ... ]
+    best_match = {}
+    # spectrum index -> best_hyperscore
+    best_score = {}
+    # spectrum index -> (2nd-best hyperscore, 2nd-best convolution score)
+    second_best_score = {}
+    # (spectrum index, charge) -> (scaled, binned hyperscore -> count)
+    hyperscore_histogram = dict(((n, charge), {})
+                                for m, charge, n in spectrum_mass_index)
+
     peptide_count = 0
     peptides_w_candidate_spectra = 0
     for idno, offset, defline, seq, is_N, is_C, cleavage_points in db:
         #print '#', idno, offset, defline, seq, is_N, is_C, cleavage_points
+        sys.stderr.write('p')
+        if idno > 1000:
+            warn('stopping at 1000')
+            return
+        
         for begin, end in generate_peptides(seq, cleavage_points,
                                             XTP["scoring, maximum missed cleavage sites"]):
             peptide_count += 1
             peptide_seq = seq[begin:end]
-            peptide_mass = peptide_mass(peptide_seq, is_N, is_C)
+            peptide_mass = cxtpy.get_peptide_mass(peptide_seq, is_N, is_C)
             # pyro?
             for potential_mod_pattern in generate_mod_patterns(peptide_seq,
                                                                begin, end):
                 peptide_mod_mass = (peptide_mass +
-                                    peptide_mod_mass(peptide_seq,
-                                                     potential_mod_pattern,
-                                                     is_N, is_C))
+                                    get_peptide_mod_mass(peptide_seq,
+                                                         potential_mod_pattern,
+                                                         is_N, is_C))
                 sp_mass_lb = peptide_mod_mass - XTP["spectrum, parent monoisotopic mass error plus"]
                 sp_mass_ub = peptide_mod_mass - XTP["spectrum, parent monoisotopic mass error minus"]
                 candidate_spectra_info \
                     = spectrum_mass_index[bisect.bisect_left(spectrum_mass_index, (sp_mass_lb,))
                                           :bisect.bisect_right(spectrum_mass_index, (sp_mass_ub,))]
-                if candidate_spectra_info:
-                    peptides_w_candidate_spectra += 1
+                if not candidate_spectra_info:
+                    continue
+                peptides_w_candidate_spectra += 1
                 #print peptide_mod_mass, candidate_spectra_info, \
                 #      [ spectra[c[2]] for c in candidate_spectra_info ]
 
-                for c_sp_mass, c_sp_charge, c_sp_n in candidate_spectra_info:
-                    sc = score_spectrum(peptide_seq, potential_mod_pattern,
-                                        peptide_mod_mass, is_N, is_C,
-                                        spectra[c_sp_n], c_sp_mass,
-                                        c_sp_charge) 
+                synth_sp = synthetic_spectra(peptide_seq,
+                                             potential_mod_pattern, 
+                                             peptide_mod_mass, is_N, is_C,
+                                             max(charge for m, charge, n
+                                                 in candidate_spectra_info))
+                #warn('peptide: %s' % peptide_seq)
+                #warn('ssp: %s' % synth_sp)
 
+                for c_sp_mass, c_sp_charge, c_sp_n in candidate_spectra_info:
+                    hyper_score, convolution_score, ion_scores, ion_peaks \
+                                 = score_spectrum(synth_sp, spectra[c_sp_n])
+                    if convolution_score > 2:
+                        sp_ion_count = sum(n for ion_type, n in ion_peaks)
+                        # update spectrum histograms
+                        hh = hyperscore_histogram[(c_sp_n, c_sp_charge)]
+                        scaled_hyper_score = scale_hyperscore(hyper_score)
+                        if scaled_hyper_score in hh:
+                            hh[scaled_hyper_score] += 1
+                        else:
+                            hh[scaled_hyper_score] = 1
+                        
+                        # incr m_tPeptideScoredCount
+                    # nyi: permute stuff
+                    has_b_and_y = len([1 for ion_type, n in ion_peaks if n > 0]) >= 2
+                    if not has_b_and_y:
+                        continue
+                    
+                    # check that parent masses are within error range (isotope ni)
+                    # already done above (why does xtandem do it here?)
+                    # if check fails, only eligible for 2nd-best record
+
+                    # Remember all of the highest-hyper-scoring matches
+                    # against each spectrum.  These might be in multiple
+                    # domains (pos, length, mods) in multiple proteins.
+                    # (Note: this effectively chooses the best parent charge,
+                    # too.)
+                    if hyper_score >= best_score[c_sp_n]:
+                        # something like this
+                        # BEWARE: below code relies on this tuple's order
+                        match_info = (hyper_score, convolution_score, ion_scores, ion_peaks, c_sp_mass,
+                                      c_sp_charge, c_sp_n, peptide_seq, peptide_mod_pattern, peptide_mod_mass,
+                                      idno, offset, defline, seq)
+                        if hyper_score > best_score[c_sp_n]:
+                            best_match[c_sp_n] = [match_info]
+                        else:
+                            best_match[c_sp_n].append(match_info)
+                    # Also remember just the scores of the 2nd-best
+                    # hyper-scoring
+                    elif hyper_score > second_best_score[c_sp_n]:
+                        second_best_score[c_sp_n] = (hyper_score, convolution_score)
+                    
     print 'generated %s peptides' % peptide_count
     print '          %s peptides have candidate spectra' % peptides_w_candidate_spectra
 
+    # calculate exp for best match for each spectrum
+    #  (CHECK: what about multiple matches?  charges?)
+    # spectrum index -> expectation value
+    expect = {}
+    for sp_n, match_info_list in best_match.iteritems():
+        sp_hyper_score, sp_charge = match_info_list[0], match_info_list[5]
+        assert sp_n not in expect, "shouldn't see multiple charges here"
+        expect[sp_n] = get_spectrum_expectation(sp_hyper_score,
+                                                hyperscore_histogram[(sp_n, sp_charge)])
+
+    # filter out spectra w/ low exp values??
+    for sp_n in best_match:
+        if expect[sp_n] > XTP["refine, maximum valid expectation value"]:
+            del expect[sp_n]
+
+    # protein id -> list of spectra
+    best_protein_matches = {}
+    for sp_n, match_info_list in best_match.iteritems():
+        for match in match_info_list:
+            best_protein_matches.setdefault(match[10], []).append(match)
+
+    # calculate exp for each protein
+
+
+    # limit to "output, maximum valid expectation value"
+
+
+    # sort proteins by exp
+    # within each protein, order spectra by start pos (then by what?)
+    # output results
 
 
 
-    # - spectrum preparation tricks:
-    # parent mass is a range, defined by errors
-    # blurring of mz/I values when converting to integer (why?)
+    # [strip control chars from deflines]
+    
+
 
     # search
-    # for each sequence in the database(s):
-    #    find all position matches for all given (always-applied) motifs
-    #    [skipping over '*'s (which are never missed cleaves)]
-    #    for each possible cleavage peptide for the sequence:
-    #    [subject to a limit on missed cleavages]
     #    [don't bother generating peptides that are two big (or too small?)
     #     for the given spectra, len must be >= 4 (make this a param)]
-
-
 
     # pyro_check: if no N-terminal mod otherwise specified, look for potential
     # mods for these N-terminal residues: Q or C+57 -> loss of ammonia,
     # E -> loss of water
 
-
     # don't score a spectrum unless it has a min # of peaks, and at least one
     # from each of ABC and XYZ
 
-
-    # optional refinement step
-
-
-    # output results
-    # [strip control chars from deflines]
 
 
 
