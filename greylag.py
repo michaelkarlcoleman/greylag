@@ -10,6 +10,7 @@ __version__ = "$Id$"
 
 import bisect
 import fileinput
+import math
 import operator
 import optparse
 import os
@@ -157,6 +158,8 @@ def initialize_spectrum_parameters():
     CP.cleave_N_terminal_mass_change = XTP["protein, cleavage N-terminal mass change"]
     CP.cleave_C_terminal_mass_change = XTP["protein, cleavage C-terminal mass change"]
 
+    CP.fragment_mass_error = XTP["spectrum, fragment mass error"]
+
     CP.proton_mass = PROTON_MASS
     CP.water_mass = formula_mass("H2O")
 
@@ -171,6 +174,7 @@ def cleavage_motif_re(motif):
     match a cleavage motif, and pos is the position of the cleavage with
     respect to the match (e.g., 1 for '[KR]|{P}', or None if absent).
     """
+    assert False, "before using, think about overlapping matches"
     cleavage_pos = None
     re_parts = []
     motif_re = re.compile(r'(\||(\[(X|[A-WYZ]+)\])|({([A-WYZ]+)}))')
@@ -223,8 +227,9 @@ def generate_peptides(seq, cleavage_points, maximum_missed_cleavage_sites):
 def generate_cleavage_points(sequence):
     """Yields the offsets of the cleavages in sequence."""
     yield 0
-    for m in re.finditer(r'[KR][^P]', sequence):
-        yield(m.start() + 1)
+    # if pattern length > 1, will miss overlapping matches!
+    for m in re.finditer(r'[KR](?=[^P])', sequence):
+        yield m.start() + 1
     yield len(sequence)
 
 aa_sequence = re.compile(r'[ARNDCQEGHILKMFPSTWYV]+')
@@ -366,7 +371,7 @@ XML_PARAMETER_INFO = {
     "refine, potential modification mass" : (potential_mod_list, "", p_ni_empty),
     "refine, potential modification motif" : (str, "", p_ni_empty),
     "refine, sequence path" : (str, "", p_ni_empty),
-    "refine, spectrum synthesis" : (bool, "no"),
+    "refine, spectrum synthesis" : (bool, "no", p_ni_false),
     "refine, tic percent" : (float, 20.0, p_nonnegative),
     "refine, unanticipated cleavage" : (bool, p_ni_false),
     "refine, use potential modifications for full refinement" : (bool, "no", p_ni_false),
@@ -488,6 +493,7 @@ def synthetic_B_spectrum(peptide_mass, peptide_seq, peptide_mod_pattern,
             pass
     ladder = [None] * (len(peptide_seq)-1)
     for i in range(len(ladder)):
+        print >> sys.stderr, "ladder step %s %s" % (peptide_seq[i], CP.monoisotopic_residue_mass[ord(peptide_seq[i])])
         m += CP.monoisotopic_residue_mass[ord(peptide_seq[i])]
         # m += the mod delta, too
         intensity = 1.0
@@ -510,7 +516,8 @@ def synthetic_Y_spectrum(peptide_mass, peptide_seq, peptide_mod_pattern,
             pass
     ladder = [None] * (len(peptide_seq)-1)
     for i in range(len(ladder)-1, -1, -1):
-        m += CP.monoisotopic_residue_mass[ord(peptide_seq[i])]
+        print >> sys.stderr, "ladder step %s %s" % (peptide_seq[i+1], CP.monoisotopic_residue_mass[ord(peptide_seq[i+1])])
+        m += CP.monoisotopic_residue_mass[ord(peptide_seq[i+1])]
         # m += the mod delta, too
         intensity = 1.0
         if i == 1:
@@ -541,6 +548,12 @@ def synthetic_spectrum(ion_type, peptide_mass, charge, peptide_seq,
     #                for mass, intensity in ladder ]
     sp.set_peaks_from_matrix([ (get_mz(mass, charge), intensity)
                                for mass, intensity in ladder ])
+
+    print >> sys.stderr, "# synth %s sp: mass = %s, charge = %s" % (ion_type, sp.mass, sp.charge)
+    for p in sp.peaks:
+        print >> sys.stderr, "#           %s %s" % (p.mz, p.intensity)
+        
+    
     return sp
 
 
@@ -560,7 +573,7 @@ def synthetic_spectra(peptide_seq, peptide_mod_pattern, peptide_mass,
 
 
 # probably moves to C++, mods NYI
-def score_spectrum(synth_spectra, spectrum):
+def score_spectrum(synth_spectra, spectrum, spectrum_charge):
     # IDEA: could we combine all these spectra and just do the correlation
     # once?
 
@@ -572,6 +585,11 @@ def score_spectrum(synth_spectra, spectrum):
         i_peaks = 0
         i_scores = 0
         for charge, ion_spectrum in ion_spectra:
+            # FIX: move this test outward?
+            if (spectrum_charge == 1 and charge > spectrum_charge
+                or spectrum_charge > 1 and charge > spectrum_charge - 1):
+                continue
+
             # convolution score is just sum over charges/ions
             # hyperscore is product of p! over charges/ions (where p is corr
             # peak count) times the convolution score (clipped to FLT_MAX)
@@ -607,10 +625,10 @@ def get_spectrum_expectation(hyper_score, hyperscore_histogram):
     """Return the expectation value for this hyperscore, based on the
     histogram."""
     scaled_hyper_score = scale_hyperscore(hyper_score)
-    max_histogram_index = max(hyper_score)
+    max_histogram_index = max(hyperscore_histogram)
     assert max_histogram_index < 1000
     # histogram as a list
-    histogram = [0] * max_histogram_index
+    histogram = [0] * (max_histogram_index+1)
     for score, count in hyperscore_histogram.iteritems():
         histogram[score] = count
 
@@ -619,7 +637,7 @@ def get_spectrum_expectation(hyper_score, hyperscore_histogram):
         # use default line
         return 10.0 ** (3.5 + -0.18 * scaled_hyper_score)
     c = counts
-    # survival is merely a reverse cumulative distribution
+    # survival is just a reversed cumulative distribution
     survival = [0] * len(histogram)
     for i in range(len(histogram)):
         survival[i] = c
@@ -668,6 +686,28 @@ def get_spectrum_expectation(hyper_score, hyperscore_histogram):
     m = (n*sum_XY - sum_X*sum_Y) / (n*sum_XX - sum_X**2)
     b = (sum_Y - m*sum_X) / n
     return 10.0 ** (b + m * scaled_hyper_score)
+
+
+def get_final_protein_expect(sp_count, valid_spectra, match_ratio, raw_expect,
+                             db_length, candidate_spectra):
+    # (From xtandem) Compensate for multiple peptides supporting a protein.
+    # The expectation values for the peptides are combined with a simple
+    # Bayesian model for the probability of having two peptides from the same
+    # protein having the best score in different spectra.
+    if sp_count == 1:
+        if raw_expect < 0.0:
+            return raw_expect
+        else:
+            return 1.0
+    assert sp_count > 0
+    r = raw_expect + math.log10(db_length)
+    for a in range(sp_count):
+        r += math.log10(float(valid_spectra - a)/(sp_count - a))
+    r -= math.log10(valid_spectra) + (sp_count-1) * math.log10(match_ratio)
+    p = min(match_ratio / candidate_spectra, 0.9999999)
+    r += (sp_count * math.log10(p)
+          + (valid_spectra - sp_count) * math.log10(1 - p))
+    return r
     
 
 def main():
@@ -717,16 +757,19 @@ def main():
         db.extend(split_sequence_into_aa_runs(idno, defline, sequence))
     print "read %s sequences (%s runs)" % (len(fasta_db), len(db))
     if not db:
-        error("sequence database is empty")
+        error("no database sequences")
 
     db = [ (idno, offset, defline, seq, is_N, is_C,
             list(generate_cleavage_points(seq)))
            for idno, offset, defline, seq, is_N, is_C in db ]
+    db_residue_count = sum(len(dbi[3]) for dbi in db)
     print "cleavage_points found"
 
     # read spectra
     spectrum_fn = XTP["spectrum, path"]
     spectra = read_spectra_from_ms2_file(spectrum_fn)
+    if not spectra:
+        error("no input spectra")
     print "read %s spectra" % len(spectra)
 
     spectra.sort(key=lambda x: x.mass)
@@ -741,6 +784,11 @@ def main():
                                               XTP["spectrum, minimum peaks"],
                                               XTP["spectrum, total peaks"]) ]
     print "     %s spectra after filtering" % len(spectra)
+
+    for s in spectra:
+        print 'spectrum', s.mass, s.charge
+        for p in s.peaks:
+            print p.mz, p.intensity
 
     spectrum_mass_index = ([ (sp.mass, sp.charge, n) for n, sp in enumerate(spectra) ]
                            + [ (sp.secondary_mass, sp.secondary_charge, n)
@@ -760,6 +808,7 @@ def main():
                                 for m, charge, n in spectrum_mass_index)
 
     peptide_count = 0
+    candidate_spectrum_count = 0
     peptides_w_candidate_spectra = 0
     for idno, offset, defline, seq, is_N, is_C, cleavage_points in db:
         #print '#', idno, offset, defline, seq, is_N, is_C, cleavage_points
@@ -787,7 +836,8 @@ def main():
                                           :bisect.bisect_right(spectrum_mass_index, (sp_mass_ub,))]
                 if not candidate_spectra_info:
                     continue
-                peptides_w_candidate_spectra += 1
+                peptides_w_candidate_spectra += 1 # FIX: omit?
+                candidate_spectrum_count += len(candidate_spectra_info)
                 #print peptide_mod_mass, candidate_spectra_info, \
                 #      [ spectra[c[2]] for c in candidate_spectra_info ]
 
@@ -796,12 +846,14 @@ def main():
                                              peptide_mod_mass, is_N, is_C,
                                              max(charge for m, charge, n
                                                  in candidate_spectra_info))
-                #warn('peptide: %s' % peptide_seq)
-                #warn('ssp: %s' % synth_sp)
+                warn('peptide: %s' % peptide_seq)
+                warn('ssp: %s' % synth_sp)
 
                 for c_sp_mass, c_sp_charge, c_sp_n in candidate_spectra_info:
+                    warn('candidate: %s' % spectra[c_sp_n])
                     hyper_score, convolution_score, ion_scores, ion_peaks \
-                                 = score_spectrum(synth_sp, spectra[c_sp_n])
+                                 = score_spectrum(synth_sp, spectra[c_sp_n], c_sp_charge)
+                    warn('score: %s %s %s %s' % (hyper_score, convolution_score, ion_scores, ion_peaks))
                     if convolution_score > 2:
                         sp_ion_count = sum(n for ion_type, n in ion_peaks)
                         # update spectrum histograms
@@ -827,34 +879,49 @@ def main():
                     # domains (pos, length, mods) in multiple proteins.
                     # (Note: this effectively chooses the best parent charge,
                     # too.)
-                    if hyper_score >= best_score[c_sp_n]:
+                    if hyper_score >= best_score.get(c_sp_n, 0):
                         # something like this
                         # BEWARE: below code relies on this tuple's order
-                        match_info = (hyper_score, convolution_score, ion_scores, ion_peaks, c_sp_mass,
-                                      c_sp_charge, c_sp_n, peptide_seq, peptide_mod_pattern, peptide_mod_mass,
+                        match_info = (hyper_score, convolution_score,
+                                      ion_scores, ion_peaks, c_sp_mass, 
+                                      c_sp_charge, c_sp_n, begin, peptide_seq,
+                                      potential_mod_pattern, peptide_mod_mass,
                                       idno, offset, defline, seq)
-                        if hyper_score > best_score[c_sp_n]:
+                        if hyper_score > best_score.get(c_sp_n, 0):
+                            best_score[c_sp_n] = hyper_score
                             best_match[c_sp_n] = [match_info]
                         else:
                             best_match[c_sp_n].append(match_info)
                     # Also remember just the scores of the 2nd-best
                     # hyper-scoring
-                    elif hyper_score > second_best_score[c_sp_n]:
+                    elif hyper_score > second_best_score.get(c_sp_n, 0):
                         second_best_score[c_sp_n] = (hyper_score, convolution_score)
                     
     print 'generated %s peptides' % peptide_count
     print '          %s peptides have candidate spectra' % peptides_w_candidate_spectra
+    sys.stdout.flush()
 
     # calculate exp for best match for each spectrum
     #  (CHECK: what about multiple matches?  charges?)
+    # FIX: xtandem adds to a spectrum's histogram for each domain, but we keep
+    # things separate
+
     # spectrum index -> expectation value
     expect = {}
+    # spectrum index -> (scaled, binned hyperscore -> count)
+    best_histogram = {}
     for sp_n, match_info_list in best_match.iteritems():
-        sp_hyper_score, sp_charge = match_info_list[0], match_info_list[5]
+        sp_hyper_score, sp_charge = match_info_list[0][0], match_info_list[0][5]
         assert sp_n not in expect, "shouldn't see multiple charges here"
-        expect[sp_n] = get_spectrum_expectation(sp_hyper_score,
-                                                hyperscore_histogram[(sp_n, sp_charge)])
+        hh = hyperscore_histogram[(sp_n, sp_charge)]
+        best_histogram[sp_n] = hh
+        expect[sp_n] = get_spectrum_expectation(sp_hyper_score, hh)
 
+    warn("expect: %s" % expect)
+
+    # NB: at this point we're using 'expect' to keep track of whether a
+    # spectrum still passes or not
+    
     # filter out spectra w/ low exp values??
     for sp_n in best_match:
         if expect[sp_n] > XTP["refine, maximum valid expectation value"]:
@@ -864,16 +931,111 @@ def main():
     best_protein_matches = {}
     for sp_n, match_info_list in best_match.iteritems():
         for match in match_info_list:
-            best_protein_matches.setdefault(match[10], []).append(match)
+            best_protein_matches.setdefault(match[11], []).append(match)
 
     # calculate exp for each protein
+    valid_spectra_count = sum(1 for sp_n, exp in expect.iteritems()
+                              if exp <= XTP["output, maximum valid expectation value"])
+    best_histogram_sum = sum(sum(h.itervalues())
+                             for sp_n, h in best_histogram.iteritems()
+                             if sp_n in expect)
+    if not best_match:
+        error("no matches found")
+    match_ratio = float(best_histogram_sum) / len(best_match)
 
+    if XTP["output, results"] == "valid":
+        for sp_n in best_match:
+            if sp_n in expect and expect[sp_n] > 0.95 * XTP["output, maximum valid expectation value"]:
+                del expect[sp_n]
+
+    # spectrum id's for spectra that are "repeats"; a repeat is a spectrum for
+    # which a better corresponding spectrum exists having the same domain 0
+    # match.
+    repeats = set()
+    for pid, matches in best_protein_matches.iteritems():
+        domain_0_matches = {}           # spectrum id -> match
+        for m in matches:
+            if m[6] not in domain_0_matches:
+                domain_0_matches[m[6]] = m
+        for sid_x in domain_0_matches:
+            if sid_x not in expect:
+                continue
+            for sid_y in domain_0_matches:
+                if sid_y not in expect:
+                    continue
+                if sid_x < sid_y:
+                    if (domain_0_matches[sid_x][7:9]
+                        == domain_0_matches[sid_y][7:9]):
+                        if expect[sid_x] > expect[sid_y]:
+                            repeats.add(sid_y)
+                        else:
+                            repeats.add(sid_x)
+
+    # protein id -> protein expectation value (log10 of expectation)
+    raw_protein_expect = {}
+    # protein id -> set of spectrum ids used in expectation value
+    raw_protein_expect_spectra = {}
+    for protein_id, matches in best_protein_matches.iteritems():
+        for m in matches:
+            spectrum_id = m[6]
+            if spectrum_id in repeats or spectrum_id not in expect:
+                continue
+            log_expect = math.log10(expect[spectrum_id])
+            if log_expect > -1.0:
+                continue
+            # this avoids adding matches for multiple domains (REWORK THIS?)
+            if spectrum_id not in raw_protein_expect_spectra.get(protein_id, set()):
+                raw_protein_expect[protein_id] = (raw_protein_expect.get(protein_id, 0)
+                                                  + log_expect)
+                raw_protein_expect_spectra.setdefault(protein_id,
+                                                      set()).add(spectrum_id)
+    
+    bias = float(candidate_spectrum_count) / db_residue_count
+
+    # protein id -> protein expectation value (log10 of expectation)
+    protein_expect = {}
+    for protein_id in raw_protein_expect:
+        sp_count = len(raw_protein_expect_spectra[protein_id])
+        protein_expect[protein_id] = get_final_protein_expect(sp_count,
+                                                              len(expect),
+                                                              match_ratio,
+                                                              raw_protein_expect[protein_id],
+                                                              len(fasta_db),
+                                                              candidate_spectrum_count)
+        if sp_count > 1:
+            protein_length = len(fasta_db[protein_id][1])
+            if protein_length * bias < 1.0:
+                protein_expect[protein_id] += sp_count * math.log10(protein_length*bias)
+
+    # protein id -> sum of peak intensities for supporting spectra
+    intensity = {}
+    # FIX: this is wrong because it counts all domains separately!
+    for pid, matches in best_protein_matches.iteritems():
+        for m in matches:
+            sp_n = m[6]
+            if sp_n in expect:
+                intensity[pid] = (intensity.get(pid, 0.0)
+                                  + sum(p.intensity for p in spectra[sp_n].peaks))
+
+    # need ordering here?
+
+    # temp output
+    for sp_n, sp in enumerate(spectra):
+        if sp_n in expect:
+            print "%s %s" % (expect[sp_n], sp)
+    
+
+
+    # The "output," limit is the only one applied to proteins, but it is also
+    # applied to peptides at one point.  The "refine," limit is only applied
+    # to peptides.
 
     # limit to "output, maximum valid expectation value"
 
 
     # sort proteins by exp
     # within each protein, order spectra by start pos (then by what?)
+    # handle domains!
     # output results
 
 
