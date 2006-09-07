@@ -124,7 +124,7 @@ for residue in RESIDUE_MASS:
     RESIDUE_MASS[residue][0] = formula_mass(RESIDUE_FORMULA[residue])
     
 
-def initialize_spectrum_parameters():
+def initialize_spectrum_parameters(quirks_mode):
     """Initialize parameters known to the spectrum module."""
 
     CP.monoisotopic_atomic_mass.resize(128, 0.0)
@@ -168,6 +168,8 @@ def initialize_spectrum_parameters():
     for n in range(2, len(CP.factorial)):
         CP.factorial[n] = CP.factorial[n-1] * n
 
+    CP.quirks_mode = bool(quirks_mode)
+    
 
 def cleavage_motif_re(motif):
     """Return (regexp, pos), where regexp is a regular expression that will
@@ -340,7 +342,7 @@ XML_PARAMETER_INFO = {
     "output, message" : (str, "."),     # ignored
     "output, one sequence copy" : (bool, "no"),
     "output, parameters" : (bool, "no"),
-    "output, path hashing" : (bool, "no"),
+    "output, path hashing" : (bool, "no", p_ni_false),
     "output, path" : (str, ""),
     "output, performance" : (bool, "no"),
     "output, proteins" : (bool, "no"),
@@ -595,9 +597,10 @@ def score_spectrum(synth_spectra, spectrum, spectrum_charge):
             # peak count) times the convolution score (clipped to FLT_MAX)
             # > blurred!
 
+            print >> sys.stderr, "similarity: %s, %s" % (ion_spectrum, spectrum)
             conv_score, common_peak_count \
                         = cxtpy.spectrum.score_similarity(ion_spectrum,
-                                                             spectrum)
+                                                          spectrum)
             i_peaks += common_peak_count
             i_scores += conv_score
             hyper_score *= CP.factorial[common_peak_count]
@@ -718,6 +721,10 @@ def main():
                       help="destination file [default as given in parameter"
                       " file, '-' for stdout]",
                       metavar="FILE")
+    parser.add_option("--quirks-mode", action="store_true",
+                      dest="quirks_mode",
+                      help="try to generate results as close as possible to"
+                      " those of XTandem") 
     parser.add_option("-v", "--verbose", action="store_true",
                       dest="verbose", help="be verbose")
     (options, args) = parser.parse_args()
@@ -748,7 +755,7 @@ def main():
 
     taxonomy = read_taxonomy(XTP["list path, taxonomy information"])
 
-    initialize_spectrum_parameters()
+    initialize_spectrum_parameters(options.quirks_mode)
 
     # read sequence dbs
     fasta_db = list(read_fasta_files(taxonomy[XTP["protein, taxon"]]))
@@ -927,11 +934,15 @@ def main():
         if expect[sp_n] > XTP["refine, maximum valid expectation value"]:
             del expect[sp_n]
 
+    warn("expect: %s" % expect)
+
     # protein id -> list of spectra
     best_protein_matches = {}
     for sp_n, match_info_list in best_match.iteritems():
         for match in match_info_list:
             best_protein_matches.setdefault(match[11], []).append(match)
+
+    warn("best_protein_matches: %s" % best_protein_matches)
 
     # calculate exp for each protein
     valid_spectra_count = sum(1 for sp_n, exp in expect.iteritems()
@@ -947,6 +958,8 @@ def main():
         for sp_n in best_match:
             if sp_n in expect and expect[sp_n] > 0.95 * XTP["output, maximum valid expectation value"]:
                 del expect[sp_n]
+
+    warn("expect: %s" % expect)
 
     # spectrum id's for spectra that are "repeats"; a repeat is a spectrum for
     # which a better corresponding spectrum exists having the same domain 0
@@ -971,6 +984,8 @@ def main():
                         else:
                             repeats.add(sid_x)
 
+    warn("repeats: %s" % repeats)
+
     # protein id -> protein expectation value (log10 of expectation)
     raw_protein_expect = {}
     # protein id -> set of spectrum ids used in expectation value
@@ -989,6 +1004,9 @@ def main():
                                                   + log_expect)
                 raw_protein_expect_spectra.setdefault(protein_id,
                                                       set()).add(spectrum_id)
+
+    warn("raw_protein_expect: %s" % raw_protein_expect)
+    warn("raw_protein_expect_spectra: %s" % raw_protein_expect_spectra)
     
     bias = float(candidate_spectrum_count) / db_residue_count
 
@@ -1007,6 +1025,8 @@ def main():
             if protein_length * bias < 1.0:
                 protein_expect[protein_id] += sp_count * math.log10(protein_length*bias)
 
+    warn("protein_expect: %s" % protein_expect)
+
     # protein id -> sum of peak intensities for supporting spectra
     intensity = {}
     # FIX: this is wrong because it counts all domains separately!
@@ -1017,47 +1037,53 @@ def main():
                 intensity[pid] = (intensity.get(pid, 0.0)
                                   + sum(p.intensity for p in spectra[sp_n].peaks))
 
+    warn("intensity: %s" % intensity)
+
     # need ordering here?
-
-    # temp output
-    for sp_n, sp in enumerate(spectra):
-        if sp_n in expect:
-            print "%s %s" % (expect[sp_n], sp)
-    
-
 
     # The "output," limit is the only one applied to proteins, but it is also
     # applied to peptides at one point.  The "refine," limit is only applied
     # to peptides.
 
+    # FIX: apply this limit!
     # limit to "output, maximum valid expectation value"
-
 
     # sort proteins by exp
     # within each protein, order spectra by start pos (then by what?)
     # handle domains!
+
+
     # output results
 
+    print '<?xml version="1.0"?>'
+    xslpath = XTP.get("output, xsl path") 
+    if xslpath:
+        print '<?xml-stylesheet type="text/xsl" href="%s"?>' % xslpath
+    print '<bioml xmlns:GAML="http://www.bioml.com/gaml/" '
+    title = XTP.get("output, title")
+    if title:
+        print 'label="%s">' % title
+    else:
+        print '''label="models from '%s'">''' % spectrum_fn
+
+    # finish report_valid
 
 
-    # [strip control chars from deflines]
+    # strip control chars from deflines!!
     
-
-
-    # search
-    #    [don't bother generating peptides that are two big (or too small?)
-    #     for the given spectra, len must be >= 4 (make this a param)]
-
-    # pyro_check: if no N-terminal mod otherwise specified, look for potential
-    # mods for these N-terminal residues: Q or C+57 -> loss of ammonia,
-    # E -> loss of water
-
-    # don't score a spectrum unless it has a min # of peaks, and at least one
-    # from each of ABC and XYZ
-
 
 
 
 
 if __name__ == '__main__':
     main()
+
+
+# NOTES:
+
+# pyro_check: if no N-terminal mod otherwise specified, look for potential
+# mods for these N-terminal residues: Q or C+57 -> loss of ammonia, E -> loss
+# of water
+
+# don't score a spectrum unless it has a min # of peaks, and at least one from
+# each of ABC and XYZ
