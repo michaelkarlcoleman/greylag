@@ -10,21 +10,23 @@
 .DELETE_ON_ERROR:
 
 
-#CXXFLAGS = -Wall -g3 -O0 -D_GLIBCXX_DEBUG
-CXXFLAGS = -Wall -g -O2
+CXXFLAGS = -Wall -g3 -O0 -D_GLIBCXX_DEBUG
+#CXXFLAGS = -Wall -g -O2
 
-SWIGCXXFLAGS = -fno-strict-aliasing -fPIC -I$(PYTHON_I) $(CXXFLAGS)
+SWIGCXXFLAGS = $(CXXFLAGS) -fno-strict-aliasing -Wno-unused-function -fPIC \
+			-I$(PYTHON_I)
 
-# Generally, this is where the 'Python.h' corresponding to your 'python' lives
+
+# Generally, this is where the 'Python.h' corresponding to your 'python' lives.
 #PYTHON_I = /n/site/inst/Linux-i686/sys/include/python2.4
 PYTHON_I = /usr/include/python2.4
 
-MODULE = spectrum
+MODULE = cxtpy
 
-all :: _$(MODULE).so test_spectrum
+all :: _$(MODULE).so
 
 $(MODULE)_wrap.cpp : $(MODULE).i $(MODULE).h
-	swig -c++ -python -shadow -o $@ $<
+	swig -c++ -python -o $@ $<
 
 $(MODULE)_wrap.o : $(MODULE)_wrap.cpp $(MODULE).h
 	g++ $(SWIGCXXFLAGS) -c $<
@@ -35,10 +37,10 @@ _$(MODULE).so : $(MODULE).o $(MODULE)_wrap.o
 	g++ $(CXXFLAGS) -shared $^ -o $@
 
 
-test_spectrum : test_spectrum.cpp spectrum.o
+test_cxtpy : test_cxtpy.cpp cxtpy.o
 	g++ $(CXXFLAGS) $^ -o $@
 
 
 clean::
-	@rm -f $(MODULE)_wrap.cpp *.o *.so *.py[co] test_spectrum
+	@rm -f $(MODULE).py $(MODULE)_wrap.cpp *.o *.so *.py[co] test_cxtpy
 
