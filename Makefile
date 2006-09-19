@@ -25,13 +25,13 @@ MODULE = cxtpy
 
 all :: _$(MODULE).so
 
-$(MODULE)_wrap.cpp : $(MODULE).i $(MODULE).h
+$(MODULE)_wrap.cpp : $(MODULE).i $(MODULE).hpp
 	swig -c++ -python -o $@ $<
 
-$(MODULE)_wrap.o : $(MODULE)_wrap.cpp $(MODULE).h
+$(MODULE)_wrap.o : $(MODULE)_wrap.cpp $(MODULE).hpp
 	g++ $(SWIGCXXFLAGS) -c $<
 
-$(MODULE).o : $(MODULE).cpp $(MODULE).h
+$(MODULE).o : $(MODULE).cpp $(MODULE).hpp
 
 _$(MODULE).so : $(MODULE).o $(MODULE)_wrap.o
 	g++ $(CXXFLAGS) -shared $^ -o $@

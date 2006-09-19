@@ -9,6 +9,8 @@ re-implementation of X!Tandem, with extra features.)
 __version__ = "$Id$"
 
 
+# FIX: some range should be xrange?
+
 import fileinput
 import logging
 from logging import debug, info, warning
@@ -19,16 +21,11 @@ from pprint import pprint
 import re
 import sys
 
-# FIX: this goes away in Python 2.5
-try:
-    import cElementTree as ElementTree
-    print >> sys.stderr, 'imported celementtree'
-except ImportError:
-    import elementtree.ElementTree as ElementTree
+import elementtree.ElementTree
 
 import cxtpy
 
-import xtpy_search
+# import xtpy_search
 
 
 def error(s, *args):
@@ -53,7 +50,7 @@ ATOMIC_MASS = {
     'H' : (  1.007825035,  1.00794  ),
     'O' : ( 15.99491463,  15.9994   ),
     'N' : ( 14.003074,    14.0067   ),
-    'C' : ( 12.0,         12.0107   ),
+    'C' : ( 12.000000000, 12.0107   ),
     'S' : ( 31.9720707,   32.065    ),
     'P' : ( 30.973762,    30.973761 ),
     }
@@ -161,6 +158,7 @@ def initialize_spectrum_parameters(quirks_mode):
     CP.fragment_mass_error = XTP["spectrum, fragment mass error"]
 
     CP.minimum_ion_count = XTP["scoring, minimum ion count"]
+    CP.spectrum_synthesis = XTP["refine, spectrum synthesis"]
 
     CP.proton_mass = PROTON_MASS
     CP.hydrogen = formula_mass("H")
@@ -173,15 +171,16 @@ def initialize_spectrum_parameters(quirks_mode):
         CP.factorial[n] = CP.factorial[n-1] * n
 
     CP.quirks_mode = bool(quirks_mode)
+    CP.hyper_score_epsilon_ratio = 0.999 # must be <1
     
 
 def cleavage_motif_re(motif):
     """Return (regexp, pos), where regexp is a regular expression that will
     match a cleavage motif, and pos is the position of the cleavage with
-    respect to the match (e.g., 1 for '[KR]|{P}', or None if absent).
+    respect to the match (e.g., 1 for '[KR]|{P}', or None if absent).  (The RE
+    actually matches one character, the rest matching as lookahead, which
+    means that re.finditer will find all overlapping matches.)
     """
-    # FIX: use look-ahead groups to keep actual length == 1
-    assert False, "before using, think about overlapping matches"
     cleavage_pos = None
     re_parts = []
     motif_re = re.compile(r'(\||(\[(X|[A-WYZ]+)\])|({([A-WYZ]+)}))')
@@ -204,7 +203,13 @@ def cleavage_motif_re(motif):
         else:
             assert False, "unknown cleavage motif syntax"
         i += 1
-    return (''.join(re_parts), cleavage_pos)
+    if len(re_parts) == 0:
+        re_pattern = '.'
+    elif len(re_parts) == 1:
+        re_pattern = re_parts[0]
+    else:
+        re_pattern = re_parts[0] + '(?=' + ''.join(re_parts[1:]) + ')'
+    return (re_pattern, cleavage_pos)
 
 
 def get_prefix_sequence(begin_pos, run_offset, sequence):
@@ -235,25 +240,22 @@ def generate_peptides(seq, cleavage_points, maximum_missed_cleavage_sites):
                 yield begin, end, end_i-begin_i-1
 
 
-def generate_cleavage_points(sequence):
+def generate_cleavage_points(cleavage_re, cleavage_pos, sequence):
     """Yields the offsets of the cleavages in sequence."""
     yield 0
-    # if pattern length > 1, will miss overlapping matches!
-    for m in re.finditer(r'[KR](?=[^P])', sequence):
-        yield m.start() + 1
+    for m in cleavage_re.finditer(sequence, 1, len(sequence)-2):
+        yield m.start() + cleavage_pos
     yield len(sequence)
+
 
 aa_sequence = re.compile(r'[ARNDCQEGHILKMFPSTWYV]+')
 
 def split_sequence_into_aa_runs(idno, defline, sequence, filename):
-    """Returns a tuple (idno, start, defline, seq, is_N, is_C) for each
+    """Returns a tuple (idno, start, defline, seq, filename) for each
     contiguous run of residues in sequence, where 'start' is the position of
-    'seq' in 'sequence', and 'is_N' and 'is_C' are flags indicating whether
-    the the beginning/end of 'seq' is at the beginning/end of 'sequence'."""
+    'seq' in 'sequence'."""
     matches = list(aa_sequence.finditer(sequence))
-    return [ (idno, m.start(), defline, m.group(),
-              n==0 and m.start()==0,
-              n==len(matches)-1 and m.end()==len(sequence), filename)
+    return [ (idno, m.start(), defline, m.group(), filename)
              for n, m in enumerate(matches) ]
 
 
@@ -292,7 +294,7 @@ def read_fasta_files(filenames):
 
 def read_taxonomy(filename):
     """Return a map of taxa to lists of filenames."""
-    root = ElementTree.ElementTree(file=filename).getroot()
+    root = elementtree.ElementTree.ElementTree(file=filename).getroot()
     return dict( (taxon.get("label"),
                   [ f.get("URL") for f in taxon.findall('./file') ])
                  for taxon in root.findall('taxon') )
@@ -300,7 +302,7 @@ def read_taxonomy(filename):
 
 def read_xml_parameters(filename):
     """Return a map of parameters to values, per parameter file fn."""
-    root = ElementTree.ElementTree(file=filename).getroot()
+    root = elementtree.ElementTree.ElementTree(file=filename).getroot()
     return dict((e.get("label"), e.text)
                 for e in root.findall('note')
                 if e.get("type") == "input")
@@ -382,7 +384,7 @@ XML_PARAMETER_INFO = {
     "protein, cleavage N-terminal limit" : (int, "100000000", p_positive),
     "protein, cleavage N-terminal mass change" : (float, formula_mass("H")),
     "protein, cleavage semi" : (bool, "no", p_ni_equal(False)),
-    "protein, cleavage site" : (("[RK]|{P}",), None, p_ni_equal("[RK]|{P}")),
+    "protein, cleavage site" : (str, None),
     "protein, homolog management" : (bool, "no", p_ni_equal(False)),
     "protein, modified residue mass file" : (str, "", p_ni_empty),
     "protein, taxon" : (str, None),
@@ -397,7 +399,7 @@ XML_PARAMETER_INFO = {
     "refine, potential modification mass" : (potential_mod_list, "", p_ni_empty),
     "refine, potential modification motif" : (str, "", p_ni_empty),
     "refine, sequence path" : (str, "", p_ni_empty),
-    "refine, spectrum synthesis" : (bool, "no", p_ni_equal(False)),
+    "refine, spectrum synthesis" : (bool, "no"),
     "refine, tic percent" : (float, 20.0, p_nonnegative), # ignored
     "refine, unanticipated cleavage" : (bool, p_ni_equal(False)),
     "refine, use potential modifications for full refinement" : (bool, "no", p_ni_equal(False)),
@@ -493,19 +495,18 @@ def validate_parameters(parameters):
     return pmap
 
 
-def get_spectrum_expectation(hyper_score, hyperscore_histogram):
+def get_spectrum_expectation(hyper_score, histogram):
     """Return (expectation, survival curve, (a0, a1)) for this hyperscore and
     histogram, where a0 and a1 are the intercept and slope, respectively, for
     the least-squares fit to the survival curve, used to predict the
     expectation.
     """
     scaled_hyper_score = cxtpy.scale_hyperscore(hyper_score)
-    max_histogram_index = max(hyperscore_histogram)
-    assert max_histogram_index < 1000, "assume these aren't huge"
-    # histogram as a list
-    histogram = [0] * (max_histogram_index+1)
-    for score, count in hyperscore_histogram.iteritems():
-        histogram[score] = count
+
+    # trim zeros from right end of histogram (which must contain a non-zero)
+    histogram = list(histogram)
+    while histogram[-1] == 0:
+        histogram.pop()
 
     counts = sum(histogram)
     c = counts
@@ -541,15 +542,21 @@ def get_spectrum_expectation(hyper_score, hyperscore_histogram):
     survival[a] -= lSum
     # end bogus
 
-    if counts < 200:
+    if counts < 200 or len(survival) < 3:
         # use default line
         a0, a1 = 3.5, -0.18
         return 10.0 ** (a0 + a1 * scaled_hyper_score), survival, (a0, a1)
     
     min_limit = 10
     max_limit = int(round(survival[0]/2.0))
-    max_i = min(i for i in range(len(survival)) if survival[i] <= max_limit)
-    min_i = min(i for i in range(max_i, len(survival)) if survival[i] <= min_limit)
+    try:
+        max_i = min(i for i in range(len(survival)) if survival[i] <= max_limit)
+        min_i = min(i for i in range(max_i, len(survival)) if survival[i] <= min_limit)
+    except ValueError:
+        warning('bad survival curve? %s' % survival)
+        a0, a1 = 3.5, -0.18
+        return 10.0 ** (a0 + a1 * scaled_hyper_score), survival, (a0, a1)
+        
     data_X = range(max_i, min_i)
     data_Y = [ math.log10(survival[x]) for x in data_X ]
     assert data_Y[0] == max(data_Y), "impossible xtandem case?"
@@ -567,8 +574,9 @@ def get_spectrum_expectation(hyper_score, hyperscore_histogram):
 
 def get_final_protein_expect(sp_count, valid_spectra, match_ratio, raw_expect,
                              db_length, candidate_spectra):
-    debug('pe: %s', (sp_count, valid_spectra, match_ratio, raw_expect,
-                     db_length, candidate_spectra))
+    #debug('pe: %s', (sp_count, valid_spectra, match_ratio, raw_expect,
+    #                 db_length, candidate_spectra))
+
     # (From xtandem) Compensate for multiple peptides supporting a protein.
     # The expectation values for the peptides are combined with a simple
     # Bayesian model for the probability of having two peptides from the same
@@ -584,27 +592,38 @@ def get_final_protein_expect(sp_count, valid_spectra, match_ratio, raw_expect,
     for a in range(sp_count):
         r += math.log10(float(valid_spectra - a)/(sp_count - a))
     r -= math.log10(valid_spectra) + (sp_count-1) * math.log10(match_ratio)
-    debug('x: %s', (match_ratio, candidate_spectra))
+    #debug('x: %s', (match_ratio, candidate_spectra))
     p = min(float(match_ratio) / candidate_spectra, 0.9999999)
-    debug("p: %s", p)
+    #debug("p: %s", p)
     r += (sp_count * math.log10(p)
           + (valid_spectra - sp_count) * math.log10(1 - p))
     return r
 
 
-def process_results(best_match, hyperscore_histogram, fasta_db,
-                    candidate_spectrum_count, spectra, db_residue_count):
-    
+def process_results(score_statistics, fasta_db, candidate_spectrum_count,
+                    spectra, db_residue_count):
+    # filter out any close-but-not-quite matches
+    if not CP.quirks_mode:
+        for sp_n in xrange(len(score_statistics.best_match)):
+            bs = score_statistics.best_score[sp_n]
+            debug('bs: %s', bs)
+            for m in score_statistics.best_match[sp_n]:
+                debug('hs: %s', m.hyper_score)
+            score_statistics.best_match[sp_n] \
+                = [ m for m in score_statistics.best_match[sp_n]
+                    if m.hyper_score/bs > CP.hyper_score_epsilon_ratio ]
+
     # spectrum index -> [ (protein id, [domain info, ...]), ... ]
     # domain info == (...)
     spec_prot_info = {}
 
-    for sp_n, match_info_list in best_match.iteritems():
+    for sp_n in xrange(len(score_statistics.best_match)):
         prot_info = {}
-        for m in match_info_list:
-            protein_id = m[11]
+        for m in score_statistics.best_match[sp_n]:
+            protein_id = m.sequence_index
             prot_info.setdefault(protein_id, []).append(m)
-        spec_prot_info[sp_n] = prot_info.items()
+        if prot_info:
+            spec_prot_info[sp_n] = prot_info.items()
 
     #debug("spec_prot_info: %s" % spec_prot_info)
 
@@ -618,11 +637,14 @@ def process_results(best_match, hyperscore_histogram, fasta_db,
     survival_curve = {}
     # spectrum index -> (a0, a1)  [regression line intercept/slope]
     line_parameters = {}
-    for sp_n, match_info_list in best_match.iteritems():
+
+    for sp_n in xrange(len(score_statistics.best_match)):
         # all hyperscores the same, so choose the first
         # all charges the same (by assumption above)
-        sp_hyper_score = match_info_list[0][0]
-        hh = hyperscore_histogram.get(sp_n, {})
+        if not score_statistics.best_match[sp_n]:
+            continue
+        sp_hyper_score = score_statistics.best_score[sp_n]
+        hh = score_statistics.hyperscore_histogram[sp_n]
         best_histogram[sp_n] = hh
         expect[sp_n], survival_curve[sp_n], line_parameters[sp_n] \
                       = get_spectrum_expectation(sp_hyper_score, hh)
@@ -635,11 +657,12 @@ def process_results(best_match, hyperscore_histogram, fasta_db,
 
     #debug("passing_spectra: %s" % sorted(list(passing_spectra)))
 
+    # FIX: is this redundant with spec_prot_info??
     # protein id -> list of spectra match info
     best_protein_matches = {}
-    for sp_n, match_info_list in best_match.iteritems():
-        for match in match_info_list:
-            best_protein_matches.setdefault(match[11], []).append(match)
+    for sp_n in xrange(len(score_statistics.best_match)):
+        for m in score_statistics.best_match[sp_n]:
+            best_protein_matches.setdefault(m.sequence_index, []).append(m)
 
     #debug("best_protein_matches: %s" % best_protein_matches)
 
@@ -647,11 +670,11 @@ def process_results(best_match, hyperscore_histogram, fasta_db,
     valid_spectra_count = sum(1 for sp_n in passing_spectra
                               if (expect[sp_n]
                                   <= XTP["output, maximum valid expectation value"]))
-    best_histogram_sum = sum(sum(h.itervalues())
-                             for sp_n, h in best_histogram.iteritems()                             if sp_n in passing_spectra)
+    best_histogram_sum = sum(sum(h) for sp_n, h in best_histogram.iteritems()
+                             if sp_n in passing_spectra)
     match_ratio = 0
-    debug("best_histogram_sum: %s passing_spectra: %s", best_histogram_sum,
-          passing_spectra)
+    #debug("best_histogram_sum: %s passing_spectra: %s", best_histogram_sum,
+    #      passing_spectra)
     if passing_spectra:
         match_ratio = float(best_histogram_sum) / len(passing_spectra)
 
@@ -681,8 +704,8 @@ def process_results(best_match, hyperscore_histogram, fasta_db,
     for pid, matches in best_protein_matches.iteritems():
         domain_0_matches = {}           # spectrum id -> match
         for m in matches:
-            if m[6] not in domain_0_matches:
-                domain_0_matches[m[6]] = m
+            if m.spectrum_index not in domain_0_matches:
+                domain_0_matches[m.spectrum_index] = m
         for sid_x in domain_0_matches:
             if sid_x not in passing_spectra:
                 continue
@@ -690,8 +713,10 @@ def process_results(best_match, hyperscore_histogram, fasta_db,
                 if sid_y not in passing_spectra:
                     continue
                 if sid_x < sid_y:
-                    if (domain_0_matches[sid_x][7:9]
-                        == domain_0_matches[sid_y][7:9]):
+                    if ((domain_0_matches[sid_x].peptide_begin
+                        == domain_0_matches[sid_y].peptide_begin)
+                        and (domain_0_matches[sid_x].peptide_sequence
+                             == domain_0_matches[sid_y].peptide_sequence)):
                         if expect[sid_x] > expect[sid_y]:
                             repeats.add(sid_x)
                         else:
@@ -708,7 +733,7 @@ def process_results(best_match, hyperscore_histogram, fasta_db,
     # -> supporting spectra map instead?
     for protein_id, matches in best_protein_matches.iteritems():
         for m in matches:
-            spectrum_id = m[6]
+            spectrum_id = m.spectrum_index
             if spectrum_id not in passing_spectra or spectrum_id in repeats:
                 continue
             log_expect = math.log10(expect[spectrum_id])
@@ -721,8 +746,8 @@ def process_results(best_match, hyperscore_histogram, fasta_db,
                 raw_protein_expect_spectra.setdefault(protein_id,
                                                       set()).add(spectrum_id)
 
-    debug("raw_protein_expect: %s", raw_protein_expect)
-    debug("raw_protein_expect_spectra: %s", raw_protein_expect_spectra)
+    #debug("raw_protein_expect: %s", raw_protein_expect)
+    #debug("raw_protein_expect_spectra: %s", raw_protein_expect_spectra)
     
     bias = float(candidate_spectrum_count) / db_residue_count
 
@@ -750,7 +775,7 @@ def process_results(best_match, hyperscore_histogram, fasta_db,
     # rework?
     for pid, matches in best_protein_matches.iteritems():
         for m in matches:
-            sp_n = m[6]
+            sp_n = m.spectrum_index
             if sp_n not in passing_spectra:
                 continue
             if sp_n not in intensity_spectra.get(pid, set()):
@@ -769,7 +794,7 @@ def process_results(best_match, hyperscore_histogram, fasta_db,
         def protein_order_less_than(item):
             return (min(protein_expect.get(protein_id, 1000)
                         for protein_id, domains in item[1]),
-                    item[1][0][1][0][7], # domain 0 starting position (ouch)
+                    item[1][0][1][0].peptide_begin, # domain 0 starting position (ouch)
                     expect[item[0]])    # spectrum expect
         spec_prot_info_items.sort(key=protein_order_less_than)
     else:
@@ -807,8 +832,8 @@ def print_histogram_XML(hlabel, htype, histogram, a0a1=None):
 
 def print_results_XML(options, XTP, db_info, spectrum_fn,
                       spec_prot_info_items, spectra, expect, protein_expect,
-                      intensity, second_best_score, survival_curve,
-                      line_parameters, passing_spectra):
+                      intensity, survival_curve, line_parameters,
+                      passing_spectra, score_statistics):
     """Output the XTandem-style XML results file, to stdout."""
 
     print '<?xml version="1.0"?>'
@@ -834,7 +859,7 @@ def print_results_XML(options, XTP, db_info, spectrum_fn,
         sp = spectra[spectrum_id]
         assert spectrum_info, "only 'valid' implemented"
         si0 = spectrum_info[0][1][0]
-        defline, run_seq, seq_filename = db_info[(si0[11], si0[12])]
+        defline, run_seq, seq_filename = db_info[(si0.sequence_index, si0.sequence_offset)]
 
         if (XTP["output, proteins"] or XTP["output, histograms"]
             or XTP["output, spectra"]):
@@ -848,8 +873,8 @@ def print_results_XML(options, XTP, db_info, spectrum_fn,
 
         if XTP["output, proteins"]:
             for pn, (protein_id, domains) in enumerate(spectrum_info):
-                d0_defline, d0_run_seq, d0_seq_filename = db_info[(domains[0][11],
-                                                                   domains[0][12])]
+                d0_defline, d0_run_seq, d0_seq_filename = db_info[(domains[0].sequence_index,
+                                                                   domains[0].sequence_offset)]
                 print ('<protein expect="%.1f" id="%s.%s" uid="%s" label="%s"'
                        ' sumI="%.2f" >'
                        % (protein_expect[protein_id], sp.id, pn+1,
@@ -874,25 +899,26 @@ def print_results_XML(options, XTP, db_info, spectrum_fn,
                         print
                 for dn, dom in enumerate(domains):
                     dom_defline, dom_run_seq, dom_seq_filename \
-                                 = db_info[(dom[11], dom[12])]
+                                 = db_info[(dom.sequence_index, dom.sequence_offset)]
+
                     print ('<domain id="%s.%s.%s" start="%s" end="%s"'
                            ' expect="%.1e" mh="%.4f" delta="%.4f"'
                            ' hyperscore="%.1f" nextscore="%.1f" y_score="%.1f"'
                            ' y_ions="%s" b_score="%.1f" b_ions="%s" pre="%s"'
                            ' post="%s" seq="%s" missed_cleavages="%s">'
-                           % (sp.id, pn+1, dn+1, dom[7]+1,
-                              dom[7]+len(dom[8]), expect[spectrum_id],
-                              dom[10], dom[4]-dom[10],
-                              cxtpy.scale_hyperscore(dom[0]),
-                              cxtpy.scale_hyperscore(second_best_score.get(spectrum_id, 100)),
-                              cxtpy.scale_hyperscore(dict(dom[2])['Y']),
-                              dict(dom[3])['Y'],
-                              cxtpy.scale_hyperscore(dict(dom[2])['B']),
-                              dict(dom[3])['B'],
-                              get_prefix_sequence(dom[7], dom[12], dom_run_seq),
-                              get_suffix_sequence(dom[7]+len(dom[8]), dom[12],
+                           % (sp.id, pn+1, dn+1, dom.peptide_begin+1,
+                              dom.peptide_begin+len(dom.peptide_sequence), expect[spectrum_id],
+                              dom.peptide_mod_mass, sp.mass-dom.peptide_mod_mass,
+                              cxtpy.scale_hyperscore(score_statistics.best_score[spectrum_id]),
+                              cxtpy.scale_hyperscore(score_statistics.second_best_score[spectrum_id]),
+                              cxtpy.scale_hyperscore(dom.ion_scores[cxtpy.ION_Y]),
+                              dom.ion_peaks[cxtpy.ION_Y],
+                              cxtpy.scale_hyperscore(dom.ion_scores[cxtpy.ION_B]),
+                              dom.ion_peaks[cxtpy.ION_B],
+                              get_prefix_sequence(dom.peptide_begin, dom.sequence_offset, dom_run_seq),
+                              get_suffix_sequence(dom.peptide_begin+len(dom.peptide_sequence), dom.sequence_offset,
                                                   dom_run_seq),
-                              dom[8], dom[16]))
+                              dom.peptide_sequence, dom.missed_cleavage_count))
                     # FIX: print '<aa type="C" modified="42" />'s here (mods)
                     print '</domain>'
                 print '</peptide>'
@@ -1040,12 +1066,12 @@ def main():
     taxonomy = read_taxonomy(XTP["list path, taxonomy information"])
 
     initialize_spectrum_parameters(options.quirks_mode)
-    xtpy_search.CP = CP
+    #xtpy_search.CP = CP
 
     # read sequence dbs
     # [(defline, seq, filename), ...]
     fasta_db = list(read_fasta_files(taxonomy[XTP["protein, taxon"]]))
-    # [(idno, offset, defline, seq, is_N, is_C, seq_filename), ...]
+    # [(idno, offset, defline, seq, seq_filename), ...]
     db = []
     for idno, (defline, sequence, filename) in enumerate(fasta_db):
         db.extend(split_sequence_into_aa_runs(idno, defline, sequence,
@@ -1054,7 +1080,7 @@ def main():
 
     # (idno, offset) -> (defline, run_seq, filename)
     db_info = dict(((idno, offset), (defline, seq, filename))
-                   for idno, offset, defline, seq, is_N, is_C, filename in db)
+                   for idno, offset, defline, seq, filename in db)
 
     info("read %s sequences (%s runs, %s residues)", len(fasta_db), len(db),
          db_residue_count)
@@ -1084,56 +1110,56 @@ def main():
     #sys.exit('len = %s' % len(cxtpy.cvar.spectrum_searchable_spectra))
     #print >> sys.stderr, cxtpy.cvar.spectrum_spectrum_mass_index.keys()
 
-    spectrum_mass_index = [ (sp.mass, n) for n, sp in enumerate(spectra) ]
-    spectrum_mass_index.sort()
+    score_statistics = cxtpy.score_stats(len(spectra))
 
-    # spectrum index is wrt 'spectra' above
-    # spectrum index -> [ <match info>, ... ]
-    best_match = {}
-    # spectrum index -> best_hyperscore
-    best_score = {}
-    # spectrum index -> 2nd-best hyperscore
-    second_best_score = {}
-    # spectrum index -> (scaled, binned hyperscore -> count)
-    hyperscore_histogram = {}
+    # (cleavage_re, position of cleavage in cleavage_re)
+    cleavage_pattern, cleavage_pos \
+                      = cleavage_motif_re(XTP["protein, cleavage site"])
+    if cleavage_pos == None:
+        error("cleavage site '%s' is missing '|'",
+              XTP["protein, cleavage site"])
+    cleavage_pattern = re.compile(cleavage_pattern)
 
     candidate_spectrum_count = 0
-    for idno, offset, defline, seq, is_N, is_C, seq_filename in db:
+    for idno, offset, defline, seq, seq_filename in db:
         if options.verbose:
             sys.stderr.write('p')
+        if idno > 20:
+            return
 
-        cleavage_points = list(generate_cleavage_points(seq))
+        cleavage_points = list(generate_cleavage_points(cleavage_pattern,
+                                                        cleavage_pos, seq))
         for begin, end, missed_cleavage_count \
                 in generate_peptides(seq, cleavage_points,
                                      XTP["scoring, maximum missed cleavage sites"]):
             peptide_seq = seq[begin:end]
             debug('generated peptide: %s', peptide_seq)
             candidate_spectrum_count \
-                += xtpy_search.search_peptide(spectrum_mass_index,
-                                              spectra, idno, offset, begin,
-                                              peptide_seq, is_N, is_C,
-                                              missed_cleavage_count,
-                                              hyperscore_histogram,
-                                              best_score, best_match,
-                                              second_best_score)
+                += cxtpy.spectrum.search_peptide(idno, offset, begin,
+                                                 peptide_seq,
+                                                 missed_cleavage_count,
+                                                 score_statistics)
     if options.verbose:
         print >> sys.stderr
 
     info('%s candidate spectra examined', candidate_spectrum_count)
     info('processing results')
 
+    #debug('best score: %s', tuple(score_statistics.best_score))
+
     # filter results and calculate statistics
     (spec_prot_info_items, expect, protein_expect, intensity, survival_curve,
      line_parameters, passing_spectra) \
-         = process_results(best_match, hyperscore_histogram, fasta_db,
-                           candidate_spectrum_count, spectra, db_residue_count)
+         = process_results(score_statistics, fasta_db,
+                           candidate_spectrum_count, spectra,
+                           db_residue_count)
 
     info('writing results')
 
     print_results_XML(options, XTP, db_info, spectrum_fn,
                       spec_prot_info_items, spectra, expect, protein_expect,
-                      intensity, second_best_score, survival_curve,
-                      line_parameters, passing_spectra)
+                      intensity, survival_curve, line_parameters,
+                      passing_spectra, score_statistics)
 
     info('finished')
     logging.shutdown()

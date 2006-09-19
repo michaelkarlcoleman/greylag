@@ -1,5 +1,6 @@
+// SWIG interface definition for module cxtpy
 
-
+//	$Id$
 
 
 %module cxtpy
@@ -7,7 +8,7 @@
 %feature("autodoc");
 
 %{
-#include "cxtpy.h"
+#include "cxtpy.hpp"
 %}
 
 
@@ -23,6 +24,10 @@
 	return NULL;
     }
 }
+
+// not sure these are useful--just avoiding SWIG warning
+%rename(ion_increment) operator++(ion &);
+%rename(ion_post_increment) operator++(ion &, int);
 
 
 %include std_string.i
@@ -47,8 +52,6 @@
 
 %template(pair_double_vector_size_type) 
     std::pair<double, std::vector<spectrum>::size_type>;
-%template(pair_char_int) std::pair<char, int>;
-%template(pair_char_double) std::pair<char, double>;
 
 // These two lines seem to be required to make the multimap template work.
 // The multimap is only exposed for debugging purposes, anyway, though.
@@ -58,8 +61,12 @@
 %template(multimap_double_vector_size_type)
     std::multimap<double, std::vector<spectrum>::size_type>;
 
-%template(map_char_int) std::map<char, int>;
-%template(map_char_double) std::map<char, double>;
+// currently unused
+//%template(pair_char_int) std::pair<char, int>;
+//%template(pair_char_double) std::pair<char, double>;
+
+//%template(map_char_int) std::map<char, int>;
+//%template(map_char_double) std::map<char, double>;
 
 
 %include "typemaps.i"
@@ -69,4 +76,4 @@
 %include file.i
 
 
-%include "cxtpy.h"
+%include "cxtpy.hpp"

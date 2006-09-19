@@ -1,10 +1,9 @@
+// cxtpy.hpp
 
 //	$Id$
 
-
 #ifndef CXTPY_H
 #define CXTPY_H
-
 
 #include <cassert>
 #include <cstdio>
@@ -23,6 +22,9 @@ class score_stats;
 class parameters {
 public:
   bool quirks_mode;		// try to produce results closer to xtandem's
+
+  // hyperscores within this ratio are considered "equal"
+  double hyper_score_epsilon_ratio;
 
   std::vector<double> factorial; // factorial[n] == n!
 
@@ -51,9 +53,16 @@ public:
   double parent_monoisotopic_mass_error_minus;
   double fragment_mass_error;
   int minimum_ion_count;
+  bool spectrum_synthesis;
 
   static parameters the;
 };
+
+
+enum ion { ION_MIN, ION_Y=ION_MIN, ION_B, ION_MAX }; // NB: [ION_MIN, ION_MAX)
+
+inline void operator++(ion &i) { i = ion(i + 1); }
+inline void operator++(ion &i, int) { i = ion(i + 1); }
 
 
 class peak {
@@ -70,6 +79,12 @@ class peak {
   static bool less_intensity(peak x, peak y) {
     return x.intensity < y.intensity;
   }
+
+  static double get_mz(double mass, int charge) {
+    const parameters &CP = parameters::the;
+    return mass/charge + CP.proton_mass;
+  }
+
 };
 
 
@@ -89,15 +104,27 @@ public:
   int id;			// unique for all spectra
   int physical_id;
 
-  spectrum(double mass=0, int charge=0) : mass(mass), charge(charge) {
-    id = next_id++;
-    assert(next_id > 0);
+private:
+  void init(double mass_=0, int charge_=0) {
+    mass = mass_;
+    charge = charge_;
+    set_id();
     max_peak_intensity = -1;
     sum_peak_intensity = -1;
     normalization_factor = 1;
     file_id = -1;
     physical_id = -1;
   }
+
+public:
+
+  spectrum(double mass=0, int charge=0) { init(mass, charge); }
+
+  // Construct a synthetic spectrum from these parameters.
+  // 'potential_mod_pattern' may be null if there are no mods.
+  spectrum(ion ion_type, int charge, const std::string &peptide_seq,
+	   const std::vector<double> *potential_mod_pattern,
+	   double peptide_mod_mass, bool synthesize_intensities);
 
   char *__repr__() const;
 
@@ -129,10 +156,22 @@ public:
   // also build spectrum_mass_index.
   static void set_searchable_spectra(const std::vector<spectrum> &spectra);
 
+  // Set peaks to the synthesized mass (not mz) ladder.
+  void set_synthetic_Y_peaks(const std::string &peptide_seq,
+			     const std::vector<double> *potential_mod_pattern);
+  // Set peaks to the synthesized mass (not mz) ladder.
+  void set_synthetic_B_peaks(const std::string &peptide_seq,
+			     const std::vector<double> *potential_mod_pattern);
+
+  // Multiply peak intensities by residue-dependent factors to generate a more
+  // realistic spectrum.
+  void synthesize_peak_intensities(const std::string &peptide_seq);
+
+
   static int search_peptide(int idno, int offset, int begin,
-			    const std::string &peptide_seq, bool is_N,
-			    bool is_C, int missed_cleavage_count,
-			    score_stats stats);
+			    const std::string &peptide_seq,
+			    int missed_cleavage_count,
+			    score_stats &stats);
 
 
   // Return the similarity score between this spectrum and that, and also a
@@ -140,8 +179,13 @@ public:
   static double score_similarity(const spectrum &x, const spectrum &y,
 				 int *peak_count);
 
+  // conceptually these are 'protected:', but we're taking it easy here
+public:
+  void set_id() {
+    id = next_id++;
+    assert(next_id > 0);
+  }
 
-public:				// conceptually protected:
   static int next_id;
   static int next_physical_id;
 
@@ -154,25 +198,28 @@ public:				// conceptually protected:
 
 // This is everything we want to remember about a match, so that we can report
 // it later.
+// FIX: Are any of these fields unneeded?
 class match {
 public:
+  double hyper_score;
   double convolution_score;
-  // FIX: Will these next two be too slow?  We only need to hold two values
-  // here...
-  std::map<char, double> ion_scores;
-  std::map<char, int> ion_peaks;
+  // FIX: what would be better for these next two?
+  std::vector<double> ion_scores;
+  std::vector<int> ion_peaks;
   int missed_cleavage_count;
   int spectrum_index;
   int peptide_begin;
   std::string peptide_sequence;
   std::vector<double> potential_mod_pattern; // sufficient?
-  double peptide_mod_mass;	// unneeded?
+  double peptide_mod_mass;
   int sequence_index;
   int sequence_offset;
 
-  match() : convolution_score(-1), missed_cleavage_count(-1),
+  match() : hyper_score(-1), convolution_score(-1), missed_cleavage_count(-1),
 	    spectrum_index(-1), peptide_begin(-1), peptide_mod_mass(-1),
 	    sequence_index(-1), sequence_offset(-1) {
+    ion_scores.resize(ION_MAX);
+    ion_peaks.resize(ION_MAX);
   }
 
 };
@@ -182,17 +229,25 @@ public:
 // some statistics.  Essentially, it holds the results of the search process.
 class score_stats {
 public:
+  explicit score_stats(int n) {
+    hyperscore_histogram.resize(n);
+    best_score.resize(n, 100.0);
+    second_best_score.resize(n, 100.0);
+    best_match.resize(n);
+  }
+  
   // spectrum index -> (scaled, binned hyperscore -> count)
   std::vector< std::vector<int> > hyperscore_histogram;
   // spectrum index -> best_hyperscore (and 2nd best, respectively)
-  std::vector<double> best_score, second_best_score;
+  std::vector<double> best_score;
+  std::vector<double> second_best_score;
   // spectrum index -> [ <match info>, ... ]
   std::vector< std::vector<match> > best_match;
 };
 
 
 // returns the monoisotopic mass
-double get_peptide_mass(const std::string &peptide_seq, bool is_N, bool is_C);
+double get_peptide_mass(const std::string &peptide_seq);
 
 // returns log-scaled hyperscore
 double scale_hyperscore(double hyper_score);
