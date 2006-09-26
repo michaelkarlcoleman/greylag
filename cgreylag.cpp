@@ -430,9 +430,9 @@ spectrum::spectrum(ion ion_type, int charge, const std::string &peptide_seq,
   if (synthesize_intensities)
     synthesize_peak_intensities(peptide_seq);
 
-  std::cerr << "synspect" << std::endl;
-  for (std::vector<peak>::iterator it=peaks.begin(); it != peaks.end(); it++)
-    std::cerr << "synpeak: " << it->mz << " " << charge << std::endl;
+  //std::cerr << "synspect" << std::endl;
+  //for (std::vector<peak>::iterator it=peaks.begin(); it != peaks.end(); it++)
+  //  std::cerr << "synpeak: " << it->mz << " " << charge << std::endl;
 
   // FIX: move outward?  B1 and B2 are the same until this point?
   // FIX: move this into set_synth* functions?
@@ -559,6 +559,7 @@ spectrum::search_peptide(int idno, int offset, int begin,
   const parameters &CP = parameters::the;
   int peptide_candidate_spectrum_count = 0;
   double peptide_mass = get_parent_peptide_mass(peptide_seq);
+
   // pyrroline?
   std::vector<double> potential_mod_pattern(peptide_seq.size());
   //while (generate_mod_patterns(potential_mod_pattern, peptide_seq, begin))
@@ -716,7 +717,7 @@ spectrum::score_similarity(const spectrum &x, const spectrum &y,
     if (std::abs(x_mz - y_mz) < (quirks_mode ? frag_err*1.5 : frag_err)) {
       *peak_count += 1;
       score += (x_it->intensity * y_it->intensity);
-      std::cerr << "hit " << x_mz << " vs " << y_mz << ", i = " << x_it->intensity * y_it->intensity << std::endl;
+      //std::cerr << "hit " << x_mz << " vs " << y_mz << ", i = " << x_it->intensity * y_it->intensity << std::endl;
 #if 0
       // assume peaks aren't "close" together
       x_it++;

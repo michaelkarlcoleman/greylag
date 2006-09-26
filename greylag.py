@@ -137,46 +137,36 @@ def initialize_spectrum_parameters(quirks_mode):
     """Initialize parameters known to the spectrum module."""
 
     # These two aren't currently part of the regime, so we're not handling
-    # deuterium yet
+    # deuterium yet (pointless?)
     CP.proton_mass = PROTON_MASS
     CP.hydrogen_mass = formula_mass("H")
 
-    # FIX: only a avg/mono regime 0 implemented for now
-    avg_parent = cxtpy.mass_regime_parameters(128)
-    mono_fragment = cxtpy.mass_regime_parameters(128)
+    # FIX: only a mono/mono regime 0 implemented for now
+    mono_regime = cxtpy.mass_regime_parameters(128)
 
-    CP.parent_mass_regime.append(avg_parent);
-    CP.fragment_mass_regime.append(mono_fragment);
-
-    CP.fragment_mass_regime[0].hydroxyl_mass = formula_mass("OH")
-    CP.fragment_mass_regime[0].water_mass = formula_mass("H2O")
+    mono_regime.hydroxyl_mass = formula_mass("OH")
+    mono_regime.water_mass = formula_mass("H2O")
 
     for residue in RESIDUE_FORMULA:
-        CP.parent_mass_regime[0].residue_mass[ord(residue)] \
-            = STANDARD_XT_AVG_RESIDUE_MASS[residue]
-        CP.fragment_mass_regime[0].residue_mass[ord(residue)] \
-            = STANDARD_RESIDUE_MASS[residue]
+        mono_regime.residue_mass[ord(residue)] = STANDARD_RESIDUE_MASS[residue]
 
     # FIX: for the moment we don't differentiate the parent/fragment cases
     for residue, modvalue in XTP["residue, modification mass"]:
-        CP.parent_mass_regime[0].modification_mass[ord(residue)] = modvalue
-        CP.fragment_mass_regime[0].modification_mass[ord(residue)] = modvalue
+        mono_regime.modification_mass[ord(residue)] = modvalue
 
     for residue, modvalue in XTP["residue, potential modification mass"]:
         # NB: SWIG currently only exposes inner vector as tuple
         # CP.potential_modification_mass[ord(residue)].append(modvalue)
-        CP.parent_mass_regime[0].potential_modification_mass[ord(residue)] \
-            = CP.parent_mass_regime[0].potential_modification_mass[ord(residue)] + (modvalue,)
-        CP.fragment_mass_regime[0].potential_modification_mass[ord(residue)] \
-            = CP.fragment_mass_regime[0].potential_modification_mass[ord(residue)] + (modvalue,)
+        mono_regime.potential_modification_mass[ord(residue)] \
+            = mono_regime.potential_modification_mass[ord(residue)] + (modvalue,)
 
     for residue, modvalue in XTP["refine, potential modification mass"]:
-        # CP.potential_modification_mass_refine[ord(residue)].append(modvalue)
-        CP.parent_mass_regime[0].potential_modification_mass_refine[ord(residue)] \
-            = CP.parent_mass_regime[0].potential_modification_mass_refine[ord(residue)] + (modvalue,)
-        CP.fragment_mass_regime[0].potential_modification_mass_refine[ord(residue)] \
-            = CP.fragment_mass_regime[0].potential_modification_mass_refine[ord(residue)] + (modvalue,)
+        mono_regime.potential_modification_mass_refine[ord(residue)] \
+            = mono_regime.potential_modification_mass_refine[ord(residue)] + (modvalue,)
 
+    # regime 0 is mono/mono
+    CP.parent_mass_regime.append(mono_regime);
+    CP.fragment_mass_regime.append(mono_regime);
 
     CP.cleavage_N_terminal_mass_change \
         = XTP["protein, cleavage N-terminal mass change"]
