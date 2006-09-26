@@ -1,17 +1,17 @@
 #!/usr/bin/env python2.4
 
 '''
-Analyze mass spectra and assign peptides and proteins.  (Partial
-re-implementation of X!Tandem, with extra features.)
+Analyze mass spectra and assign peptides and proteins.  (This is a partial
+re-implementation of X!Tandem algorithm, with many extra features.)
 
 '''
 
 __version__ = "$Id$"
 
 
-# FIX: some range should be xrange?
-
+import cPickle
 import fileinput
+import itertools
 import logging
 from logging import debug, info, warning
 import math
@@ -24,8 +24,6 @@ import sys
 import elementtree.ElementTree
 
 import cxtpy
-
-# import xtpy_search
 
 
 def error(s, *args):
@@ -43,25 +41,35 @@ XTP = {}
 # handle to the singleton parameter object shared with the C++ module
 CP = cxtpy.cvar.parameters_the
 
+# FIX: is this from H1 or H-avg??  (possible error here is ~0.0007 amu)
 PROTON_MASS = 1.007276
 
-# atom -> (monoisotopic mass, average mass)
+# Reference values from NIST (http://physics.nist.gov/PhysRefData/)
 ATOMIC_MASS = {
-    'H' : (  1.007825035,  1.00794  ),
-    'O' : ( 15.99491463,  15.9994   ),
-    'N' : ( 14.003074,    14.0067   ),
-    'C' : ( 12.000000000, 12.0107   ),
-    'S' : ( 31.9720707,   32.065    ),
-    'P' : ( 30.973762,    30.973761 ),
+    'H'     :  1.00782503214,
+    'H-avg' :  1.007947,
+    'C'     : 12.00000000,
+    'C-avg' : 12.01078,
+    'N'     : 14.00307400529,
+    'N-avg' : 14.00672,
+    'N15'   : 15.00010889849,
+    'O'     : 15.994914622115,
+    'O-avg' : 15.99943,
+    'P'     : 30.9737615120,
+    'P-avg' : 30.9737612,
+    'S'     : 31.9720706912,
+    'S-avg' : 32.0655,
     }
 
-def formula_mass(formula, monoisotopic=True):
-    """Return the mass of formula."""
+def formula_mass(formula, atomic_mass=ATOMIC_MASS):
+    """Return the mass of formula, using the given mass regime (monoisotopic
+    by default)."""
     parts = [ p or '1' for p in re.split(r'([A-Z][a-z]*)', formula)[1:] ]
     # parts for alanine is ('C', '3', 'H', '5', 'O', '1', 'N', '1')
-    return sum(ATOMIC_MASS[parts[i]][int(not monoisotopic)] * int(parts[i+1])
+    return sum(atomic_mass[parts[i]] * int(parts[i+1])
                for i in range(0, len(parts), 2))
 
+# FIX: selenocysteine (U), etc
 # residue -> formula
 RESIDUE_FORMULA = {
     'A' : "C3H5ON",
@@ -86,65 +94,89 @@ RESIDUE_FORMULA = {
     'Y' : "C9H9O2N",
     }
 
-# FIX: selenocysteine (U), etc
-# residue -> (monoisotopic mass, average mass)
-RESIDUE_MASS = {
-    'A' : [ 0.0,   71.0788 ],
-    'C' : [ 0.0 , 103.1388 ],
-    'D' : [ 0.0 , 115.0886 ],
-    'E' : [ 0.0 , 129.1155 ],
-    'F' : [ 0.0 , 147.1766 ],
-    'G' : [ 0.0 ,  57.0519 ],
-    'H' : [ 0.0 , 137.1411 ],
-    'I' : [ 0.0 , 113.1594 ],
-    'K' : [ 0.0 , 128.1741 ],
-    'L' : [ 0.0 , 113.1594 ],
-    'M' : [ 0.0 , 131.1926 ],
-    'N' : [ 0.0 , 114.1038 ],
-    'P' : [ 0.0 ,  97.1167 ],
-    'Q' : [ 0.0 , 128.1307 ],
-    'R' : [ 0.0 , 156.1875 ],
-    'S' : [ 0.0 ,  87.0782 ],
-    'T' : [ 0.0 , 101.1051 ],
-    'V' : [ 0.0 ,  99.1326 ],
-    'W' : [ 0.0 , 186.2132 ], 
-    'Y' : [ 0.0 , 163.1760 ],
+STANDARD_RESIDUE_MASS = dict((residue, formula_mass(RESIDUE_FORMULA[residue]))
+                             for residue in RESIDUE_FORMULA)
+
+# Why aren'te these two sets of average masses equal?
+STANDARD_XT_AVG_RESIDUE_MASS = {
+    'A' :  71.0788,
+    'C' : 103.1388,
+    'D' : 115.0886,
+    'E' : 129.1155,
+    'F' : 147.1766,
+    'G' :  57.0519,
+    'H' : 137.1411,
+    'I' : 113.1594,
+    'K' : 128.1741,
+    'L' : 113.1594,
+    'M' : 131.1926,
+    'N' : 114.1038,
+    'P' :  97.1167,
+    'Q' : 128.1307,
+    'R' : 156.1875,
+    'S' :  87.0782,
+    'T' : 101.1051,
+    'V' :  99.1326,
+    'W' : 186.2132, 
+    'Y' : 163.1760,
     }
 
-for residue in RESIDUE_MASS:
-    RESIDUE_MASS[residue][0] = formula_mass(RESIDUE_FORMULA[residue])
-    
+STANDARD_AVG_RESIDUE_MASS = dict((residue,
+                                  formula_mass(RESIDUE_FORMULA[residue],
+                                               { 'H' : ATOMIC_MASS['H-avg'],
+                                                 'C' : ATOMIC_MASS['C-avg'],
+                                                 'N' : ATOMIC_MASS['N-avg'],
+                                                 'O' : ATOMIC_MASS['O-avg'],
+                                                 'P' : ATOMIC_MASS['P-avg'],
+                                                 'S' : ATOMIC_MASS['S-avg'],
+                                                 }))
+                                 for residue in RESIDUE_FORMULA)
+
 
 def initialize_spectrum_parameters(quirks_mode):
     """Initialize parameters known to the spectrum module."""
 
-    CP.monoisotopic_atomic_mass.resize(128, 0.0)
-    CP.average_atomic_mass.resize(128, 0.0)
-    for atom, (monomass, avgmass) in ATOMIC_MASS.iteritems():
-        CP.monoisotopic_atomic_mass[ord(atom)] = monomass
-        CP.average_atomic_mass[ord(atom)] = avgmass
+    # These two aren't currently part of the regime, so we're not handling
+    # deuterium yet
+    CP.proton_mass = PROTON_MASS
+    CP.hydrogen_mass = formula_mass("H")
 
-    CP.monoisotopic_residue_mass.resize(128, 0.0)
-    CP.average_residue_mass.resize(128, 0.0)
-    for residue, (monomass, avgmass) in RESIDUE_MASS.iteritems():
-        CP.monoisotopic_residue_mass[ord(residue)] = monomass
-        CP.average_residue_mass[ord(residue)] = avgmass
+    # FIX: only a avg/mono regime 0 implemented for now
+    avg_parent = cxtpy.mass_regime_parameters(128)
+    mono_fragment = cxtpy.mass_regime_parameters(128)
 
-    CP.modification_mass.resize(128)
+    CP.parent_mass_regime.append(avg_parent);
+    CP.fragment_mass_regime.append(mono_fragment);
+
+    CP.fragment_mass_regime[0].hydroxyl_mass = formula_mass("OH")
+    CP.fragment_mass_regime[0].water_mass = formula_mass("H2O")
+
+    for residue in RESIDUE_FORMULA:
+        CP.parent_mass_regime[0].residue_mass[ord(residue)] \
+            = STANDARD_XT_AVG_RESIDUE_MASS[residue]
+        CP.fragment_mass_regime[0].residue_mass[ord(residue)] \
+            = STANDARD_RESIDUE_MASS[residue]
+
+    # FIX: for the moment we don't differentiate the parent/fragment cases
     for residue, modvalue in XTP["residue, modification mass"]:
-        CP.modification_mass[ord(residue)] = modvalue
+        CP.parent_mass_regime[0].modification_mass[ord(residue)] = modvalue
+        CP.fragment_mass_regime[0].modification_mass[ord(residue)] = modvalue
 
-    CP.potential_modification_mass.resize(128)
     for residue, modvalue in XTP["residue, potential modification mass"]:
         # NB: SWIG currently only exposes inner vector as tuple
         # CP.potential_modification_mass[ord(residue)].append(modvalue)
-        CP.potential_modification_mass[ord(residue)] \
-            = CP.potential_modification_mass[ord(residue)] + (modvalue,)
-    CP.potential_modification_mass_refine.resize(128)
+        CP.parent_mass_regime[0].potential_modification_mass[ord(residue)] \
+            = CP.parent_mass_regime[0].potential_modification_mass[ord(residue)] + (modvalue,)
+        CP.fragment_mass_regime[0].potential_modification_mass[ord(residue)] \
+            = CP.fragment_mass_regime[0].potential_modification_mass[ord(residue)] + (modvalue,)
+
     for residue, modvalue in XTP["refine, potential modification mass"]:
         # CP.potential_modification_mass_refine[ord(residue)].append(modvalue)
-        CP.potential_modification_mass_refine[ord(residue)] \
-            = CP.potential_modification_mass_refine[ord(residue)] + (modvalue,)
+        CP.parent_mass_regime[0].potential_modification_mass_refine[ord(residue)] \
+            = CP.parent_mass_regime[0].potential_modification_mass_refine[ord(residue)] + (modvalue,)
+        CP.fragment_mass_regime[0].potential_modification_mass_refine[ord(residue)] \
+            = CP.fragment_mass_regime[0].potential_modification_mass_refine[ord(residue)] + (modvalue,)
+
 
     CP.cleavage_N_terminal_mass_change \
         = XTP["protein, cleavage N-terminal mass change"]
@@ -160,11 +192,6 @@ def initialize_spectrum_parameters(quirks_mode):
     CP.minimum_ion_count = XTP["scoring, minimum ion count"]
     CP.spectrum_synthesis = XTP["refine, spectrum synthesis"]
 
-    CP.proton_mass = PROTON_MASS
-    CP.hydrogen = formula_mass("H")
-    CP.hydroxide = formula_mass("OH")
-    CP.water_mass = formula_mass("H2O")
-
     # CP.factorial[n] == (double) n!
     CP.factorial.resize(100, 1.0)
     for n in range(2, len(CP.factorial)):
@@ -172,6 +199,8 @@ def initialize_spectrum_parameters(quirks_mode):
 
     CP.quirks_mode = bool(quirks_mode)
     CP.hyper_score_epsilon_ratio = 0.999 # must be <1
+
+    #debug("CP: %s", pythonize_swig_object(CP, ['the']))
     
 
 def cleavage_motif_re(motif):
@@ -231,10 +260,10 @@ def generate_peptides(seq, cleavage_points, maximum_missed_cleavage_sites):
     """Yield (begin, end, missed_cleavage_count) for each apt peptide in
     sequence.""" 
     len_cp = len(cleavage_points)
-    for begin_i in range(len_cp-1):
-        for end_i in range(begin_i+1,
-                           min(len_cp,
-                               begin_i+2+maximum_missed_cleavage_sites)):
+    for begin_i in xrange(len_cp-1):
+        for end_i in xrange(begin_i+1,
+                            min(len_cp,
+                                begin_i+2+maximum_missed_cleavage_sites)):
             begin, end = cleavage_points[begin_i], cleavage_points[end_i]
             if end - begin >= 4:        # make 4 a param!
                 yield begin, end, end_i-begin_i-1
@@ -378,8 +407,8 @@ XML_PARAMETER_INFO = {
     "output, sort results by" : (('protein', 'spectrum'), "spectrum", p_ni_equal("protein")),
     "output, spectra" : (bool, "no"),
     "output, xsl path" : (str, ""),
-    "protein, C-terminal residue modification mass" : (float, "0.0", p_ni_equal(0)), # eliminate, obsolete
-    "protein, N-terminal residue modification mass" : (float, "0.0", p_ni_equal(0)), # eliminate, obsolete
+    "protein, C-terminal residue modification mass" : (float, "0.0", p_ni_equal(0)), # eliminate, tandem ni
+    "protein, N-terminal residue modification mass" : (float, "0.0", p_ni_equal(0)), # eliminate, tandem ni
     "protein, cleavage C-terminal mass change" : (float, formula_mass("OH")),
     "protein, cleavage N-terminal limit" : (int, "100000000", p_positive),
     "protein, cleavage N-terminal mass change" : (float, formula_mass("H")),
@@ -505,14 +534,14 @@ def get_spectrum_expectation(hyper_score, histogram):
 
     # trim zeros from right end of histogram (which must contain a non-zero)
     histogram = list(histogram)
-    while histogram[-1] == 0:
+    while histogram and histogram[-1] == 0:
         histogram.pop()
 
     counts = sum(histogram)
     c = counts
     # survival is just a reversed cumulative distribution
     survival = [0] * len(histogram)
-    for i in range(len(histogram)):
+    for i in xrange(len(histogram)):
         survival[i] = c
         c -= histogram[i]
     # note: neither histogram nor survival have 0 as rightmost element here
@@ -520,26 +549,27 @@ def get_spectrum_expectation(hyper_score, histogram):
     # this next looks bogus, but use for now to replicate xtandem
     # "remove potentially valid scores from the stochastic distribution"
     # makes the survival function non-monotonic?
-    lPos = survival[0] / 5
-    for lMid in range(len(survival)):
-        if survival[lMid] <= lPos:
-            break
-    a = len(survival) - 1
-    assert survival[a] != 0
-    lSum = 0
-    while a > 0:
-        if (survival[a] == survival[a-1] and survival[a] != survival[0]
-            and a > lMid):
-            lSum = survival[a]
-            a -= 1
-            while survival[a] == lSum:
-                assert a >= 0
+    if survival:
+        lPos = survival[0] / 5
+        for lMid in xrange(len(survival)):
+            if survival[lMid] <= lPos:
+                break
+        a = len(survival) - 1
+        assert survival[a] != 0
+        lSum = 0
+        while a > 0:
+            if (survival[a] == survival[a-1] and survival[a] != survival[0]
+                and a > lMid):
+                lSum = survival[a]
+                a -= 1
+                while survival[a] == lSum:
+                    assert a >= 0
+                    survival[a] -= lSum
+                    a -= 1
+            else:
                 survival[a] -= lSum
                 a -= 1
-        else:
-            survival[a] -= lSum
-            a -= 1
-    survival[a] -= lSum
+        survival[a] -= lSum
     # end bogus
 
     if counts < 200 or len(survival) < 3:
@@ -550,8 +580,10 @@ def get_spectrum_expectation(hyper_score, histogram):
     min_limit = 10
     max_limit = int(round(survival[0]/2.0))
     try:
-        max_i = min(i for i in range(len(survival)) if survival[i] <= max_limit)
-        min_i = min(i for i in range(max_i, len(survival)) if survival[i] <= min_limit)
+        max_i = min(i for i in xrange(len(survival))
+                    if survival[i] <= max_limit)
+        min_i = min(i for i in xrange(max_i, len(survival))
+                    if survival[i] <= min_limit)
     except ValueError:
         warning('bad survival curve? %s' % survival)
         a0, a1 = 3.5, -0.18
@@ -591,6 +623,7 @@ def get_final_protein_expect(sp_count, valid_spectra, match_ratio, raw_expect,
     r = raw_expect + math.log10(db_length)
     for a in range(sp_count):
         r += math.log10(float(valid_spectra - a)/(sp_count - a))
+    debug('valid_spectra: %s, match_ratio: %s', valid_spectra, match_ratio)
     r -= math.log10(valid_spectra) + (sp_count-1) * math.log10(match_ratio)
     #debug('x: %s', (match_ratio, candidate_spectra))
     p = min(float(match_ratio) / candidate_spectra, 0.9999999)
@@ -600,18 +633,102 @@ def get_final_protein_expect(sp_count, valid_spectra, match_ratio, raw_expect,
     return r
 
 
-def process_results(score_statistics, fasta_db, candidate_spectrum_count,
-                    spectra, db_residue_count):
-    # filter out any close-but-not-quite matches
+class struct:
+    "generic struct class used by pythonize_swig_object"
+    def __repr__(self):
+        return 'struct(%s)' % self.__dict__
+
+
+def pythonize_swig_object(o, skip_methods=[]):
+    """Creates a pure Python copy of a SWIG object, so that it can be
+    easily pickled, or printed (for debugging purposes).  If provided,
+    'skip_methods' is a list of methods not to include--this is a hack to
+    avoid infinite recursion.
+    """
+
+    if isinstance(o, str):
+        return o
+    try:
+        len(o)
+    except TypeError:
+        pass
+    else:
+        return list(pythonize_swig_object(x) for x in o)
+    if hasattr(o, '__swig_getmethods__'):
+        s = struct()
+        for a in o.__swig_getmethods__:
+            if a not in skip_methods:
+                setattr(s, a, pythonize_swig_object(getattr(o, a)))
+        return s
+    return o
+
+
+def filter_matches(score_statistics):
+    """Filter out any close-but-not-quite matches."""
     if not CP.quirks_mode:
         for sp_n in xrange(len(score_statistics.best_match)):
             bs = score_statistics.best_score[sp_n]
-            debug('bs: %s', bs)
-            for m in score_statistics.best_match[sp_n]:
-                debug('hs: %s', m.hyper_score)
             score_statistics.best_match[sp_n] \
                 = [ m for m in score_statistics.best_match[sp_n]
                     if m.hyper_score/bs > CP.hyper_score_epsilon_ratio ]
+    # else there shouldn't be anything to filter
+
+
+def extend_zeros(list1, list2):
+    """Make both lists the same length by end-padding the shorter one with
+    zeros.
+    """
+    l1, l2 = len(list1), len(list2)
+    l = max(l1, l2)
+    if l1 < l:
+        list1.extend([0] * (l - l1))
+    if l2 < l:
+        list2.extend([0] * (l - l2))
+
+
+def merge_score_statistics(ss0, ss1):
+    """Merge ss1 into ss0, keeping the best of both."""
+    n = len(ss0.best_score)
+    assert n == len(ss1.best_score), "quick sanity check"
+
+    for i in xrange(n):
+        extend_zeros(ss0.hyperscore_histogram[i], ss1.hyperscore_histogram[i])
+            
+        ss0.hyperscore_histogram[i] \
+            = [ x0+x1 for x0, x1 in zip(ss0.hyperscore_histogram[i],
+                                        ss1.hyperscore_histogram[i]) ]
+
+        ratio = ss0.best_score[i] / ss1.best_score[i]
+        if (not CP.quirks_mode
+            and (ratio > CP.hyper_score_epsilon_ratio and
+                 1/ratio > CP.hyper_score_epsilon_ratio)):
+            # essentially equal
+            ss0.second_best_score[i] = max(ss0.second_best_score[i],
+                                           ss1.second_best_score[i])
+        else:
+            ss0.second_best_score[i] \
+                = max(min(ss0.best_score[i], ss1.best_score[i]),
+                      max(ss0.second_best_score[i],
+                          ss1.second_best_score[i]))
+
+        ss0.best_score[i] = bs = max(ss0.best_score[i], ss1.best_score[i])
+
+        if CP.quirks_mode:
+            ss0.best_match[i] = [ x0 for x0 in ss0.best_match[i]
+                                  if x0.hyper_score >= bs ]
+            ss0.best_match[i].extend([ x1 for x1 in ss1.best_match[i]
+                                       if x1.hyper_score >= bs ])
+        else:
+            ss0.best_match[i] = [ x0 for x0 in ss0.best_match[i]
+                                  if (x0.hyper_score/bs
+                                      > CP.hyper_score_epsilon_ratio) ]
+            ss0.best_match[i].extend([ x1 for x1 in ss1.best_match[i]
+                                       if (x1.hyper_score/bs
+                                           > CP.hyper_score_epsilon_ratio) ])
+
+
+def process_results(score_statistics, fasta_db, candidate_spectrum_count,
+                    spectra, db_residue_count):
 
     # spectrum index -> [ (protein id, [domain info, ...]), ... ]
     # domain info == (...)
@@ -830,7 +947,7 @@ def print_histogram_XML(hlabel, htype, histogram, a0a1=None):
     print '</GAML:trace>'
 
 
-def print_results_XML(options, XTP, db_info, spectrum_fn,
+def print_results_XML(options, XTP, db_info, spectrum_fns,
                       spec_prot_info_items, spectra, expect, protein_expect,
                       intensity, survival_curve, line_parameters,
                       passing_spectra, score_statistics):
@@ -845,7 +962,7 @@ def print_results_XML(options, XTP, db_info, spectrum_fn,
     if title:
         print 'label="%s">' % title
     else:
-        print '''label="models from '%s'">''' % spectrum_fn
+        print 'label="models from %s">' % (spectrum_fns,)
 
     #debug("spec_prot_info_items: %s" % spec_prot_info_items)
 
@@ -888,7 +1005,7 @@ def print_results_XML(options, XTP, db_info, spectrum_fn,
                 print '<peptide start="1" end="%s">' % len(d0_run_seq)
                 if XTP["output, sequences"]:
                     seq = d0_run_seq
-                    for rowbegin in range(0, len(seq), 50):
+                    for rowbegin in xrange(0, len(seq), 50):
                         rowseq = seq[rowbegin:rowbegin+50]
                         if rowseq:
                             sys.stdout.write('\t')
@@ -950,7 +1067,7 @@ def print_results_XML(options, XTP, db_info, spectrum_fn,
                 print '<note label="Description">no description</note>'
             else:
                 print ('<note label="Description">%s:%s</note>'
-                       % (sp.file_id, sp.name))
+                       % (spectrum_fns[sp.file_id], sp.name))
             print ('<GAML:trace id="%s" label="%s.spectrum"'
                    ' type="tandem mass spectrum">'
                    % (sp.id, sp.id))
@@ -1009,17 +1126,30 @@ def print_results_XML(options, XTP, db_info, spectrum_fn,
 
 def main():
     parser = optparse.OptionParser(usage=
-                                   "usage: %prog [options] <parameter-file>",
+                                   "usage: %prog [options] <parameter-file>"
+                                   " [<ms2-file>...]",
                                    description=__doc__)
     parser.add_option("-o", "--output", dest="output",
                       help="destination file [default as given in parameter"
-                      " file, '-' for stdout]",
+                      " file, '-' for stdout, must be provided if --part"
+                      " specified]", 
                       metavar="FILE")
     parser.add_option("--quirks-mode", action="store_true",
                       dest="quirks_mode",
                       help="try to generate results as close as possible to"
-                      " those of XTandem (possibly at the expense of"
+                      " those of X!Tandem (possibly at the expense of"
                       " accuracy)") 
+    parser.add_option("--part", dest="part",
+                      help="do part of the search, writing the result to an"
+                      " intermediary file with suffix '.NofM.part'.  For"
+                      " example, to split into two parts, use '1of2' and"
+                      " '2of2'.", metavar="NofM")
+    parser.add_option("--part-merge", dest="part_merge", type="int",
+                      help="merge the previously created M parts and"
+                      " continue", metavar="M")  
+    parser.add_option("--part-prefix", dest="part_prefix", default='xtpy',
+                      help="prefix to use for temporary part files"
+                      " [default='xtpy']", metavar="PREFIX")
     parser.add_option("-q", "--quiet", action="store_true",
                       dest="quiet", help="no warnings")
     parser.add_option("-v", "--verbose", action="store_true",
@@ -1031,9 +1161,26 @@ def main():
                       help="dump profiling output to './xtpy.prof'")
     (options, args) = parser.parse_args()
 
-    if len(args) != 1:
+    if (len(args) < 1
+        or (options.part_merge and options.part_merge < 1)):
         parser.print_help()
         sys.exit(1)
+
+    part_fn_pattern = '%s.0.%sof%s.part'
+    part = None                         # or "2of10" -> (2, 10)
+    if options.part:
+        if options.part_merge:
+            error("cannot specify both --part and --part-merge")
+        try:
+            part = tuple(int(x) for x in options.part.split('of', 1))
+        except:
+            parser.print_help()
+            sys.exit(1)
+        if not 1 <= part[0] <= part[1]:
+            error("bad --part parameter")
+        part_fn_pattern %= (options.part_prefix, '%s', part[1])
+    if options.part_merge:
+        part_fn_pattern %= (options.part_prefix, '%s', options.part_merge)
 
     log_level = logging.WARNING
     if options.quiet:
@@ -1055,7 +1202,10 @@ def main():
     global XTP
     XTP = validate_parameters(parameters)
 
-    if options.output:
+    if part:
+        part_fn = part_fn_pattern % part[0]
+        sys.stdout = open(part_fn, 'w')
+    elif options.output:
         if options.output != '-':
             sys.stdout = open(options.output, 'w')
     else:
@@ -1088,8 +1238,14 @@ def main():
         error("no database sequences")
 
     # read spectra
-    spectrum_fn = XTP["spectrum, path"]
-    spectra = list(cxtpy.spectrum.read_spectra(open(spectrum_fn), 0))
+    if len(args) > 1:
+        spectrum_fns = args[1:]
+    else:
+        spectrum_fns = [XTP["spectrum, path"]]
+
+    spectra = list(itertools.chain(*[ cxtpy.spectrum.read_spectra(open(fn), n)
+                                      for n, fn in enumerate(spectrum_fns) ]))
+    #spectra = list(cxtpy.spectrum.read_spectra(open(spectrum_fn), 0))
     if not spectra:
         error("no input spectra")
     info("read %s spectra", len(spectra))
@@ -1120,32 +1276,59 @@ def main():
               XTP["protein, cleavage site"])
     cleavage_pattern = re.compile(cleavage_pattern)
 
-    candidate_spectrum_count = 0
-    for idno, offset, defline, seq, seq_filename in db:
+    if not options.part_merge:
+        candidate_spectrum_count = 0
+        for idno, offset, defline, seq, seq_filename in db:
+            if options.verbose:
+                sys.stderr.write('p')
+            if part and idno % part[1] != part[0]-1:
+                continue
+
+            cleavage_points = list(generate_cleavage_points(cleavage_pattern,
+                                                            cleavage_pos, seq))
+            for begin, end, missed_cleavage_count \
+                    in generate_peptides(seq, cleavage_points,
+                                         XTP["scoring, maximum missed cleavage sites"]):
+                peptide_seq = seq[begin:end]
+                debug('generated peptide: %s', peptide_seq)
+                candidate_spectrum_count \
+                    += cxtpy.spectrum.search_peptide(idno, offset, begin,
+                                                     peptide_seq,
+                                                     missed_cleavage_count,
+                                                     score_statistics)
         if options.verbose:
-            sys.stderr.write('p')
-        if idno > 20:
+            print >> sys.stderr
+
+        info('%s candidate spectra examined', candidate_spectrum_count)
+        filter_matches(score_statistics)
+
+        if part:
+            cPickle.dump((part, candidate_spectrum_count,
+                          pythonize_swig_object(score_statistics)),
+                         sys.stdout, cPickle.HIGHEST_PROTOCOL)
+            info("finished, part file written to '%s'", part_fn)
+            logging.shutdown()
             return
+    else:
+        info('loading %s parts' % options.part_merge)
 
-        cleavage_points = list(generate_cleavage_points(cleavage_pattern,
-                                                        cleavage_pos, seq))
-        for begin, end, missed_cleavage_count \
-                in generate_peptides(seq, cleavage_points,
-                                     XTP["scoring, maximum missed cleavage sites"]):
-            peptide_seq = seq[begin:end]
-            debug('generated peptide: %s', peptide_seq)
-            candidate_spectrum_count \
-                += cxtpy.spectrum.search_peptide(idno, offset, begin,
-                                                 peptide_seq,
-                                                 missed_cleavage_count,
-                                                 score_statistics)
-    if options.verbose:
-        print >> sys.stderr
+        part_fn = '%s.0.%sof%s.part'
 
-    info('%s candidate spectra examined', candidate_spectrum_count)
+        part0, candidate_spectrum_count, score_statistics \
+              = cPickle.load(open(part_fn_pattern % 1, 'rb'))
+        #debug('ss0: %s', score_statistics)
+        if part0[0] != 1 or part0[1] != options.part_merge:
+            error('part file mismatch')
+        for p in range(2, options.part_merge+1):
+            part0, candidate_spectrum_count0, score_statistics0 \
+                   = cPickle.load(open(part_fn_pattern % p, 'rb'))
+            candidate_spectrum_count += candidate_spectrum_count0
+            #debug('ssn: %s', score_statistics0)
+            merge_score_statistics(score_statistics, score_statistics0)
+
     info('processing results')
 
-    #debug('best score: %s', tuple(score_statistics.best_score))
+    debug('best score: %s', tuple(score_statistics.best_score))
 
     # filter results and calculate statistics
     (spec_prot_info_items, expect, protein_expect, intensity, survival_curve,
@@ -1156,7 +1339,7 @@ def main():
 
     info('writing results')
 
-    print_results_XML(options, XTP, db_info, spectrum_fn,
+    print_results_XML(options, XTP, db_info, spectrum_fns,
                       spec_prot_info_items, spectra, expect, protein_expect,
                       intensity, survival_curve, line_parameters,
                       passing_spectra, score_statistics)

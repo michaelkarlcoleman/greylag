@@ -18,6 +18,27 @@
 class score_stats;
 
 
+class mass_regime_parameters {
+public:
+  double hydroxyl_mass;
+  double water_mass;
+
+  // these are indexed by residue char (plus '[' and ']' for N and C termini)
+  std::vector<double> residue_mass;
+  std::vector<double> modification_mass;
+  std::vector< std::vector<double> > potential_modification_mass;
+  std::vector< std::vector<double> > potential_modification_mass_refine;
+
+  mass_regime_parameters() : hydroxyl_mass(0), water_mass(0) { }
+
+  mass_regime_parameters(unsigned size) : hydroxyl_mass(0), water_mass(0) {
+    residue_mass.resize(size);
+    modification_mass.resize(size);
+    potential_modification_mass.resize(size);
+    potential_modification_mass_refine.resize(size);
+  }
+};
+
 // FIX: want these class members to all be static, but had SWIG trouble
 class parameters {
 public:
@@ -28,27 +49,16 @@ public:
 
   std::vector<double> factorial; // factorial[n] == n!
 
-  // these are indexed by atom char
-  // (slightly bogus, but all the atoms we use have single-char names)
-  std::vector<double> average_atomic_mass;
-  std::vector<double> monoisotopic_atomic_mass;
-
+  // deuterium not yet implemented
   double proton_mass;
-  // monoisotopic, for now (?)
-  double hydrogen;
-  double hydroxide;
-  double water_mass;
-
-  // these are indexed by residue char (plus '[' and ']' for N and C termini)
-  std::vector<double> average_residue_mass;
-  std::vector<double> monoisotopic_residue_mass;
-  std::vector<double> modification_mass;
-  std::vector< std::vector<double> > potential_modification_mass;
-  std::vector< std::vector<double> > potential_modification_mass_refine;
+  double hydrogen_mass;
+  std::vector<mass_regime_parameters> parent_mass_regime;
+  std::vector<mass_regime_parameters> fragment_mass_regime;
 
   // from XTP
   double cleavage_N_terminal_mass_change;
   double cleavage_C_terminal_mass_change;
+
   double parent_monoisotopic_mass_error_plus;
   double parent_monoisotopic_mass_error_minus;
   double fragment_mass_error;
@@ -158,10 +168,12 @@ public:
 
   // Set peaks to the synthesized mass (not mz) ladder.
   void set_synthetic_Y_peaks(const std::string &peptide_seq,
-			     const std::vector<double> *potential_mod_pattern);
+			     const std::vector<double> *potential_mod_pattern,
+			     const unsigned mass_regime=0);
   // Set peaks to the synthesized mass (not mz) ladder.
   void set_synthetic_B_peaks(const std::string &peptide_seq,
-			     const std::vector<double> *potential_mod_pattern);
+			     const std::vector<double> *potential_mod_pattern,
+			     const unsigned mass_regime=0);
 
   // Multiply peak intensities by residue-dependent factors to generate a more
   // realistic spectrum.
@@ -246,8 +258,9 @@ public:
 };
 
 
-// returns the monoisotopic mass
-double get_peptide_mass(const std::string &peptide_seq);
+// "parent" would typically use average mass, though not necessarily
+double get_parent_peptide_mass(const std::string &peptide_seq,
+			       const unsigned mass_regime=0);
 
 // returns log-scaled hyperscore
 double scale_hyperscore(double hyper_score);

@@ -32,7 +32,7 @@
 #endif
 
 #ifdef FAST_LOWER_READ_ACCURACY
-// probably faster, at the cost of accuracy
+// probably faster, at some cost in accuracy
 #define strtodX std::strtof
 #else
 #define strtodX std::strtod
@@ -321,12 +321,15 @@ spectrum::set_searchable_spectra(const std::vector<spectrum> &spectra) {
 // Set peaks to the synthesized mass (not mz) ladder.
 void
 spectrum::set_synthetic_Y_peaks(const std::string &peptide_seq,
-				const std::vector<double> *potential_mod_pattern) {
+				const std::vector<double> *potential_mod_pattern,
+				const unsigned mass_regime) {
   const parameters &CP = parameters::the;
   const bool is_C = false;	// FIX
-  double m = CP.water_mass + (CP.cleavage_C_terminal_mass_change - CP.hydroxide);
+  double m = (CP.fragment_mass_regime[mass_regime].water_mass
+	      + (CP.cleavage_C_terminal_mass_change
+		 - CP.fragment_mass_regime[mass_regime].hydroxyl_mass));
   if (is_C) {
-    m += CP.modification_mass[']'];
+    m += CP.fragment_mass_regime[mass_regime].modification_mass[']'];
     //if False:                       # ] is diff modded
     //        #m += CP.potential_modification_mass[ord(']')]...
   }
@@ -334,7 +337,7 @@ spectrum::set_synthetic_Y_peaks(const std::string &peptide_seq,
   const int ladder_size = peptide_seq.size() - 1;
   peaks.resize(ladder_size);
   for (int i=ladder_size-1; i>=0; i--) {
-    m += CP.monoisotopic_residue_mass[peptide_seq[i+1]];
+    m += CP.fragment_mass_regime[mass_regime].residue_mass[peptide_seq[i+1]];
     // m += the mod delta, too
     peaks[ladder_size-1-i] = peak(m, 1.0);
   }
@@ -350,12 +353,13 @@ spectrum::set_synthetic_Y_peaks(const std::string &peptide_seq,
 // Set peaks to the synthesized mass (not mz) ladder.
 void
 spectrum::set_synthetic_B_peaks(const std::string &peptide_seq,
-				const std::vector<double> *potential_mod_pattern) {
+				const std::vector<double> *potential_mod_pattern,
+				const unsigned mass_regime) {
   const parameters &CP = parameters::the;
   const bool is_N = false;	// FIX
-  double m = 0.0 + (CP.cleavage_N_terminal_mass_change - CP.hydrogen);
+  double m = 0.0 + (CP.cleavage_N_terminal_mass_change - CP.hydrogen_mass);
   if (is_N) {
-    m += CP.modification_mass['['];
+    m += CP.fragment_mass_regime[mass_regime].modification_mass['['];
     //if False:                       # [ is diff modded
     //        #m += CP.potential_modification_mass[ord('[')]...
   }
@@ -363,7 +367,7 @@ spectrum::set_synthetic_B_peaks(const std::string &peptide_seq,
   const int ladder_size = peptide_seq.size() - 1;
   peaks.resize(ladder_size);
   for (int i=0; i<=ladder_size-1; i++) {
-    m += CP.monoisotopic_residue_mass[peptide_seq[i]];
+    m += CP.fragment_mass_regime[mass_regime].residue_mass[peptide_seq[i]];
     // m += the mod delta, too
     peaks[i] = peak(m, 1.0);
   }
@@ -426,6 +430,11 @@ spectrum::spectrum(ion ion_type, int charge, const std::string &peptide_seq,
   if (synthesize_intensities)
     synthesize_peak_intensities(peptide_seq);
 
+  std::cerr << "synspect" << std::endl;
+  for (std::vector<peak>::iterator it=peaks.begin(); it != peaks.end(); it++)
+    std::cerr << "synpeak: " << it->mz << " " << charge << std::endl;
+
+  // FIX: move outward?  B1 and B2 are the same until this point?
   // FIX: move this into set_synth* functions?
   for (std::vector<peak>::iterator it=peaks.begin(); it != peaks.end(); it++)
     it->mz = peak::get_mz(it->mz, charge);
@@ -503,6 +512,43 @@ score_spectrum(double &hyper_score, double &convolution_score,
 }
 
 
+#if 0
+
+struct generator;
+
+
+struct generator {
+  // fx = &generator::generate_static_aa_mod;
+
+  typedef void generator::generator_fx(score_stats &stats, const match &m,
+				       std::vector<double> position_mass,
+				       const std::vector<double> &terminal_mass,
+				       const std::vector<generator>::iterator g_it);
+
+  generator() : fx(0) { }
+
+  generator_fx generate_static_aa_mod;
+
+  generator_fx generator::*fx;
+  std::vector<double> args;
+};
+
+
+void
+generator::generate_static_aa_mod(score_stats &stats, const match &m,
+				  std::vector<double> position_mass,
+				  const std::vector<double> &terminal_mass,
+				  const std::vector<generator>::iterator g_it) {
+  for (unsigned int i=0; i<m.peptide_sequence.size(); i++)
+    position_mass[i] += args[m.peptide_sequence[i]];
+
+  ((*g_it).*(g_it->fx))(stats, m, position_mass, terminal_mass, g_it+1);
+}
+
+#endif		    
+
+
+
 // Search for matches of this peptide (including all specified modification)
 // against the spectra.  Updates score_stats and returns the number of
 // candidate spectra found for this peptide.
@@ -512,7 +558,7 @@ spectrum::search_peptide(int idno, int offset, int begin,
 			 int missed_cleavage_count, score_stats &stats) {
   const parameters &CP = parameters::the;
   int peptide_candidate_spectrum_count = 0;
-  double peptide_mass = get_peptide_mass(peptide_seq);
+  double peptide_mass = get_parent_peptide_mass(peptide_seq);
   // pyrroline?
   std::vector<double> potential_mod_pattern(peptide_seq.size());
   //while (generate_mod_patterns(potential_mod_pattern, peptide_seq, begin))
@@ -670,7 +716,7 @@ spectrum::score_similarity(const spectrum &x, const spectrum &y,
     if (std::abs(x_mz - y_mz) < (quirks_mode ? frag_err*1.5 : frag_err)) {
       *peak_count += 1;
       score += (x_it->intensity * y_it->intensity);
-      //std::cerr << "hit " << x_mz << " vs " << y_mz << ", i = " << x_it->intensity * y_it->intensity << std::endl;
+      std::cerr << "hit " << x_mz << " vs " << y_mz << ", i = " << x_it->intensity * y_it->intensity << std::endl;
 #if 0
       // assume peaks aren't "close" together
       x_it++;
@@ -688,22 +734,22 @@ spectrum::score_similarity(const spectrum &x, const spectrum &y,
 }
 
 
-// returns the monoisotopic mass
 double
-get_peptide_mass(const std::string &peptide_seq) {
+get_parent_peptide_mass(const std::string &peptide_seq,
+			const unsigned mass_regime) {
   const parameters &CP = parameters::the;
   const bool is_N=false, is_C=false; // FIX
   double NC_mods = 0;
   if (is_N)
-    NC_mods += CP.modification_mass['['];
+    NC_mods += CP.parent_mass_regime[mass_regime].modification_mass['['];
   if (is_C)
-    NC_mods += CP.modification_mass[']'];
+    NC_mods += CP.parent_mass_regime[mass_regime].modification_mass[']'];
 
   double residue_sum = 0;
   for (std::string::const_iterator it=peptide_seq.begin();
        it != peptide_seq.end(); it++)
-    residue_sum += (CP.monoisotopic_residue_mass[*it]
-		    + CP.modification_mass[*it]);
+    residue_sum += (CP.parent_mass_regime[mass_regime].residue_mass[*it]
+		    + CP.parent_mass_regime[mass_regime].modification_mass[*it]);
   return (NC_mods + residue_sum
 	  + CP.cleavage_N_terminal_mass_change
 	  + CP.cleavage_C_terminal_mass_change

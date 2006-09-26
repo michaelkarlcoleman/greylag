@@ -7,6 +7,12 @@ What doesn't xtpy do that SIMR cares about?
 
 - cluster implementation
 
+    qsub -t 1-5 -b y -shell n -cwd -V \
+        python -c 'import os, socket; print socket.gethostname(), os.getcwd(), os.getenv("SGE_TASK_ID")'
+	SGE_TASK_FIRST
+	SGE_TASK_LAST
+
+
 - cyclic "permutations" (for scoring accuracy)
 
 
@@ -41,7 +47,11 @@ xtandem: cpp: 13058
 xtpy: cpp: 595 py: 863
 
 
+valgrind it
 
 double-check handling of FP arithmetic using epsilons (no ==, no strict <)
 test spectrum synthesis
 
+
+More reference info here
+http://www.expasy.org/tools/findmod/findmod_masses.html

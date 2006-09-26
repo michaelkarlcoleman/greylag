@@ -41,6 +41,7 @@
 %template(vector_peak) std::vector<peak>;
 %template(vector_spectrum) std::vector<spectrum>;
 %template(vector_match) std::vector<match>;
+%template(vector_mass_regime_parameters) std::vector<mass_regime_parameters>;
 %template(vector_vector_int) std::vector< std::vector<int> >;
 %template(vector_vector_double) std::vector< std::vector<double> >;
 %template(vector_vector_match) std::vector< std::vector<match> >;
