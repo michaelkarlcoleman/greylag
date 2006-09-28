@@ -132,6 +132,8 @@ STANDARD_AVG_RESIDUE_MASS = dict((residue,
                                                  }))
                                  for residue in RESIDUE_FORMULA)
 
+print STANDARD_XT_AVG_RESIDUE_MASS, STANDARD_AVG_RESIDUE_MASS, STANDARD_RESIDUE_MASS
+
 
 def initialize_spectrum_parameters(quirks_mode):
     """Initialize parameters known to the spectrum module."""
@@ -581,7 +583,9 @@ def get_spectrum_expectation(hyper_score, histogram):
         
     data_X = range(max_i, min_i)
     data_Y = [ math.log10(survival[x]) for x in data_X ]
-    assert data_Y[0] == max(data_Y), "impossible xtandem case?"
+    # FIX!
+    if data_Y[0] == max(data_Y):
+        warning('bad survival curve? (2) %s' % survival)
 
     # fit least-squares line
     n = len(data_X)
@@ -1280,7 +1284,7 @@ def main():
                     in generate_peptides(seq, cleavage_points,
                                          XTP["scoring, maximum missed cleavage sites"]):
                 peptide_seq = seq[begin:end]
-                debug('generated peptide: %s', peptide_seq)
+                #debug('generated peptide: %s', peptide_seq)
                 candidate_spectrum_count \
                     += cxtpy.spectrum.search_peptide(idno, offset, begin,
                                                      peptide_seq,

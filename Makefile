@@ -11,7 +11,7 @@
 
 
 #CXXFLAGS = -Wall -g3 -O0 -D_GLIBCXX_DEBUG
-CXXFLAGS = -Wall -g -O2
+CXXFLAGS = -Wall -g -O3
 
 SWIGCXXFLAGS = $(CXXFLAGS) -fno-strict-aliasing -Wno-unused-function -fPIC \
 			-I$(PYTHON_I)

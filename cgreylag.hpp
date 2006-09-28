@@ -80,8 +80,7 @@ class peak {
   double mz;
   double intensity;
 
-  peak(double mz=0, double intensity=0)
-    : mz(mz), intensity(intensity) { }
+  peak(double mz=0, double intensity=0) : mz(mz), intensity(intensity) { }
 
   char *__repr__() const;
 
@@ -94,7 +93,6 @@ class peak {
     const parameters &CP = parameters::the;
     return mass/charge + CP.proton_mass;
   }
-
 };
 
 
@@ -131,10 +129,8 @@ public:
   spectrum(double mass=0, int charge=0) { init(mass, charge); }
 
   // Construct a synthetic spectrum from these parameters.
-  // 'potential_mod_pattern' may be null if there are no mods.
-  spectrum(ion ion_type, int charge, const std::string &peptide_seq,
-	   const std::vector<double> *potential_mod_pattern,
-	   double peptide_mod_mass, bool synthesize_intensities);
+  spectrum(double peptide_mod_mass, int charge,
+	   const std::vector<peak> &mass_ladder);
 
   char *__repr__() const;
 
@@ -166,25 +162,16 @@ public:
   // also build spectrum_mass_index.
   static void set_searchable_spectra(const std::vector<spectrum> &spectra);
 
-  // Set peaks to the synthesized mass (not mz) ladder.
-  void set_synthetic_Y_peaks(const std::string &peptide_seq,
-			     const std::vector<double> *potential_mod_pattern,
-			     const unsigned mass_regime=0);
-  // Set peaks to the synthesized mass (not mz) ladder.
-  void set_synthetic_B_peaks(const std::string &peptide_seq,
-			     const std::vector<double> *potential_mod_pattern,
-			     const unsigned mass_regime=0);
-
-  // Multiply peak intensities by residue-dependent factors to generate a more
-  // realistic spectrum.
-  void synthesize_peak_intensities(const std::string &peptide_seq);
-
-
+  // OLD
   static int search_peptide(int idno, int offset, int begin,
 			    const std::string &peptide_seq,
 			    int missed_cleavage_count,
 			    score_stats &stats);
-
+  // NEW
+  static int search_peptide_all_mods(int idno, int offset, int begin,
+				     const std::string &peptide_seq,
+				     int missed_cleavage_count,
+				     score_stats &stats);
 
   // Return the similarity score between this spectrum and that, and also a
   // count of common peaks in *peak_count.
@@ -222,7 +209,6 @@ public:
   int spectrum_index;
   int peptide_begin;
   std::string peptide_sequence;
-  std::vector<double> potential_mod_pattern; // sufficient?
   double peptide_mod_mass;
   int sequence_index;
   int sequence_offset;
@@ -258,9 +244,16 @@ public:
 };
 
 
+// OLD
 // "parent" would typically use average mass, though not necessarily
 double get_parent_peptide_mass(const std::string &peptide_seq,
 			       const unsigned mass_regime=0);
+
+// NEW
+double get_peptide_mass(const std::vector<double> &mass_list,
+			const double N_terminal_mass,
+			const double C_terminal_mass);
+
 
 // returns log-scaled hyperscore
 double scale_hyperscore(double hyper_score);
