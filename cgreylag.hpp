@@ -22,6 +22,7 @@ class mass_regime_parameters {
 public:
   double hydroxyl_mass;
   double water_mass;
+  double ammonia_mass;
 
   // these are indexed by residue char (plus '[' and ']' for N and C termini)
   std::vector<double> residue_mass;
@@ -29,9 +30,11 @@ public:
   std::vector< std::vector<double> > potential_modification_mass;
   std::vector< std::vector<double> > potential_modification_mass_refine;
 
-  mass_regime_parameters() : hydroxyl_mass(0), water_mass(0) { }
+  mass_regime_parameters() : hydroxyl_mass(0), water_mass(0),
+			     ammonia_mass(0) { } 
 
-  mass_regime_parameters(unsigned size) : hydroxyl_mass(0), water_mass(0) {
+  mass_regime_parameters(unsigned size) : hydroxyl_mass(0), water_mass(0),
+					  ammonia_mass(0) {
     residue_mass.resize(size);
     modification_mass.resize(size);
     potential_modification_mass.resize(size);
@@ -103,6 +106,7 @@ class spectrum {
 public:
   double mass;
   int charge;
+  static const int max_supported_charge = 10;
   std::vector<peak> peaks;
   double max_peak_intensity;
   double sum_peak_intensity;
@@ -116,6 +120,9 @@ private:
   void init(double mass_=0, int charge_=0) {
     mass = mass_;
     charge = charge_;
+    if (charge > max_supported_charge)
+      throw std::invalid_argument("attempt to create a spectrum with greater"
+				  " than supported charge");
     set_id();
     max_peak_intensity = -1;
     sum_peak_intensity = -1;
@@ -162,12 +169,6 @@ public:
   // also build spectrum_mass_index.
   static void set_searchable_spectra(const std::vector<spectrum> &spectra);
 
-  // OLD
-  static int search_peptide(int idno, int offset, int begin,
-			    const std::string &peptide_seq,
-			    int missed_cleavage_count,
-			    score_stats &stats);
-  // NEW
   static int search_peptide_all_mods(int idno, int offset, int begin,
 				     const std::string &peptide_seq,
 				     int missed_cleavage_count,
@@ -209,12 +210,12 @@ public:
   int spectrum_index;
   int peptide_begin;
   std::string peptide_sequence;
-  double peptide_mod_mass;
+  double peptide_mass;
   int sequence_index;
   int sequence_offset;
 
   match() : hyper_score(-1), convolution_score(-1), missed_cleavage_count(-1),
-	    spectrum_index(-1), peptide_begin(-1), peptide_mod_mass(-1),
+	    spectrum_index(-1), peptide_begin(-1), peptide_mass(-1),
 	    sequence_index(-1), sequence_offset(-1) {
     ion_scores.resize(ION_MAX);
     ion_peaks.resize(ION_MAX);

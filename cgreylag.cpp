@@ -312,64 +312,52 @@ spectrum::set_searchable_spectra(const std::vector<spectrum> &spectra) {
     spectrum_mass_index.insert(std::make_pair(spectra[i].mass, i));
 }
 
-
-// LATER
-//bool
-//spectrum::generate_mod_patterns(potential_mod_pattern, peptide_seq, begin) {
-//}
-
+// In both of the following functions, an intensity boost is given for the
+// second peptide bond/peak (*) if the N-terminal residue is 'P':
+//      0 * 2 3 (peaks)
+//     A P C D E
 
 // Calculate peaks for a synthesized mass (not mz) ladder.
-static void
+static inline void
 get_synthetic_Y_mass_ladder(std::vector<peak> &mass_ladder,
 			    const std::string &peptide_seq,
+			    const std::vector<double> &mass_list,
+			    const double C_terminal_mass,
 			    const unsigned mass_regime=0) {
   const parameters &CP = parameters::the;
-  const bool is_C = false;	// FIX
+  assert(peptide_seq.size() == mass_list.size());
   double m = (CP.fragment_mass_regime[mass_regime].water_mass
 	      + (CP.cleavage_C_terminal_mass_change
-		 - CP.fragment_mass_regime[mass_regime].hydroxyl_mass));
-  if (is_C) {
-    m += CP.fragment_mass_regime[mass_regime].modification_mass[']'];
-    //if False:                       # ] is diff modded
-    //        #m += CP.potential_modification_mass[ord(']')]...
-  }
+		 - CP.fragment_mass_regime[mass_regime].hydroxyl_mass)
+	      + C_terminal_mass);
 
-  const int ladder_size = peptide_seq.size() - 1;
+  const int ladder_size = mass_list.size() - 1;
   mass_ladder.resize(ladder_size);
   for (int i=ladder_size-1; i>=0; i--) {
-    m += CP.fragment_mass_regime[mass_regime].residue_mass[peptide_seq[i+1]];
-    // m += the mod delta, too
+    m += mass_list[i+1];
     mass_ladder[ladder_size-1-i] = peak(m, 1.0);
   }
-  assert(peptide_seq.size() >= 3);
+  assert(peptide_seq.size() >= 3); // FIX: move/duplicate this assertion outward
   mass_ladder[ladder_size-2].intensity = 3.0;
   if (peptide_seq[1] == 'P')
     mass_ladder[ladder_size-2].intensity = 10.0;
 }
 
-//  0 * 2 3 (peaks)
-// A P C D E
-
 // Calculate peaks for a synthesized mass (not mz) ladder.
-static void
+static inline void
 get_synthetic_B_mass_ladder(std::vector<peak> &mass_ladder,
 			    const std::string &peptide_seq,
+			    const std::vector<double> &mass_list,
+			    const double N_terminal_mass,
 			    const unsigned mass_regime=0) {
   const parameters &CP = parameters::the;
-  const bool is_N = false;	// FIX
-  double m = 0.0 + (CP.cleavage_N_terminal_mass_change - CP.hydrogen_mass);
-  if (is_N) {
-    m += CP.fragment_mass_regime[mass_regime].modification_mass['['];
-    //if False:                       # [ is diff modded
-    //        #m += CP.potential_modification_mass[ord('[')]...
-  }
+  double m = (0.0 + (CP.cleavage_N_terminal_mass_change - CP.hydrogen_mass)
+	      + N_terminal_mass);
 
-  const int ladder_size = peptide_seq.size() - 1;
+  const int ladder_size = mass_list.size() - 1;
   mass_ladder.resize(ladder_size);
   for (int i=0; i<=ladder_size-1; i++) {
-    m += CP.fragment_mass_regime[mass_regime].residue_mass[peptide_seq[i]];
-    // m += the mod delta, too
+    m += mass_list[i];
     mass_ladder[i] = peak(m, 1.0);
   }
   assert(peptide_seq.size() >= 2);
@@ -381,7 +369,7 @@ get_synthetic_B_mass_ladder(std::vector<peak> &mass_ladder,
 
 // Multiply peak intensities by residue-dependent factors to generate a more
 // realistic spectrum.
-static void
+static inline void
 synthesize_ladder_intensities(std::vector<peak> &mass_ladder,
 			      const std::string &peptide_seq) {
   assert(mass_ladder.size() + 1 == peptide_seq.size());
@@ -419,13 +407,18 @@ spectrum::spectrum(double peptide_mod_mass, int charge,
   peaks = mass_ladder;
   for (std::vector<peak>::size_type i=0; i<mass_ladder.size(); i++)
     peaks[i].mz = peak::get_mz(peaks[i].mz, charge);
+
+  for (unsigned int i=0; i<mass_ladder.size(); i++)
+    std::cerr << "peak mz " << peaks[i].mz << " i " << peaks[i].intensity << std::endl;
 }
 
 
-static void
+static inline void
 synthetic_spectra(spectrum synth_sp[/* max_fragment_charge+1 */][ION_MAX],
-		  const std::string &peptide_seq,
-		  double peptide_mod_mass, double max_fragment_charge) {
+		  const std::string &peptide_seq, const double peptide_mass,
+		  const std::vector<double> &mass_list,
+		  const double N_terminal_mass, const double C_terminal_mass,
+		  const double max_fragment_charge) {
   const parameters &CP = parameters::the;
 
   for (ion ion_type=ION_MIN; ion_type<ION_MAX; ion_type++) {
@@ -433,10 +426,12 @@ synthetic_spectra(spectrum synth_sp[/* max_fragment_charge+1 */][ION_MAX],
 
     switch (ion_type) {
     case ION_Y:
-      get_synthetic_Y_mass_ladder(mass_ladder, peptide_seq);
+      get_synthetic_Y_mass_ladder(mass_ladder, peptide_seq, mass_list,
+				  C_terminal_mass);
       break;
     case ION_B:
-      get_synthetic_B_mass_ladder(mass_ladder, peptide_seq);
+      get_synthetic_B_mass_ladder(mass_ladder, peptide_seq, mass_list,
+				  N_terminal_mass);
       break;
     default:
       assert(false);
@@ -444,9 +439,9 @@ synthetic_spectra(spectrum synth_sp[/* max_fragment_charge+1 */][ION_MAX],
 
     if (CP.spectrum_synthesis)
       synthesize_ladder_intensities(mass_ladder, peptide_seq);
-    
+
     for (int charge=1; charge<=max_fragment_charge; charge++)
-      synth_sp[charge][ion_type] = spectrum(peptide_mod_mass, charge,
+      synth_sp[charge][ion_type] = spectrum(peptide_mass, charge,
 					    mass_ladder);
   }
 }
@@ -456,11 +451,11 @@ synthetic_spectra(spectrum synth_sp[/* max_fragment_charge+1 */][ION_MAX],
 
 // Score the specified spectrum against a group of synthetic fragment
 // spectra.
-static void
+static inline void
 score_spectrum(double &hyper_score, double &convolution_score,
 	       std::vector<double> &ion_scores, std::vector<int> &ion_peaks,
 	       spectrum synth_sp[/* max_fragment_charge+1 */][ION_MAX],
-	       int spectrum_id, int max_fragment_charge) {
+	       const int spectrum_id, const int max_fragment_charge) {
   const parameters &CP = parameters::the;
   const spectrum sp = spectrum::searchable_spectra[spectrum_id];
   const int spectrum_charge = sp.charge;
@@ -530,142 +525,6 @@ generator::generate_static_aa_mod(score_stats &stats, const match &m,
 #endif		    
 
 
-
-// Search for matches of this peptide (including all specified modification)
-// against the spectra.  Updates score_stats and returns the number of
-// candidate spectra found for this peptide.
-int 
-spectrum::search_peptide(int idno, int offset, int begin,
-			 const std::string &peptide_seq,
-			 int missed_cleavage_count, score_stats &stats) {
-  const parameters &CP = parameters::the;
-  int peptide_candidate_spectrum_count = 0;
-  double peptide_mass = get_parent_peptide_mass(peptide_seq);
-
-  std::vector<double> potential_mod_pattern(peptide_seq.size());
-  //while (generate_mod_patterns(potential_mod_pattern, peptide_seq, begin))
-  bool once = true;		// placeholder
-  while (once) {
-    once = false;
-    double peptide_mod_mass = peptide_mass; // + get_peptide_mod_mass(peptide_seq,
-                                            //              potential_mod_pattern,
-                                            //                         is_N, is_C)
-    double sp_mass_lb = (peptide_mod_mass
-			 + CP.parent_monoisotopic_mass_error_minus);
-    double sp_mass_ub = (peptide_mod_mass
-			 + CP.parent_monoisotopic_mass_error_plus);
-    std::multimap<double,
-      std::vector<spectrum>::size_type>::const_iterator
-      candidate_spectra_info_begin = spectrum_mass_index.lower_bound(sp_mass_lb);
-    std::multimap<double,
-      std::vector<spectrum>::size_type>::const_iterator
-      candidate_spectra_info_end = spectrum_mass_index.upper_bound(sp_mass_ub);
-    if (candidate_spectra_info_begin == candidate_spectra_info_end)
-      continue;
-
-    int max_candidate_charge = 0;
-    for (std::multimap<double, std::vector<spectrum>::size_type>::const_iterator
-	   it = candidate_spectra_info_begin;
-	 it != candidate_spectra_info_end; it++)
-      max_candidate_charge = std::max<int>(max_candidate_charge,
-					   searchable_spectra[it->second].charge);
-
-    const int max_fragment_charge = std::max<int>(1, max_candidate_charge-1);
-    // e.g. +2 -> 'B' -> spectrum
-    // FIX: should this be a std::vector??
-    spectrum synth_sp[max_fragment_charge+1][ION_MAX];
-    synthetic_spectra(synth_sp, peptide_seq, peptide_mod_mass,
-		      max_fragment_charge);
-    for (std::multimap<double, std::vector<spectrum>::size_type>::const_iterator
-	   candidate_it = candidate_spectra_info_begin;
-	 candidate_it != candidate_spectra_info_end; candidate_it++) {
-      const int spectrum_id = candidate_it->second;
-      peptide_candidate_spectrum_count++;
-      double hyper_score, convolution_score;
-      std::vector<double> ion_scores(ION_MAX, 0.0);
-      std::vector<int> ion_peaks(ION_MAX, 0);
-      score_spectrum(hyper_score, convolution_score, ion_scores, ion_peaks,
-		     synth_sp, spectrum_id, max_fragment_charge);
-      if (convolution_score <= 2.0)
-	continue;
-
-      // update spectrum histograms
-      std::vector<int> &hh = stats.hyperscore_histogram[spectrum_id];
-      int binned_scaled_hyper_score = int(0.5 + scale_hyperscore(hyper_score));
-      assert(binned_scaled_hyper_score >= 0);
-      // FIX
-      if (static_cast<int>(hh.size())-1 < binned_scaled_hyper_score) {
-	assert(hh.size() < INT_MAX/2);
-	hh.resize(std::max<unsigned int>(binned_scaled_hyper_score+1,
-					 2*hh.size()));
-      }
-      hh[binned_scaled_hyper_score] += 1;
-      // incr m_tPeptideScoredCount
-      // nyi: permute stuff
-      // FIX
-      const int sp_ion_count = ion_peaks[ION_B] + ion_peaks[ION_Y];
-      if (sp_ion_count < CP.minimum_ion_count)
-	continue;
-      const bool has_b_and_y = ion_peaks[ION_B] and ion_peaks[ION_Y];
-      if (not has_b_and_y)
-	continue;
-
-      // check that parent masses are within error range (isotope ni)
-      // already done above (why does xtandem do it here?)
-      // if check fails, only eligible for 2nd-best record
-
-      // Remember all of the highest-hyper-scoring matches against each
-      // spectrum.  These might be in multiple domains (pos, length, mods) in
-      // multiple proteins.
-
-      // To avoid the problems that xtandem has with inexact float-point
-      // calculations, we consider hyperscores within the "epsilon ratio" to
-      // be "equal".  The best_match vector will need to be re-screened
-      // against this ratio, because it may finally contain entries which
-      // don't meet our criterion.  (We don't take the time to get it exactly
-      // right here, because we may end up discarding it all anyway.)
-
-      const double current_ratio = hyper_score / stats.best_score[spectrum_id];
-
-      if (CP.quirks_mode and (hyper_score < stats.best_score[spectrum_id])
-	  or (not CP.quirks_mode
-	      and (current_ratio < CP.hyper_score_epsilon_ratio))) {
-	// This isn't a best score, so see if it's a second-best score.
-	if (hyper_score > stats.second_best_score[spectrum_id])
-	  stats.second_best_score[spectrum_id] = hyper_score;
-	continue;
-      }
-      if (CP.quirks_mode and (hyper_score > stats.best_score[spectrum_id])
-	  or (not CP.quirks_mode
-	      and (current_ratio > (1/CP.hyper_score_epsilon_ratio)))) {
-	// This score is significantly better, so forget previous matches.
-	stats.best_score[spectrum_id] = hyper_score;
-	stats.best_match[spectrum_id].resize(1);
-      }	else {
-	// This score is similar to best previously seen, so add it to the
-	// list.
-	stats.best_match[spectrum_id].push_back(match());
-      }
-      match &m = stats.best_match[spectrum_id].back();
-      // remember this best match
-      // FIX: better to create one of these at the top!(?)
-      m.hyper_score = hyper_score;
-      m.convolution_score = convolution_score;
-      m.ion_scores = ion_scores;
-      m.ion_peaks = ion_peaks;
-      m.missed_cleavage_count = missed_cleavage_count;
-      m.spectrum_index = spectrum_id;
-      m.peptide_begin = begin;
-      m.peptide_sequence = peptide_seq;
-      m.peptide_mod_mass = peptide_mod_mass;
-      m.sequence_index = idno;
-      m.sequence_offset = offset;
-    }
-  }  
-  return peptide_candidate_spectrum_count;
-}
-
-
 // FIX: currently only one mass_list is implemented, meaning that parent and
 // fragment masses must be the same (e.g., mono/mono).  A workaround is to
 // just increase the parent error plus a bit (the xtandem default seems to
@@ -674,26 +533,26 @@ spectrum::search_peptide(int idno, int offset, int begin,
 // Search for matches of this particular peptide modification variation
 // against the spectra.  Updates score_stats and returns the number of
 // candidate spectra found.
-static int 
-search_peptide_mod_variation(int idno, int offset, int begin,
-			     const std::string &peptide_seq,
-			     const std::vector<double> &mass_list,
-			     const double N_terminal_mass,
-			     const double C_terminal_mass,
-			     int missed_cleavage_count,
-			     score_stats &stats) {
+static inline int 
+evaluate_peptide_mod_variation(match &m,
+			       const std::vector<double> &mass_list,
+			       const double N_terminal_mass,
+			       const double C_terminal_mass,
+			       score_stats &stats) {
   const parameters &CP = parameters::the;
-  assert(peptide_seq.size() == mass_list.size());
+  assert(m.peptide_sequence.size() == mass_list.size());
 
-  double peptide_mass = get_peptide_mass(mass_list, N_terminal_mass,
-					 C_terminal_mass);
-  double sp_mass_lb = peptide_mass + CP.parent_monoisotopic_mass_error_minus;
-  double sp_mass_ub = peptide_mass + CP.parent_monoisotopic_mass_error_plus;
+  m.peptide_mass = get_peptide_mass(mass_list, N_terminal_mass,
+				    C_terminal_mass);
+  double sp_mass_lb = m.peptide_mass + CP.parent_monoisotopic_mass_error_minus;
+  double sp_mass_ub = m.peptide_mass + CP.parent_monoisotopic_mass_error_plus;
   std::multimap<double, std::vector<spectrum>::size_type>::const_iterator
-    candidate_spectra_info_begin = spectrum::spectrum_mass_index.lower_bound(sp_mass_lb);
+    candidate_spectra_info_begin
+    = spectrum::spectrum_mass_index.lower_bound(sp_mass_lb);
   // FIX: is there a better way?
   std::multimap<double, std::vector<spectrum>::size_type>::const_iterator
-    candidate_spectra_info_end = spectrum::spectrum_mass_index.upper_bound(sp_mass_ub);
+    candidate_spectra_info_end
+    = spectrum::spectrum_mass_index.upper_bound(sp_mass_ub);
   if (candidate_spectra_info_begin == candidate_spectra_info_end)
     return 0;
 
@@ -701,33 +560,33 @@ search_peptide_mod_variation(int idno, int offset, int begin,
   for (std::multimap<double, std::vector<spectrum>::size_type>::const_iterator
 	 it = candidate_spectra_info_begin;
        it != candidate_spectra_info_end; it++)
-    max_candidate_charge = std::max<int>(max_candidate_charge,
-					 spectrum::searchable_spectra[it->second].charge);
+    max_candidate_charge
+      = std::max<int>(max_candidate_charge,
+		      spectrum::searchable_spectra[it->second].charge);
 
   const int max_fragment_charge = std::max<int>(1, max_candidate_charge-1);
+  assert(max_fragment_charge <= spectrum::max_supported_charge);
   // e.g. +2 -> 'B' -> spectrum
   // FIX: should this be a std::vector??
-  spectrum synth_sp[max_fragment_charge+1][ION_MAX];
-  ### FIX THIS (pass mass list through) ###
-  synthetic_spectra(synth_sp, peptide_seq, peptide_mass, max_fragment_charge);
+  static spectrum synth_sp[spectrum::max_supported_charge+1][ION_MAX];
+  synthetic_spectra(synth_sp, m.peptide_sequence, m.peptide_mass, mass_list,
+		    N_terminal_mass, C_terminal_mass, max_fragment_charge);
 
   int peptide_candidate_spectrum_count = 0;
   for (std::multimap<double, std::vector<spectrum>::size_type>::const_iterator
 	 candidate_it = candidate_spectra_info_begin;
        candidate_it != candidate_spectra_info_end; candidate_it++) {
-    const int spectrum_id = candidate_it->second;
+    m.spectrum_index = candidate_it->second;
     peptide_candidate_spectrum_count++;
-    double hyper_score, convolution_score;
-    std::vector<double> ion_scores(ION_MAX, 0.0);
-    std::vector<int> ion_peaks(ION_MAX, 0);
-    score_spectrum(hyper_score, convolution_score, ion_scores, ion_peaks,
-		   synth_sp, spectrum_id, max_fragment_charge);
-    if (convolution_score <= 2.0)
+    score_spectrum(m.hyper_score, m.convolution_score, m.ion_scores,
+		   m.ion_peaks, synth_sp, m.spectrum_index,
+		   max_fragment_charge);
+    if (m.convolution_score <= 2.0)
       continue;
 
     // update spectrum histograms
-    std::vector<int> &hh = stats.hyperscore_histogram[spectrum_id];
-    int binned_scaled_hyper_score = int(0.5 + scale_hyperscore(hyper_score));
+    std::vector<int> &hh = stats.hyperscore_histogram[m.spectrum_index];
+    int binned_scaled_hyper_score = int(0.5 + scale_hyperscore(m.hyper_score));
     assert(binned_scaled_hyper_score >= 0);
     // FIX
     if (static_cast<int>(hh.size())-1 < binned_scaled_hyper_score) {
@@ -739,10 +598,10 @@ search_peptide_mod_variation(int idno, int offset, int begin,
     // incr m_tPeptideScoredCount
     // nyi: permute stuff
     // FIX
-    const int sp_ion_count = ion_peaks[ION_B] + ion_peaks[ION_Y];
+    const int sp_ion_count = m.ion_peaks[ION_B] + m.ion_peaks[ION_Y];
     if (sp_ion_count < CP.minimum_ion_count)
       continue;
-    const bool has_b_and_y = ion_peaks[ION_B] and ion_peaks[ION_Y];
+    const bool has_b_and_y = m.ion_peaks[ION_B] and m.ion_peaks[ION_Y];
     if (not has_b_and_y)
       continue;
 
@@ -761,43 +620,97 @@ search_peptide_mod_variation(int idno, int offset, int begin,
     // don't meet our criterion.  (We don't take the time to get it exactly
     // right here, because we may end up discarding it all anyway.)
 
-    const double current_ratio = hyper_score / stats.best_score[spectrum_id];
+    const double current_ratio = (m.hyper_score
+				  / stats.best_score[m.spectrum_index]);
 
-    if (CP.quirks_mode and (hyper_score < stats.best_score[spectrum_id])
+    if (CP.quirks_mode and (m.hyper_score < stats.best_score[m.spectrum_index])
 	or (not CP.quirks_mode
 	    and (current_ratio < CP.hyper_score_epsilon_ratio))) {
       // This isn't a best score, so see if it's a second-best score.
-      if (hyper_score > stats.second_best_score[spectrum_id])
-	stats.second_best_score[spectrum_id] = hyper_score;
+      if (m.hyper_score > stats.second_best_score[m.spectrum_index])
+	stats.second_best_score[m.spectrum_index] = m.hyper_score;
       continue;
     }
-    if (CP.quirks_mode and (hyper_score > stats.best_score[spectrum_id])
+    if (CP.quirks_mode and (m.hyper_score > stats.best_score[m.spectrum_index])
 	or (not CP.quirks_mode
 	    and (current_ratio > (1/CP.hyper_score_epsilon_ratio)))) {
       // This score is significantly better, so forget previous matches.
-      stats.best_score[spectrum_id] = hyper_score;
-      stats.best_match[spectrum_id].resize(1);
-    }	else {
-      // This score is similar to best previously seen, so add it to the
-      // list.
-      stats.best_match[spectrum_id].push_back(match());
+      stats.best_score[m.spectrum_index] = m.hyper_score;
+      stats.best_match[m.spectrum_index].clear();
     }
-    match &m = stats.best_match[spectrum_id].back();
-    // remember this best match
-    // FIX: better to create one of these at the top!(?)
-    m.hyper_score = hyper_score;
-    m.convolution_score = convolution_score;
-    m.ion_scores = ion_scores;
-    m.ion_peaks = ion_peaks;
-    m.missed_cleavage_count = missed_cleavage_count;
-    m.spectrum_index = spectrum_id;
-    m.peptide_begin = begin;
-    m.peptide_sequence = peptide_seq;
-    m.peptide_mod_mass = peptide_mass;
-    m.sequence_index = idno;
-    m.sequence_offset = offset;
+    // Now remember this match because it's at least as good as those
+    // previously seen.
+    stats.best_match[m.spectrum_index].push_back(m);
   }
   return peptide_candidate_spectrum_count;
+}
+
+
+// Choose a possible modification to account for PCA (pyrrolidone carboxyl
+// acid) circularization of the peptide N-terminal.  This is excluded if a
+// static N-terminal mod was specified.  (FIX: Does a PCA mod exclude other
+// potential mods?)
+static inline int 
+choose_PCA_mod(match &m, std::vector<double> &mass_list,
+	       const double N_terminal_mass, const double C_terminal_mass,
+	       score_stats &stats) {
+  const parameters &CP = parameters::the;
+  int peptide_candidate_spectrum_count
+    = evaluate_peptide_mod_variation(m, mass_list, N_terminal_mass,
+				     C_terminal_mass, stats);
+
+  const int mass_regime=0;	// FIX
+
+  if (CP.fragment_mass_regime[mass_regime].modification_mass['['] == 0) {
+    switch (m.peptide_sequence[0]) {
+    case 'E':
+      peptide_candidate_spectrum_count +=
+	evaluate_peptide_mod_variation(m, mass_list,
+				       N_terminal_mass
+				       -CP.fragment_mass_regime[mass_regime].water_mass,
+				       C_terminal_mass, stats);
+      break;
+    case 'C': {
+      // FIX: need better test for C+57? (symbolic?)
+      const double C_mod
+	= CP.fragment_mass_regime[mass_regime].modification_mass['C'];
+      if (CP.quirks_mode ? C_mod != 57 : std::abs(C_mod - 57) > 0.5)
+	break;		// skip unless C+57
+    }
+    case 'Q':
+      peptide_candidate_spectrum_count +=
+	evaluate_peptide_mod_variation(m, mass_list,
+				       N_terminal_mass
+				       -CP.fragment_mass_regime[mass_regime].ammonia_mass,
+				       C_terminal_mass, stats);
+      break;
+    }
+  }
+  return peptide_candidate_spectrum_count;
+}
+
+
+// Choose among the requested mass regimes (e.g., isotopes), and also choose
+// the static mods (including N- and C-terminal mods), which are determined by
+// the mass regime choice.
+static inline int 
+choose_mass_regime(match &m, std::vector<double> &mass_list,
+		   const double N_terminal_mass, const double C_terminal_mass,
+		   score_stats &stats) {
+  const parameters &CP = parameters::the;
+
+  const int mass_regime=0;	// FIX
+  for (std::vector<double>::size_type i=0; i<m.peptide_sequence.size(); i++) {
+    const char res = m.peptide_sequence[i];
+    mass_list[i] = (CP.fragment_mass_regime[mass_regime].residue_mass[res]
+		    + CP.fragment_mass_regime[mass_regime].modification_mass[res]);
+  }
+  return choose_PCA_mod(m, mass_list,
+			N_terminal_mass
+			+ CP.fragment_mass_regime[mass_regime].modification_mass['['],
+			C_terminal_mass
+			+ CP.fragment_mass_regime[mass_regime].modification_mass[']'],
+			stats);
 }
 
 
@@ -809,22 +722,22 @@ spectrum::search_peptide_all_mods(int idno, int offset, int begin,
 				  const std::string &peptide_seq,
 				  int missed_cleavage_count,
 				  score_stats &stats) {
-  const parameters &CP = parameters::the;
-
-  // FIX: mods NYI
-  // FIX: do we even implement static mods yet?
-  const int mass_regime=0;
   std::vector<double> mass_list(peptide_seq.size());
-  for (std::vector<double>::size_type i=0; i<peptide_seq.size(); i++)
-    mass_list[i]
-      = CP.fragment_mass_regime[mass_regime].residue_mass[peptide_seq[i]];
   double N_terminal_mass = 0.0;
   double C_terminal_mass = 0.0;
 
-  return search_peptide_mod_variation(idno, offset, begin, peptide_seq,
-				      mass_list, N_terminal_mass,
-				      C_terminal_mass, missed_cleavage_count,
-				      stats);
+  // This match will be passed inward and used to record information that we
+  // need to remember about a match when we finally see one.  At that point, a
+  // copy of this match will be saved.
+  match m;
+  m.sequence_index = idno;
+  m.sequence_offset = offset;
+  m.peptide_begin = begin;
+  m.peptide_sequence = peptide_seq;
+  m.missed_cleavage_count = missed_cleavage_count;
+
+  return choose_mass_regime(m, mass_list, N_terminal_mass, C_terminal_mass,
+			    stats);
 }
 
 
@@ -858,7 +771,7 @@ spectrum::score_similarity(const spectrum &x, const spectrum &y,
     if (std::abs(x_mz - y_mz) < (quirks_mode ? frag_err*1.5 : frag_err)) {
       *peak_count += 1;
       score += (x_it->intensity * y_it->intensity);
-      //std::cerr << "hit " << x_mz << " vs " << y_mz << ", i = " << x_it->intensity * y_it->intensity << std::endl;
+      std::cerr << "hit " << x_mz << " vs " << y_mz << ", i = " << x_it->intensity * y_it->intensity << std::endl;
 #if 0
       // assume peaks aren't "close" together
       x_it++;

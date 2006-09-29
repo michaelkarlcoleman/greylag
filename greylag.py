@@ -6,6 +6,10 @@ re-implementation of X!Tandem algorithm, with many extra features.)
 
 '''
 
+
+# "Simplicity is prerequisite for reliability" - Edsger W. Dijkstra
+
+
 __version__ = "$Id$"
 
 
@@ -42,7 +46,8 @@ XTP = {}
 CP = cxtpy.cvar.parameters_the
 
 # FIX: is this from H1 or H-avg??  (possible error here is ~0.0007 amu)
-PROTON_MASS = 1.007276
+PROTON_MASS =   1.007276
+ELECTRON_MASS = 0.000549                # ?
 
 # Reference values from NIST (http://physics.nist.gov/PhysRefData/)
 ATOMIC_MASS = {
@@ -132,8 +137,6 @@ STANDARD_AVG_RESIDUE_MASS = dict((residue,
                                                  }))
                                  for residue in RESIDUE_FORMULA)
 
-print STANDARD_XT_AVG_RESIDUE_MASS, STANDARD_AVG_RESIDUE_MASS, STANDARD_RESIDUE_MASS
-
 
 def initialize_spectrum_parameters(quirks_mode):
     """Initialize parameters known to the spectrum module."""
@@ -148,6 +151,7 @@ def initialize_spectrum_parameters(quirks_mode):
 
     mono_regime.hydroxyl_mass = formula_mass("OH")
     mono_regime.water_mass = formula_mass("H2O")
+    mono_regime.ammonia_mass = formula_mass("NH3")
 
     for residue in RESIDUE_FORMULA:
         mono_regime.residue_mass[ord(residue)] = STANDARD_RESIDUE_MASS[residue]
@@ -516,6 +520,8 @@ def validate_parameters(parameters):
     return pmap
 
 
+# FIX: This code really seems iffy.  It may diverge from xtandem and/or
+# xtandem's implementation may simply be buggy or ill-conceived.
 def get_spectrum_expectation(hyper_score, histogram):
     """Return (expectation, survival curve, (a0, a1)) for this hyperscore and
     histogram, where a0 and a1 are the intercept and slope, respectively, for
@@ -577,15 +583,17 @@ def get_spectrum_expectation(hyper_score, histogram):
         min_i = min(i for i in xrange(max_i, len(survival))
                     if survival[i] <= min_limit)
     except ValueError:
-        warning('bad survival curve? %s' % survival)
+        warning('bad survival curve? %s', survival)
         a0, a1 = 3.5, -0.18
         return 10.0 ** (a0 + a1 * scaled_hyper_score), survival, (a0, a1)
         
     data_X = range(max_i, min_i)
     data_Y = [ math.log10(survival[x]) for x in data_X ]
     # FIX!
-    if data_Y[0] == max(data_Y):
-        warning('bad survival curve? (2) %s' % survival)
+    if not data_Y or data_Y[0] == max(data_Y):
+        warning('bad survival curve? (2) [%s] %s', len(data_Y), survival)
+        a0, a1 = 3.5, -0.18
+        return 10.0 ** (a0 + a1 * scaled_hyper_score), survival, (a0, a1)
 
     # fit least-squares line
     n = len(data_X)
@@ -975,8 +983,8 @@ def print_results_XML(options, XTP, db_info, spectrum_fns,
         if (XTP["output, proteins"] or XTP["output, histograms"]
             or XTP["output, spectra"]):
             print ('<group id="%s" mh="%.6f" z="%s" expect="%.1e"'
-                   ' label="%s" type="model" sumI="%.2f" maxI="%.5e"'
-                   ' fI="%s" >'
+                   ' label="%s" type="model" sumI="%.2f" maxI="%g"'
+                   ' fI="%g" >'
                    % (sp.id, sp.mass, sp.charge, expect[spectrum_id],
                       abbrev_defline(clean_defline(defline)),
                       math.log10(sp.sum_peak_intensity),
@@ -986,6 +994,15 @@ def print_results_XML(options, XTP, db_info, spectrum_fns,
             for pn, (protein_id, domains) in enumerate(spectrum_info):
                 d0_defline, d0_run_seq, d0_seq_filename = db_info[(domains[0].sequence_index,
                                                                    domains[0].sequence_offset)]
+                # FIX: remove
+                if protein_id not in protein_expect:
+                    warning("protein id '%s' not in protein_expect",
+                            protein_id)
+                    continue
+                if protein_id not in intensity:
+                    warning("protein id '%s' not in intensity", protein_id)
+                    continue
+                            
                 print ('<protein expect="%.1f" id="%s.%s" uid="%s" label="%s"'
                        ' sumI="%.2f" >'
                        % (protein_expect[protein_id], sp.id, pn+1,
@@ -1019,7 +1036,7 @@ def print_results_XML(options, XTP, db_info, spectrum_fns,
                            ' post="%s" seq="%s" missed_cleavages="%s">'
                            % (sp.id, pn+1, dn+1, dom.peptide_begin+1,
                               dom.peptide_begin+len(dom.peptide_sequence), expect[spectrum_id],
-                              dom.peptide_mod_mass, sp.mass-dom.peptide_mod_mass,
+                              dom.peptide_mass, sp.mass-dom.peptide_mass,
                               cxtpy.scale_hyperscore(score_statistics.best_score[spectrum_id]),
                               cxtpy.scale_hyperscore(score_statistics.second_best_score[spectrum_id]),
                               cxtpy.scale_hyperscore(dom.ion_scores[cxtpy.ION_Y]),
@@ -1071,12 +1088,14 @@ def print_results_XML(options, XTP, db_info, spectrum_fns,
                    % (sp.id))
             print ('<GAML:values byteorder="INTEL" format="ASCII" numvalues="%s">'
                    % len(sp.peaks))
-            def rstrip_zeros(s):
-                if '.' in s:
-                    return s.rstrip('0').rstrip('.')
-                return s
+            #def rstrip_zeros(s):
+            #    if '.' in s:
+            #        return s.rstrip('0').rstrip('.')
+            #    return s
+            #for p in sp.peaks:
+            #    print rstrip_zeros('%.2f' % p.mz),
             for p in sp.peaks:
-                print rstrip_zeros('%.2f' % p.mz),
+                print '%g' % p.mz,
             print ''
             print '</GAML:values>'
             print '</GAML:Xdata>'
@@ -1274,7 +1293,10 @@ def main():
         candidate_spectrum_count = 0
         for idno, offset, defline, seq, seq_filename in db:
             if options.verbose:
-                sys.stderr.write('p')
+                #sys.stderr.write('p')
+                sys.stderr.write("\r%s of %s sequences, %s candidates"
+                                 % (idno, len(fasta_db),
+                                    candidate_spectrum_count))
             if part and idno % part[1] != part[0]-1:
                 continue
 
@@ -1286,12 +1308,12 @@ def main():
                 peptide_seq = seq[begin:end]
                 #debug('generated peptide: %s', peptide_seq)
                 candidate_spectrum_count \
-                    += cxtpy.spectrum.search_peptide(idno, offset, begin,
-                                                     peptide_seq,
-                                                     missed_cleavage_count,
-                                                     score_statistics)
+                    += cxtpy.spectrum.search_peptide_all_mods(idno, offset, begin,
+                                                              peptide_seq,
+                                                              missed_cleavage_count,
+                                                              score_statistics)
         if options.verbose:
-            print >> sys.stderr
+            sys.stderr.write("\r%60s\r" % ' ') 
 
         info('%s candidate spectra examined', candidate_spectrum_count)
         filter_matches(score_statistics)
@@ -1380,10 +1402,3 @@ if __name__ == '__main__':
 # FIXES:
 # - need to rigorously check for bad input in any file (fasta, spectrum, xml)
 # - escape special XML chars
-
-
-# NOTES:
-
-# pyro_check: if no N-terminal mod otherwise specified, look for potential
-# mods for these N-terminal residues: Q or C+57 -> loss of ammonia, E -> loss
-# of water
