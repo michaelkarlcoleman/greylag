@@ -1,4 +1,4 @@
-#!/usr/bin/env python2.4
+#!/usr/bin/env python
 
 '''
 Analyze mass spectra and assign peptides and proteins.  (This is a partial
@@ -10,7 +10,7 @@ re-implementation of X!Tandem algorithm, with many extra features.)
 # "Simplicity is prerequisite for reliability" - Edsger W. Dijkstra
 
 
-__version__ = "$Id$"
+__version__ = "$Id: greylag.py,v 1.14 2006/10/02 15:07:00 mkc Exp mkc $"
 
 
 import cPickle
@@ -27,7 +27,7 @@ import sys
 
 import elementtree.ElementTree
 
-import cxtpy
+import cgreylag
 
 
 def error(s, *args):
@@ -43,7 +43,7 @@ def fileerror(s, *args):
 XTP = {}
 
 # handle to the singleton parameter object shared with the C++ module
-CP = cxtpy.cvar.parameters_the
+CP = cgreylag.cvar.parameters_the
 
 # FIX: is this from H1 or H-avg??  (possible error here is ~0.0007 amu)
 PROTON_MASS =   1.007276
@@ -166,7 +166,7 @@ def initialize_spectrum_parameters(quirks_mode):
     CP.hydrogen_mass = formula_mass("H")
 
     # FIX: only a mono/mono regime 0 implemented for now
-    mono_regime = cxtpy.mass_regime_parameters(128)
+    mono_regime = cgreylag.mass_regime_parameters(128)
 
     mono_regime.hydroxyl_mass = formula_mass("OH")
     mono_regime.water_mass = formula_mass("H2O")
@@ -552,7 +552,7 @@ def get_spectrum_expectation(hyper_score, histogram):
     the least-squares fit to the survival curve, used to predict the
     expectation.
     """
-    scaled_hyper_score = cxtpy.scale_hyperscore(hyper_score)
+    scaled_hyper_score = cgreylag.scale_hyperscore(hyper_score)
 
     # trim zeros from right end of histogram (which must contain a non-zero)
     histogram = list(histogram)
@@ -1075,12 +1075,12 @@ def print_results_XML(options, XTP, db_info, spectrum_fns,
                               dom.peptide_begin+len(dom.peptide_sequence), expect[spectrum_id],
                               delta_precision, dom.peptide_mass,
                               delta_precision, delta,
-                              cxtpy.scale_hyperscore(score_statistics.best_score[spectrum_id]),
-                              cxtpy.scale_hyperscore(score_statistics.second_best_score[spectrum_id]),
-                              cxtpy.scale_hyperscore(dom.ion_scores[cxtpy.ION_Y]),
-                              dom.ion_peaks[cxtpy.ION_Y],
-                              cxtpy.scale_hyperscore(dom.ion_scores[cxtpy.ION_B]),
-                              dom.ion_peaks[cxtpy.ION_B],
+                              cgreylag.scale_hyperscore(score_statistics.best_score[spectrum_id]),
+                              cgreylag.scale_hyperscore(score_statistics.second_best_score[spectrum_id]),
+                              cgreylag.scale_hyperscore(dom.ion_scores[cgreylag.ION_Y]),
+                              dom.ion_peaks[cgreylag.ION_Y],
+                              cgreylag.scale_hyperscore(dom.ion_scores[cgreylag.ION_B]),
+                              dom.ion_peaks[cgreylag.ION_B],
                               get_prefix_sequence(dom.peptide_begin, dom.sequence_offset, dom_run_seq),
                               get_suffix_sequence(dom.peptide_begin+len(dom.peptide_sequence), dom.sequence_offset,
                                                   dom_run_seq),
@@ -1198,9 +1198,9 @@ def main():
     parser.add_option("--part-merge", dest="part_merge", type="int",
                       help="merge the previously created M parts and"
                       " continue", metavar="M")  
-    parser.add_option("--part-prefix", dest="part_prefix", default='xtpy',
+    parser.add_option("--part-prefix", dest="part_prefix", default='greylag',
                       help="prefix to use for temporary part files"
-                      " [default='xtpy']", metavar="PREFIX")
+                      " [default='greylag']", metavar="PREFIX")
     parser.add_option("-q", "--quiet", action="store_true",
                       dest="quiet", help="no warnings")
     parser.add_option("-p", "--show-progress", action="store_true",
@@ -1211,7 +1211,7 @@ def main():
                       dest="debug", help="output debugging info")
     parser.add_option("--profile", action="store_true",
                       dest="profile",
-                      help="dump profiling output to './xtpy.prof'")
+                      help="dump profiling output to './greylag.prof'")
     (options, args) = parser.parse_args()
 
     if (len(args) < 1
@@ -1269,7 +1269,7 @@ def main():
     taxonomy = read_taxonomy(XTP["list path, taxonomy information"])
 
     initialize_spectrum_parameters(options.quirks_mode)
-    #xtpy_search.CP = CP
+    #greylag_search.CP = CP
 
     # read sequence dbs
     # [(defline, seq, filename), ...]
@@ -1296,9 +1296,9 @@ def main():
     else:
         spectrum_fns = [XTP["spectrum, path"]]
 
-    spectra = list(itertools.chain(*[ cxtpy.spectrum.read_spectra(open(fn), n)
+    spectra = list(itertools.chain(*[ cgreylag.spectrum.read_spectra(open(fn), n)
                                       for n, fn in enumerate(spectrum_fns) ]))
-    #spectra = list(cxtpy.spectrum.read_spectra(open(spectrum_fn), 0))
+    #spectra = list(cgreylag.spectrum.read_spectra(open(spectrum_fn), 0))
     if not spectra:
         error("no input spectra")
     info("read %s spectra", len(spectra))
@@ -1315,11 +1315,11 @@ def main():
                                               XTP["spectrum, total peaks"]) ]
     info("     %s spectra after filtering", len(spectra))
 
-    cxtpy.spectrum.set_searchable_spectra(spectra)
-    #sys.exit('len = %s' % len(cxtpy.cvar.spectrum_searchable_spectra))
-    #print >> sys.stderr, cxtpy.cvar.spectrum_spectrum_mass_index.keys()
+    cgreylag.spectrum.set_searchable_spectra(spectra)
+    #sys.exit('len = %s' % len(cgreylag.cvar.spectrum_searchable_spectra))
+    #print >> sys.stderr, cgreylag.cvar.spectrum_spectrum_mass_index.keys()
 
-    score_statistics = cxtpy.score_stats(len(spectra))
+    score_statistics = cgreylag.score_stats(len(spectra))
 
     # (cleavage_re, position of cleavage in cleavage_re)
     cleavage_pattern, cleavage_pos \
@@ -1345,10 +1345,10 @@ def main():
                                          XTP["scoring, maximum missed cleavage sites"]):
                 peptide_seq = seq[begin:end]
                 #debug('generated peptide: %s', peptide_seq)
-                cxtpy.spectrum.search_peptide_all_mods(idno, offset, begin,
-                                                       peptide_seq,
-                                                       missed_cleavage_count,
-                                                       score_statistics)
+                cgreylag.spectrum.search_peptide_all_mods(idno, offset, begin,
+                                                          peptide_seq,
+                                                          missed_cleavage_count,
+                                                          score_statistics)
         if options.show_progress:
             sys.stderr.write("\r%60s\r" % ' ') 
 
@@ -1411,12 +1411,12 @@ if __name__ == '__main__':
         if '--profile' in sys.argv:
             import hotshot
             import hotshot.stats
-            data_fn = "xtpy.prof.tmp"
+            data_fn = "greylag.prof.tmp"
             prof = hotshot.Profile(data_fn)
             prof.runcall(main)
             prof.close()
 
-            sys.stdout = open("xtpy.prof", 'w')
+            sys.stdout = open("greylag.prof", 'w')
 
             stats = hotshot.stats.load(data_fn)
             stats.strip_dirs()

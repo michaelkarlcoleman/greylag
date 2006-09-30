@@ -1,9 +1,9 @@
-// cxtpy.hpp
+// cgreylag.hpp
 
-//	$Id$
+//	$Id: cgreylag.hpp,v 1.8 2006/09/29 19:58:41 mkc Exp $
 
-#ifndef CXTPY_H
-#define CXTPY_H
+#ifndef CGREYLAG_H
+#define CGREYLAG_H
 
 #include <cassert>
 #include <cstdio>

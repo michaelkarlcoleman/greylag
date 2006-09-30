@@ -1,14 +1,14 @@
-// SWIG interface definition for module cxtpy
+// SWIG interface definition for module cgreylag
 
-//	$Id$
+//	$Id: cgreylag.i,v 1.4 2006/09/26 16:16:51 mkc Exp $
 
 
-%module cxtpy
+%module cgreylag
 
 %feature("autodoc");
 
 %{
-#include "cxtpy.hpp"
+#include "cgreylag.hpp"
 %}
 
 
@@ -77,4 +77,4 @@
 %include file.i
 
 
-%include "cxtpy.hpp"
+%include "cgreylag.hpp"

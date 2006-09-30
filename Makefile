@@ -1,6 +1,6 @@
-# Makefile for cxtpy module
+# Makefile for cgreylag module
 
-#	$Id$
+#	$Id: Makefile,v 1.6 2006/09/29 19:58:41 mkc Exp $
 
 
 # SWIG is still experiencing rapid development--1.3.28 or better is required.
@@ -30,7 +30,7 @@ SWIGCXXFLAGS = $(CXXFLAGS) -fno-strict-aliasing -Wno-unused-function -fPIC \
 #PYTHON_I = /n/site/inst/Linux-i686/sys/include/python2.4
 PYTHON_I = /usr/include/python2.4
 
-MODULE = cxtpy
+MODULE = cgreylag
 
 all :: _$(MODULE).so
 

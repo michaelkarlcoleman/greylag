@@ -1,6 +1,6 @@
 
 
-What doesn't xtpy do that SIMR cares about?
+What doesn't greylag do that SIMR cares about?
 
 
 - differential modification of residues
@@ -44,7 +44,7 @@ These features would be better than what we currently have
 
 current sloccount comparison:
 xtandem: cpp: 13058
-xtpy: cpp: 595 py: 863
+greylag: cpp: 595 py: 863
 
 
 valgrind it
