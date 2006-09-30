@@ -45,13 +45,15 @@ These features would be better than what we currently have
 current sloccount comparison:
 xtandem: cpp: 13058
 greylag: cpp: 595 py: 863
-
+omssa: cpp: 7583 (plus an unknown, possibly large number from the NCBI toolkits [33 distinct headers])
+		(the toolkits are 1000000 sloc, 65% cpp, 34% c)
 
 valgrind it
 
 double-check handling of FP arithmetic using epsilons (no ==, no strict <)
 test spectrum synthesis
 
+test semi-tryptic cleavage
 
 More reference info here
 http://www.expasy.org/tools/findmod/findmod_masses.html

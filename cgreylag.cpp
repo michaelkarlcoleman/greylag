@@ -1,6 +1,6 @@
 
 
-//	$Id: cgreylag.cpp,v 1.9 2006/10/02 15:07:00 mkc Exp mkc $
+//	$Id$
 
 
 #include "cgreylag.hpp"
@@ -651,6 +651,26 @@ evaluate_peptide_mod_variation(match &m,
     // previously seen.
     stats.best_match[m.spectrum_index].push_back(m);
   }
+}
+
+
+// Two separate functions for N- and C-terminus potential mods.  The former
+// should include the PCA possibility.
+
+// Choose a possible modification to account for PCA (pyrrolidone carboxyl
+// acid) circularization of the peptide N-terminal.  This is excluded if a
+// static N-terminal mod was specified.  (FIX: Does a PCA mod exclude other
+// potential mods?)
+static inline void
+choose_potential_mod(match &m, std::vector<double> &mass_list,
+		     const double N_terminal_mass, const double C_terminal_mass,
+		     score_stats &stats) {
+  const parameters &CP = parameters::the;
+  evaluate_peptide_mod_variation(m, mass_list, N_terminal_mass,
+				 C_terminal_mass, stats);
+
+  const int mass_regime=0;	// FIX
+
 }
 
 

@@ -10,7 +10,7 @@ re-implementation of X!Tandem algorithm, with many extra features.)
 # "Simplicity is prerequisite for reliability" - Edsger W. Dijkstra
 
 
-__version__ = "$Id: greylag.py,v 1.14 2006/10/02 15:07:00 mkc Exp mkc $"
+__version__ = "$Id$"
 
 
 import cPickle
@@ -626,7 +626,15 @@ def get_spectrum_expectation(hyper_score, histogram):
     sum_XX = sum(x**2 for x in data_X)
     sum_XY = sum(x*y for x,y in zip(data_X, data_Y))
 
-    m = (n*sum_XY - sum_X*sum_Y) / (n*sum_XX - sum_X**2)
+    try:
+        m = (n*sum_XY - sum_X*sum_Y) / (n*sum_XX - sum_X**2)
+    except ZeroDivisionError:
+        # FIX: why would this happen?
+        warning('bad survival curve? (3) [%s,%s,%s] %s', n, sum_XX, sum_X,
+                survival)
+        a0, a1 = 3.5, -0.18
+        return 10.0 ** (a0 + a1 * scaled_hyper_score), survival, (a0, a1)
+        
     b = (sum_Y - m*sum_X) / n
     return 10.0 ** (b + m * scaled_hyper_score), survival, (b, m)
 
@@ -1173,7 +1181,22 @@ def print_results_XML(options, XTP, db_info, spectrum_fns,
     # a group as in mreport::masses (not implemented)
 
     print '</bioml>'                    # end of XML output
-    
+
+
+def zopen(filename, mode='r', compresslevel=None):
+    """Open a filename as with 'open', but using compression if indicated by
+    the filename suffix.  The compression level defaults to 1 for .gz files
+    and 9 for .bz2 files (presumably bzip2 will only be used if size matters
+    much more than compression time)."""
+    if filename.endswith('.gz'):
+        import gzip
+        return gzip.GzipFile(filename, mode, compresslevel or 1)
+    elif filename.endswith('.bz2'):
+        import bz2
+        return bz2.BZ2File(filename, mode, compresslevel or 9)
+    else:
+        return open(filename, mode)
+
 
 def main():
     parser = optparse.OptionParser(usage=
@@ -1191,8 +1214,8 @@ def main():
                       " those of X!Tandem (possibly at the expense of"
                       " accuracy)") 
     parser.add_option("--part", dest="part",
-                      help="do part of the search, writing the result to an"
-                      " intermediary file with suffix '.NofM.part'.  For"
+                      help="do part of the search, writing the result to a"
+                      " intermediary file with suffix '.NofM.part.gz'.  For"
                       " example, to split into two parts, use '1of2' and"
                       " '2of2'.", metavar="NofM")
     parser.add_option("--part-merge", dest="part_merge", type="int",
@@ -1201,6 +1224,10 @@ def main():
     parser.add_option("--part-prefix", dest="part_prefix", default='greylag',
                       help="prefix to use for temporary part files"
                       " [default='greylag']", metavar="PREFIX")
+    parser.add_option("--compress-level", dest="compress_level", type="int",
+                      help="compression level to use for compressed files"
+                      " created [default=1 for *.gz, 9 for *.bz2]",
+                      metavar="N")
     parser.add_option("-q", "--quiet", action="store_true",
                       dest="quiet", help="no warnings")
     parser.add_option("-p", "--show-progress", action="store_true",
@@ -1219,7 +1246,7 @@ def main():
         parser.print_help()
         sys.exit(1)
 
-    part_fn_pattern = '%s.0.%sof%s.part'
+    part_fn_pattern = '%s.0.%sof%s.part.gz'
     part = None                         # or "2of10" -> (2, 10)
     if options.part:
         if options.part_merge:
@@ -1257,14 +1284,14 @@ def main():
 
     if part:
         part_fn = part_fn_pattern % part[0]
-        sys.stdout = open(part_fn, 'w')
+        partfile = zopen(part_fn, 'w')
     elif options.output:
         if options.output != '-':
-            sys.stdout = open(options.output, 'w')
+            sys.stdout = zopen(options.output, 'w')
     else:
         output_path = XTP["output, path"]
         if output_path:
-            sys.stdout = open(output_path, 'w')
+            sys.stdout = zopen(output_path, 'w')
 
     taxonomy = read_taxonomy(XTP["list path, taxonomy information"])
 
@@ -1296,9 +1323,10 @@ def main():
     else:
         spectrum_fns = [XTP["spectrum, path"]]
 
-    spectra = list(itertools.chain(*[ cgreylag.spectrum.read_spectra(open(fn), n)
+    spectra = list(itertools.chain(*[ cgreylag.spectrum.read_spectra(zopen(fn),
+                                                                     n)
                                       for n, fn in enumerate(spectrum_fns) ]))
-    #spectra = list(cgreylag.spectrum.read_spectra(open(spectrum_fn), 0))
+    #spectra = list(cgreylag.spectrum.read_spectra(zopen(spectrum_fn), 0))
     if not spectra:
         error("no input spectra")
     info("read %s spectra", len(spectra))
@@ -1358,8 +1386,14 @@ def main():
 
         if part:
             cPickle.dump((part, pythonize_swig_object(score_statistics)),
-                         sys.stdout, cPickle.HIGHEST_PROTOCOL)
+                         partfile, cPickle.HIGHEST_PROTOCOL)
+            partfile.close()
             info("finished, part file written to '%s'", part_fn)
+            part_done_fn = part_fn + '.done'
+            try:
+                open(part_done_fn, 'w').close()
+            except IOError, e:
+                warning("failed to write '%s'", part_done_fn)
             logging.shutdown()
             return
     else:
@@ -1367,13 +1401,14 @@ def main():
 
         part_fn = '%s.0.%sof%s.part'
 
-        part0, score_statistics = cPickle.load(open(part_fn_pattern % 1, 'rb'))
+        part0, score_statistics = cPickle.load(zopen(part_fn_pattern % 1,
+                                                     'rb')) 
         #debug('ss0: %s', score_statistics)
         if part0[0] != 1 or part0[1] != options.part_merge:
             error('part file mismatch')
         for p in range(2, options.part_merge+1):
             part0, score_statistics0 \
-                   = cPickle.load(open(part_fn_pattern % p, 'rb'))
+                   = cPickle.load(zopen(part_fn_pattern % p, 'rb'))
             #debug('ssn: %s', score_statistics0)
             merge_score_statistics(score_statistics, score_statistics0)
 
