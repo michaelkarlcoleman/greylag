@@ -312,10 +312,55 @@ spectrum::set_searchable_spectra(const std::vector<spectrum> &spectra) {
     spectrum_mass_index.insert(std::make_pair(spectra[i].mass, i));
 }
 
-// In both of the following functions, an intensity boost is given for the
-// second peptide bond/peak (*) if the N-terminal residue is 'P':
-//      0 * 2 3 (peaks)
-//     A P C D E
+
+// Multiply peak intensities by residue-dependent factors to generate a more
+// realistic spectrum.  If is_XYZ, walk through the peptide sequence in
+// reverse.
+static inline void
+synthesize_ladder_intensities(std::vector<peak> &mass_ladder,
+			      const std::string &peptide_seq,
+			      const bool is_XYZ) {
+  const parameters &CP = parameters::the;
+
+  assert(mass_ladder.size() == peptide_seq.size() - 1);
+  assert(mass_ladder.size() >= 2);
+
+  // An intensity boost is given for the second peptide bond/peak (*) if the
+  // N-terminal residue is 'P':
+  //      0 * 2 3 (peaks)
+  //     A P C D E
+  const int proline_bonus_position = is_XYZ ? mass_ladder.size()-2 : 1;
+  mass_ladder[proline_bonus_position].intensity = 3.0;
+  if (peptide_seq[1] == 'P')
+    mass_ladder[proline_bonus_position].intensity = 10.0;
+
+  if (CP.spectrum_synthesis)
+    for (unsigned int i=0; i<mass_ladder.size(); i++) {
+      // FIX: there must be a better way
+      const char peptide_index = is_XYZ ? mass_ladder.size()-i-1 : i;
+      switch (peptide_seq[peptide_index]) {
+      case 'D':
+	mass_ladder[i].intensity *= 5.0;
+	break;
+      case 'V':
+      case 'E':
+      case 'I':
+      case 'L':
+	mass_ladder[i].intensity *= 3.0;
+	break;
+      case 'N':
+      case 'Q':
+	mass_ladder[i].intensity *= 2.0;
+	break;
+      }
+      switch (peptide_seq[peptide_index+1]) {
+      case 'P':
+	mass_ladder[i].intensity *= 5.0;
+	break;
+      }
+    }
+}
+
 
 // Calculate peaks for a synthesized mass (not mz) ladder.
 static inline void
@@ -331,16 +376,13 @@ get_synthetic_Y_mass_ladder(std::vector<peak> &mass_ladder,
 		 - CP.fragment_mass_regime[mass_regime].hydroxyl_mass)
 	      + C_terminal_mass);
 
-  const int ladder_size = mass_list.size() - 1;
-  mass_ladder.resize(ladder_size);
+  const int ladder_size = mass_ladder.size();
   for (int i=ladder_size-1; i>=0; i--) {
     m += mass_list[i+1];
     mass_ladder[ladder_size-1-i] = peak(m, 1.0);
   }
-  assert(peptide_seq.size() >= 3); // FIX: move/duplicate this assertion outward
-  mass_ladder[ladder_size-2].intensity = 3.0;
-  if (peptide_seq[1] == 'P')
-    mass_ladder[ladder_size-2].intensity = 10.0;
+
+  synthesize_ladder_intensities(mass_ladder, peptide_seq, true);
 }
 
 // Calculate peaks for a synthesized mass (not mz) ladder.
@@ -354,48 +396,13 @@ get_synthetic_B_mass_ladder(std::vector<peak> &mass_ladder,
   double m = (0.0 + (CP.cleavage_N_terminal_mass_change - CP.hydrogen_mass)
 	      + N_terminal_mass);
 
-  const int ladder_size = mass_list.size() - 1;
-  mass_ladder.resize(ladder_size);
+  const int ladder_size = mass_ladder.size();
   for (int i=0; i<=ladder_size-1; i++) {
     m += mass_list[i];
     mass_ladder[i] = peak(m, 1.0);
   }
-  assert(peptide_seq.size() >= 2);
-  mass_ladder[1].intensity = 3.0;
-  if (peptide_seq[1] == 'P')
-    mass_ladder[1].intensity = 10.0;
-}
 
-
-// Multiply peak intensities by residue-dependent factors to generate a more
-// realistic spectrum.
-static inline void
-synthesize_ladder_intensities(std::vector<peak> &mass_ladder,
-			      const std::string &peptide_seq) {
-  assert(mass_ladder.size() + 1 == peptide_seq.size());
-
-  for (unsigned int i=0; i<mass_ladder.size(); i++) {
-    switch (peptide_seq[i]) {
-    case 'D':
-      mass_ladder[i].intensity *= 5.0;
-      break;
-    case 'V':
-    case 'E':
-    case 'I':
-    case 'L':
-      mass_ladder[i].intensity *= 3.0;
-      break;
-    case 'N':
-    case 'Q':
-      mass_ladder[i].intensity *= 2.0;
-      break;
-    }
-    switch (peptide_seq[i+1]) {
-    case 'P':
-      mass_ladder[i].intensity *= 5.0;
-      break;
-    }
-  }
+  synthesize_ladder_intensities(mass_ladder, peptide_seq, false);
 }
 
 
@@ -408,8 +415,9 @@ spectrum::spectrum(double peptide_mod_mass, int charge,
   for (std::vector<peak>::size_type i=0; i<mass_ladder.size(); i++)
     peaks[i].mz = peak::get_mz(peaks[i].mz, charge);
 
-  for (unsigned int i=0; i<mass_ladder.size(); i++)
-    std::cerr << "peak mz " << peaks[i].mz << " i " << peaks[i].intensity << std::endl;
+  //std::cerr << "synth charge " << charge << std::endl;
+  //for (unsigned int i=0; i<mass_ladder.size(); i++)
+  //  std::cerr << "peak mz " << peaks[i].mz << " i " << peaks[i].intensity << std::endl;
 }
 
 
@@ -419,10 +427,8 @@ synthetic_spectra(spectrum synth_sp[/* max_fragment_charge+1 */][ION_MAX],
 		  const std::vector<double> &mass_list,
 		  const double N_terminal_mass, const double C_terminal_mass,
 		  const double max_fragment_charge) {
-  const parameters &CP = parameters::the;
-
   for (ion ion_type=ION_MIN; ion_type<ION_MAX; ion_type++) {
-    std::vector<peak> mass_ladder;
+    std::vector<peak> mass_ladder(mass_list.size()-1);
 
     switch (ion_type) {
     case ION_Y:
@@ -437,8 +443,8 @@ synthetic_spectra(spectrum synth_sp[/* max_fragment_charge+1 */][ION_MAX],
       assert(false);
     }
 
-    if (CP.spectrum_synthesis)
-      synthesize_ladder_intensities(mass_ladder, peptide_seq);
+    //for (unsigned int i=0; i<mass_ladder.size(); i++)
+    //  std::cerr << "ladder step " << peptide_seq[i] << " " << mass_ladder[i].mz << std::endl;
 
     for (int charge=1; charge<=max_fragment_charge; charge++)
       synth_sp[charge][ion_type] = spectrum(peptide_mass, charge,
@@ -584,6 +590,10 @@ evaluate_peptide_mod_variation(match &m,
     if (m.convolution_score <= 2.0)
       continue;
 
+    //std::cerr << "histod: " << m.spectrum_index << " " << m.peptide_sequence
+    //<< " " << m.peptide_mass << " " <<
+    //spectrum::searchable_spectra[m.spectrum_index].mass << std::endl;
+
     // update spectrum histograms
     std::vector<int> &hh = stats.hyperscore_histogram[m.spectrum_index];
     int binned_scaled_hyper_score = int(0.5 + scale_hyperscore(m.hyper_score));
@@ -662,29 +672,30 @@ choose_PCA_mod(match &m, std::vector<double> &mass_list,
   const int mass_regime=0;	// FIX
 
   if (CP.fragment_mass_regime[mass_regime].modification_mass['['] == 0) {
-    switch (m.peptide_sequence[0]) {
-    case 'E':
-      peptide_candidate_spectrum_count +=
-	evaluate_peptide_mod_variation(m, mass_list,
-				       N_terminal_mass
-				       -CP.fragment_mass_regime[mass_regime].water_mass,
-				       C_terminal_mass, stats);
-      break;
-    case 'C': {
-      // FIX: need better test for C+57? (symbolic?)
-      const double C_mod
-	= CP.fragment_mass_regime[mass_regime].modification_mass['C'];
-      if (CP.quirks_mode ? C_mod != 57 : std::abs(C_mod - 57) > 0.5)
-	break;		// skip unless C+57
-    }
-    case 'Q':
-      peptide_candidate_spectrum_count +=
-	evaluate_peptide_mod_variation(m, mass_list,
-				       N_terminal_mass
-				       -CP.fragment_mass_regime[mass_regime].ammonia_mass,
-				       C_terminal_mass, stats);
-      break;
-    }
+    for (int bug=0; bug<(CP.quirks_mode? 2 : 1); bug++)	// FIX
+      switch (m.peptide_sequence[0]) {
+      case 'E':
+	peptide_candidate_spectrum_count +=
+	  evaluate_peptide_mod_variation(m, mass_list,
+					 N_terminal_mass
+					 -CP.fragment_mass_regime[mass_regime].water_mass,
+					 C_terminal_mass, stats);
+	break;
+      case 'C': {
+	// FIX: need better test for C+57? (symbolic?)
+	const double C_mod
+	  = CP.fragment_mass_regime[mass_regime].modification_mass['C'];
+	if (CP.quirks_mode ? int(C_mod) != 57 : std::abs(C_mod - 57) > 0.5)
+	  break;		// skip unless C+57
+      }
+      case 'Q':
+	peptide_candidate_spectrum_count +=
+	  evaluate_peptide_mod_variation(m, mass_list,
+					 N_terminal_mass
+					 -CP.fragment_mass_regime[mass_regime].ammonia_mass,
+					 C_terminal_mass, stats);
+	break;
+      }
   }
   return peptide_candidate_spectrum_count;
 }
@@ -771,7 +782,7 @@ spectrum::score_similarity(const spectrum &x, const spectrum &y,
     if (std::abs(x_mz - y_mz) < (quirks_mode ? frag_err*1.5 : frag_err)) {
       *peak_count += 1;
       score += (x_it->intensity * y_it->intensity);
-      std::cerr << "hit " << x_mz << " vs " << y_mz << ", i = " << x_it->intensity * y_it->intensity << std::endl;
+      //std::cerr << "hit " << x_mz << " vs " << y_mz << ", i = " << x_it->intensity * y_it->intensity << std::endl;
 #if 0
       // assume peaks aren't "close" together
       x_it++;

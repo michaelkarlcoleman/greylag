@@ -66,6 +66,25 @@ ATOMIC_MASS = {
     'S-avg' : 32.0655,
     }
 
+ATOMIC_MASS_XT = {
+    'H'     :  1.007825035,
+    'H-avg' :  1.00794,
+    'C'     : 12.0,
+    'C-avg' : 12.0107,
+    'N'     : 14.003074,
+    'N-avg' : 14.0067,
+    'O'     : 15.99491463,
+    'O-avg' : 15.9994,
+    'P'     : 30.973762,
+    'P-avg' : 30.973761,
+    'S'     : 31.9720707,
+    'S-avg' : 32.065,
+    }
+
+# FIX!
+ATOMIC_MASS = ATOMIC_MASS_XT
+
+
 def formula_mass(formula, atomic_mass=ATOMIC_MASS):
     """Return the mass of formula, using the given mass regime (monoisotopic
     by default)."""
@@ -261,7 +280,7 @@ def generate_peptides(seq, cleavage_points, maximum_missed_cleavage_sites):
                             min(len_cp,
                                 begin_i+2+maximum_missed_cleavage_sites)):
             begin, end = cleavage_points[begin_i], cleavage_points[end_i]
-            if end - begin >= 4:        # make 4 a param!
+            if end - begin >= 5:        # XT says 4, but means 5
                 yield begin, end, end_i-begin_i-1
 
 
@@ -517,6 +536,11 @@ def validate_parameters(parameters):
             and abs(pmap["spectrum, parent monoisotopic mass error minus"]) > 0.095), \
             "feature not implemented (cyclic param)"
 
+    # FIX: where should this go?
+    if pmap["spectrum, fragment mass error"] > 0.5:
+        warning("'spectrum, fragment mass error' is %s",
+                pmap["spectrum, fragment mass error"])
+
     return pmap
 
 
@@ -583,6 +607,7 @@ def get_spectrum_expectation(hyper_score, histogram):
         min_i = min(i for i in xrange(max_i, len(survival))
                     if survival[i] <= min_limit)
     except ValueError:
+        # FIX: how would this ever happen?
         warning('bad survival curve? %s', survival)
         a0, a1 = 3.5, -0.18
         return 10.0 ** (a0 + a1 * scaled_hyper_score), survival, (a0, a1)
@@ -590,7 +615,7 @@ def get_spectrum_expectation(hyper_score, histogram):
     data_X = range(max_i, min_i)
     data_Y = [ math.log10(survival[x]) for x in data_X ]
     # FIX!
-    if not data_Y or data_Y[0] == max(data_Y):
+    if not data_Y or data_Y[0] != max(data_Y):
         warning('bad survival curve? (2) [%s] %s', len(data_Y), survival)
         a0, a1 = 3.5, -0.18
         return 10.0 ** (a0 + a1 * scaled_hyper_score), survival, (a0, a1)
@@ -856,9 +881,11 @@ def process_results(score_statistics, fasta_db, candidate_spectrum_count,
             if spectrum_id not in passing_spectra or spectrum_id in repeats:
                 continue
             log_expect = math.log10(expect[spectrum_id])
-            if log_expect > -1.0:
-                continue
+            # FIX: uncomment!!!
+            #if log_expect > -1.0:
+            #    continue
             # this avoids adding matches for multiple domains
+            # FIX: remove 'True or'!!!
             if True or spectrum_id not in raw_protein_expect_spectra.get(protein_id, set()):
                 raw_protein_expect[protein_id] = (raw_protein_expect.get(protein_id, 0)
                                                   + log_expect)
@@ -1029,14 +1056,19 @@ def print_results_XML(options, XTP, db_info, spectrum_fns,
                     dom_defline, dom_run_seq, dom_seq_filename \
                                  = db_info[(dom.sequence_index, dom.sequence_offset)]
 
+                    delta_precision = 4
+                    delta = sp.mass - dom.peptide_mass
+                    if CP.quirks_mode and abs(delta) > 0.01:
+                        delta_precision = 3
                     print ('<domain id="%s.%s.%s" start="%s" end="%s"'
-                           ' expect="%.1e" mh="%.4f" delta="%.4f"'
+                           ' expect="%.1e" mh="%.*f" delta="%.*f"'
                            ' hyperscore="%.1f" nextscore="%.1f" y_score="%.1f"'
                            ' y_ions="%s" b_score="%.1f" b_ions="%s" pre="%s"'
                            ' post="%s" seq="%s" missed_cleavages="%s">'
                            % (sp.id, pn+1, dn+1, dom.peptide_begin+1,
                               dom.peptide_begin+len(dom.peptide_sequence), expect[spectrum_id],
-                              dom.peptide_mass, sp.mass-dom.peptide_mass,
+                              delta_precision, dom.peptide_mass,
+                              delta_precision, delta,
                               cxtpy.scale_hyperscore(score_statistics.best_score[spectrum_id]),
                               cxtpy.scale_hyperscore(score_statistics.second_best_score[spectrum_id]),
                               cxtpy.scale_hyperscore(dom.ion_scores[cxtpy.ION_Y]),
@@ -1165,6 +1197,8 @@ def main():
                       " [default='xtpy']", metavar="PREFIX")
     parser.add_option("-q", "--quiet", action="store_true",
                       dest="quiet", help="no warnings")
+    parser.add_option("-p", "--show-progress", action="store_true",
+                      dest="show_progress", help="show running progress")
     parser.add_option("-v", "--verbose", action="store_true",
                       dest="verbose", help="be verbose")
     parser.add_option("--debug", action="store_true",
@@ -1292,8 +1326,7 @@ def main():
     if not options.part_merge:
         candidate_spectrum_count = 0
         for idno, offset, defline, seq, seq_filename in db:
-            if options.verbose:
-                #sys.stderr.write('p')
+            if options.show_progress:
                 sys.stderr.write("\r%s of %s sequences, %s candidates"
                                  % (idno, len(fasta_db),
                                     candidate_spectrum_count))
@@ -1312,7 +1345,7 @@ def main():
                                                               peptide_seq,
                                                               missed_cleavage_count,
                                                               score_statistics)
-        if options.verbose:
+        if options.show_progress:
             sys.stderr.write("\r%60s\r" % ' ') 
 
         info('%s candidate spectra examined', candidate_spectrum_count)
