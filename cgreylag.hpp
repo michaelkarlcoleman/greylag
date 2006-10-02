@@ -169,10 +169,10 @@ public:
   // also build spectrum_mass_index.
   static void set_searchable_spectra(const std::vector<spectrum> &spectra);
 
-  static int search_peptide_all_mods(int idno, int offset, int begin,
-				     const std::string &peptide_seq,
-				     int missed_cleavage_count,
-				     score_stats &stats);
+  static void search_peptide_all_mods(int idno, int offset, int begin,
+				      const std::string &peptide_seq,
+				      int missed_cleavage_count,
+				      score_stats &stats);
 
   // Return the similarity score between this spectrum and that, and also a
   // count of common peaks in *peak_count.
@@ -233,6 +233,7 @@ public:
     best_score.resize(n, 100.0);
     second_best_score.resize(n, 100.0);
     best_match.resize(n);
+    candidate_spectrum_count = 0;
   }
   
   // spectrum index -> (scaled, binned hyperscore -> count)
@@ -242,6 +243,7 @@ public:
   std::vector<double> second_best_score;
   // spectrum index -> [ <match info>, ... ]
   std::vector< std::vector<match> > best_match;
+  unsigned long long candidate_spectrum_count; // may be > 2^32
 };
 
 

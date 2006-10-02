@@ -539,7 +539,7 @@ generator::generate_static_aa_mod(score_stats &stats, const match &m,
 // Search for matches of this particular peptide modification variation
 // against the spectra.  Updates score_stats and returns the number of
 // candidate spectra found.
-static inline int 
+static inline void
 evaluate_peptide_mod_variation(match &m,
 			       const std::vector<double> &mass_list,
 			       const double N_terminal_mass,
@@ -560,7 +560,7 @@ evaluate_peptide_mod_variation(match &m,
     candidate_spectra_info_end
     = spectrum::spectrum_mass_index.upper_bound(sp_mass_ub);
   if (candidate_spectra_info_begin == candidate_spectra_info_end)
-    return 0;
+    return;
 
   int max_candidate_charge = 0;
   for (std::multimap<double, std::vector<spectrum>::size_type>::const_iterator
@@ -578,12 +578,11 @@ evaluate_peptide_mod_variation(match &m,
   synthetic_spectra(synth_sp, m.peptide_sequence, m.peptide_mass, mass_list,
 		    N_terminal_mass, C_terminal_mass, max_fragment_charge);
 
-  int peptide_candidate_spectrum_count = 0;
   for (std::multimap<double, std::vector<spectrum>::size_type>::const_iterator
 	 candidate_it = candidate_spectra_info_begin;
        candidate_it != candidate_spectra_info_end; candidate_it++) {
     m.spectrum_index = candidate_it->second;
-    peptide_candidate_spectrum_count++;
+    stats.candidate_spectrum_count++;
     score_spectrum(m.hyper_score, m.convolution_score, m.ion_scores,
 		   m.ion_peaks, synth_sp, m.spectrum_index,
 		   max_fragment_charge);
@@ -652,7 +651,6 @@ evaluate_peptide_mod_variation(match &m,
     // previously seen.
     stats.best_match[m.spectrum_index].push_back(m);
   }
-  return peptide_candidate_spectrum_count;
 }
 
 
@@ -660,14 +658,13 @@ evaluate_peptide_mod_variation(match &m,
 // acid) circularization of the peptide N-terminal.  This is excluded if a
 // static N-terminal mod was specified.  (FIX: Does a PCA mod exclude other
 // potential mods?)
-static inline int 
+static inline void
 choose_PCA_mod(match &m, std::vector<double> &mass_list,
 	       const double N_terminal_mass, const double C_terminal_mass,
 	       score_stats &stats) {
   const parameters &CP = parameters::the;
-  int peptide_candidate_spectrum_count
-    = evaluate_peptide_mod_variation(m, mass_list, N_terminal_mass,
-				     C_terminal_mass, stats);
+  evaluate_peptide_mod_variation(m, mass_list, N_terminal_mass,
+				 C_terminal_mass, stats);
 
   const int mass_regime=0;	// FIX
 
@@ -675,11 +672,10 @@ choose_PCA_mod(match &m, std::vector<double> &mass_list,
     for (int bug=0; bug<(CP.quirks_mode? 2 : 1); bug++)	// FIX
       switch (m.peptide_sequence[0]) {
       case 'E':
-	peptide_candidate_spectrum_count +=
-	  evaluate_peptide_mod_variation(m, mass_list,
-					 N_terminal_mass
-					 -CP.fragment_mass_regime[mass_regime].water_mass,
-					 C_terminal_mass, stats);
+	evaluate_peptide_mod_variation(m, mass_list,
+				       N_terminal_mass
+				       -CP.fragment_mass_regime[mass_regime].water_mass,
+				       C_terminal_mass, stats);
 	break;
       case 'C': {
 	// FIX: need better test for C+57? (symbolic?)
@@ -689,22 +685,20 @@ choose_PCA_mod(match &m, std::vector<double> &mass_list,
 	  break;		// skip unless C+57
       }
       case 'Q':
-	peptide_candidate_spectrum_count +=
-	  evaluate_peptide_mod_variation(m, mass_list,
-					 N_terminal_mass
-					 -CP.fragment_mass_regime[mass_regime].ammonia_mass,
-					 C_terminal_mass, stats);
+	evaluate_peptide_mod_variation(m, mass_list,
+				       N_terminal_mass
+				       -CP.fragment_mass_regime[mass_regime].ammonia_mass,
+				       C_terminal_mass, stats);
 	break;
       }
   }
-  return peptide_candidate_spectrum_count;
 }
 
 
 // Choose among the requested mass regimes (e.g., isotopes), and also choose
 // the static mods (including N- and C-terminal mods), which are determined by
 // the mass regime choice.
-static inline int 
+static inline void
 choose_mass_regime(match &m, std::vector<double> &mass_list,
 		   const double N_terminal_mass, const double C_terminal_mass,
 		   score_stats &stats) {
@@ -716,19 +710,19 @@ choose_mass_regime(match &m, std::vector<double> &mass_list,
     mass_list[i] = (CP.fragment_mass_regime[mass_regime].residue_mass[res]
 		    + CP.fragment_mass_regime[mass_regime].modification_mass[res]);
   }
-  return choose_PCA_mod(m, mass_list,
-			N_terminal_mass
-			+ CP.fragment_mass_regime[mass_regime].modification_mass['['],
-			C_terminal_mass
-			+ CP.fragment_mass_regime[mass_regime].modification_mass[']'],
-			stats);
+  choose_PCA_mod(m, mass_list,
+		 N_terminal_mass
+		 + CP.fragment_mass_regime[mass_regime].modification_mass['['],
+		 C_terminal_mass
+		 + CP.fragment_mass_regime[mass_regime].modification_mass[']'],
+		 stats);
 }
 
 
 // Search for matches of all modification variations of this peptide against
 // the spectra.  Updates score_stats and returns the number of candidate
 // spectra found.
-int 
+void
 spectrum::search_peptide_all_mods(int idno, int offset, int begin,
 				  const std::string &peptide_seq,
 				  int missed_cleavage_count,
@@ -747,8 +741,7 @@ spectrum::search_peptide_all_mods(int idno, int offset, int begin,
   m.peptide_sequence = peptide_seq;
   m.missed_cleavage_count = missed_cleavage_count;
 
-  return choose_mass_regime(m, mass_list, N_terminal_mass, C_terminal_mass,
-			    stats);
+  choose_mass_regime(m, mass_list, N_terminal_mass, C_terminal_mass, stats);
 }
 
 

@@ -718,6 +718,8 @@ def merge_score_statistics(ss0, ss1):
     n = len(ss0.best_score)
     assert n == len(ss1.best_score), "quick sanity check"
 
+    ss0.candidate_spectrum_count += ss1.candidate_spectrum_count
+
     for i in xrange(n):
         extend_zeros(ss0.hyperscore_histogram[i], ss1.hyperscore_histogram[i])
             
@@ -754,8 +756,36 @@ def merge_score_statistics(ss0, ss1):
                                            > CP.hyper_score_epsilon_ratio) ])
 
 
-def process_results(score_statistics, fasta_db, candidate_spectrum_count,
-                    spectra, db_residue_count):
+def find_repeats(best_protein_matches, passing_spectra, expect):
+    """Find (passing) spectrum id's for spectra that are repeats.  A repeat is
+    a spectrum for which a better corresponding spectrum exists having the
+    same domain 0 match (start, end, protein id).
+    """
+    repeats = set()
+    for pid, matches in best_protein_matches.iteritems():
+        domain_0_matches = {}           # spectrum id -> match
+        for m in matches:
+            if m.spectrum_index not in domain_0_matches:
+                domain_0_matches[m.spectrum_index] = m
+        for sid_x in domain_0_matches:
+            if sid_x not in passing_spectra:
+                continue
+            for sid_y in domain_0_matches:
+                if sid_y not in passing_spectra:
+                    continue
+                if sid_x < sid_y:
+                    if ((domain_0_matches[sid_x].peptide_begin
+                        == domain_0_matches[sid_y].peptide_begin)
+                        and (domain_0_matches[sid_x].peptide_sequence
+                             == domain_0_matches[sid_y].peptide_sequence)):
+                        if expect[sid_x] > expect[sid_y]:
+                            repeats.add(sid_x)
+                        else:
+                            repeats.add(sid_y)
+    return repeats
+
+
+def process_results(score_statistics, fasta_db, spectra, db_residue_count):
 
     # spectrum index -> [ (protein id, [domain info, ...]), ... ]
     # domain info == (...)
@@ -841,31 +871,7 @@ def process_results(score_statistics, fasta_db, candidate_spectrum_count,
 
     #debug("passing_spectra: %s" % sorted(list(passing_spectra)))
 
-    # (passing) spectrum id's for spectra that are "repeats"--a repeat is a
-    # spectrum for which a better corresponding spectrum exists having the
-    # same domain 0 match (start, end, protein id).
-    repeats = set()
-    for pid, matches in best_protein_matches.iteritems():
-        domain_0_matches = {}           # spectrum id -> match
-        for m in matches:
-            if m.spectrum_index not in domain_0_matches:
-                domain_0_matches[m.spectrum_index] = m
-        for sid_x in domain_0_matches:
-            if sid_x not in passing_spectra:
-                continue
-            for sid_y in domain_0_matches:
-                if sid_y not in passing_spectra:
-                    continue
-                if sid_x < sid_y:
-                    if ((domain_0_matches[sid_x].peptide_begin
-                        == domain_0_matches[sid_y].peptide_begin)
-                        and (domain_0_matches[sid_x].peptide_sequence
-                             == domain_0_matches[sid_y].peptide_sequence)):
-                        if expect[sid_x] > expect[sid_y]:
-                            repeats.add(sid_x)
-                        else:
-                            repeats.add(sid_y)
-
+    repeats = find_repeats(best_protein_matches, passing_spectra, expect)
     #debug("repeats: %s" % repeats)
 
     # protein id -> protein expectation value (log10 of expectation)
@@ -895,18 +901,18 @@ def process_results(score_statistics, fasta_db, candidate_spectrum_count,
     #debug("raw_protein_expect: %s", raw_protein_expect)
     #debug("raw_protein_expect_spectra: %s", raw_protein_expect_spectra)
     
-    bias = float(candidate_spectrum_count) / db_residue_count
+    bias = float(score_statistics.candidate_spectrum_count) / db_residue_count
 
     # protein id -> protein expectation value (log10 of expectation)
     protein_expect = {}
     for protein_id in raw_protein_expect:
         sp_count = len(raw_protein_expect_spectra[protein_id])
-        protein_expect[protein_id] = get_final_protein_expect(sp_count,
-                                                              len(passing_spectra),
-                                                              int(round(match_ratio)),
-                                                              raw_protein_expect[protein_id],
-                                                              len(fasta_db),
-                                                              candidate_spectrum_count)
+        protein_expect[protein_id] \
+            = get_final_protein_expect(sp_count, len(passing_spectra),
+                                       int(round(match_ratio)),
+                                       raw_protein_expect[protein_id],
+                                       len(fasta_db),
+                                       score_statistics.candidate_spectrum_count)
         if sp_count > 1:
             protein_length = len(fasta_db[protein_id][1])
             if protein_length * bias < 1.0:
@@ -1324,12 +1330,11 @@ def main():
     cleavage_pattern = re.compile(cleavage_pattern)
 
     if not options.part_merge:
-        candidate_spectrum_count = 0
         for idno, offset, defline, seq, seq_filename in db:
             if options.show_progress:
                 sys.stderr.write("\r%s of %s sequences, %s candidates"
                                  % (idno, len(fasta_db),
-                                    candidate_spectrum_count))
+                                    score_statistics.candidate_spectrum_count))
             if part and idno % part[1] != part[0]-1:
                 continue
 
@@ -1340,20 +1345,19 @@ def main():
                                          XTP["scoring, maximum missed cleavage sites"]):
                 peptide_seq = seq[begin:end]
                 #debug('generated peptide: %s', peptide_seq)
-                candidate_spectrum_count \
-                    += cxtpy.spectrum.search_peptide_all_mods(idno, offset, begin,
-                                                              peptide_seq,
-                                                              missed_cleavage_count,
-                                                              score_statistics)
+                cxtpy.spectrum.search_peptide_all_mods(idno, offset, begin,
+                                                       peptide_seq,
+                                                       missed_cleavage_count,
+                                                       score_statistics)
         if options.show_progress:
             sys.stderr.write("\r%60s\r" % ' ') 
 
-        info('%s candidate spectra examined', candidate_spectrum_count)
+        info('%s candidate spectra examined',
+             score_statistics.candidate_spectrum_count)
         filter_matches(score_statistics)
 
         if part:
-            cPickle.dump((part, candidate_spectrum_count,
-                          pythonize_swig_object(score_statistics)),
+            cPickle.dump((part, pythonize_swig_object(score_statistics)),
                          sys.stdout, cPickle.HIGHEST_PROTOCOL)
             info("finished, part file written to '%s'", part_fn)
             logging.shutdown()
@@ -1363,15 +1367,13 @@ def main():
 
         part_fn = '%s.0.%sof%s.part'
 
-        part0, candidate_spectrum_count, score_statistics \
-              = cPickle.load(open(part_fn_pattern % 1, 'rb'))
+        part0, score_statistics = cPickle.load(open(part_fn_pattern % 1, 'rb'))
         #debug('ss0: %s', score_statistics)
         if part0[0] != 1 or part0[1] != options.part_merge:
             error('part file mismatch')
         for p in range(2, options.part_merge+1):
-            part0, candidate_spectrum_count0, score_statistics0 \
+            part0, score_statistics0 \
                    = cPickle.load(open(part_fn_pattern % p, 'rb'))
-            candidate_spectrum_count += candidate_spectrum_count0
             #debug('ssn: %s', score_statistics0)
             merge_score_statistics(score_statistics, score_statistics0)
 
@@ -1382,8 +1384,7 @@ def main():
     # filter results and calculate statistics
     (spec_prot_info_items, expect, protein_expect, intensity, survival_curve,
      line_parameters, passing_spectra) \
-         = process_results(score_statistics, fasta_db,
-                           candidate_spectrum_count, spectra,
+         = process_results(score_statistics, fasta_db, spectra,
                            db_residue_count)
 
     info('writing results')
