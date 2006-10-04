@@ -50,6 +50,8 @@ omssa: cpp: 7583 (plus an unknown, possibly large number from the NCBI toolkits 
 
 valgrind it
 
+add 'throw()' to cpu-critical functions?
+
 double-check handling of FP arithmetic using epsilons (no ==, no strict <)
 test spectrum synthesis
 

@@ -24,7 +24,7 @@
 #endif
 
 #ifdef FAST_GNU_ONLY
-// use non-threadsafe versions, since we don't use threads
+// use faster, non-threadsafe versions, since we don't use threads
 #define fgetsX fgets_unlocked
 #define ferrorX ferror_unlocked
 #else
@@ -33,7 +33,7 @@
 #endif
 
 #ifdef FAST_LOWER_READ_ACCURACY
-// probably faster, at some cost in accuracy
+// possibly faster, at some cost in accuracy // TEST
 #define strtodX std::strtof
 #else
 #define strtodX std::strtod
@@ -162,22 +162,6 @@ spectrum::read_spectra(FILE *f, const int file_id) {
 }
 
 
-// Sets max/sum_peak_intensity, according to peaks and normalization_factor.
-void
-spectrum::calculate_intensity_statistics() {
-  sum_peak_intensity = 0;
-  max_peak_intensity = -1;
-
-  for (std::vector<peak>::const_iterator it=peaks.begin(); it != peaks.end();
-       it++) {
-    sum_peak_intensity += it->intensity;
-    max_peak_intensity = std::max<double>(it->intensity, max_peak_intensity);
-  }
-  max_peak_intensity *= normalization_factor;
-  sum_peak_intensity *= normalization_factor;
-}
-
-
 // For each *non-overlapping* group of peaks with mz within an interval of
 // (less than) length 'limit', keep only the most intense peak.  (The
 // algorithm works from the right, which matter here.)
@@ -186,7 +170,7 @@ spectrum::calculate_intensity_statistics() {
 // eliminate peaks so that no interval of length 'limit' has more than one
 // peak (eliminating weak peaks to make this so).
 
-static void
+static inline void
 remove_close_peaks(std::vector<peak> &peaks, double limit) {
   for (std::vector<peak>::size_type i=0; i+1<peaks.size(); i++) {
     double ub_mz = peaks[i].mz + limit;
@@ -197,7 +181,7 @@ remove_close_peaks(std::vector<peak> &peaks, double limit) {
   }
 }
 
-// static void
+// static inline void
 // remove_close_peaks(std::vector<peak> &peaks, double limit) {
 //   for (std::vector<peak>::size_type i=0; i+1<peaks.size();)
 //     if (peaks[i+1].mz - peaks[i].mz < limit)
@@ -385,6 +369,7 @@ get_synthetic_Y_mass_ladder(std::vector<peak> &mass_ladder,
   synthesize_ladder_intensities(mass_ladder, peptide_seq, true);
 }
 
+
 // Calculate peaks for a synthesized mass (not mz) ladder.
 static inline void
 get_synthetic_B_mass_ladder(std::vector<peak> &mass_ladder,
@@ -403,21 +388,6 @@ get_synthetic_B_mass_ladder(std::vector<peak> &mass_ladder,
   }
 
   synthesize_ladder_intensities(mass_ladder, peptide_seq, false);
-}
-
-
-// Construct a synthetic spectrum from these parameters.
-spectrum::spectrum(double peptide_mod_mass, int charge,
-		   const std::vector<peak> &mass_ladder) {
-  init(peptide_mod_mass, charge);
-
-  peaks = mass_ladder;
-  for (std::vector<peak>::size_type i=0; i<mass_ladder.size(); i++)
-    peaks[i].mz = peak::get_mz(peaks[i].mz, charge);
-
-  //std::cerr << "synth charge " << charge << std::endl;
-  //for (unsigned int i=0; i<mass_ladder.size(); i++)
-  //  std::cerr << "peak mz " << peaks[i].mz << " i " << peaks[i].intensity << std::endl;
 }
 
 
@@ -450,6 +420,59 @@ synthetic_spectra(spectrum synth_sp[/* max_fragment_charge+1 */][ION_MAX],
       synth_sp[charge][ion_type] = spectrum(peptide_mass, charge,
 					    mass_ladder);
   }
+}
+
+
+// Return the similarity score between this spectrum and that, and also a
+// count of common peaks in *peak_count.
+
+// xtandem quantizes mz values into bins of width fragment_mass_error first,
+// and adds a bin on either side.  This makes the effective fragment mass
+// error for each peak an arbitrary value between 1x and 2x the parameter,
+// based on quantization of that peak.  If quirks_mode is on, we'll try to
+// emulate this behavior.
+static inline double 
+score_similarity_(const spectrum &x, const spectrum &y, int *peak_count) {
+  const double frag_err = parameters::the.fragment_mass_error;
+  const bool quirks_mode = parameters::the.quirks_mode;
+
+  double score = 0;
+  *peak_count = 0;
+  std::vector<peak>::const_iterator x_it = x.peaks.begin();
+  std::vector<peak>::const_iterator y_it = y.peaks.begin();
+  
+  while (x_it != x.peaks.end() and y_it != y.peaks.end()) {
+    double x_mz = x_it->mz, y_mz = y_it->mz;
+    if (quirks_mode) {
+      const float ffe = frag_err;
+      x_mz = std::floor(static_cast<float>(x_mz) / ffe) * ffe;
+      y_mz = std::floor(static_cast<float>(y_mz) / ffe) * ffe;
+    }
+    // in quirks mode, must be within one frag_err-wide bin
+    if (std::abs(x_mz - y_mz) < (quirks_mode ? frag_err*1.5 : frag_err)) {
+      *peak_count += 1;
+      score += (x_it->intensity * y_it->intensity);
+      //std::cerr << "hit " << x_mz << " vs " << y_mz << ", i = " << x_it->intensity * y_it->intensity << std::endl;
+#if 0
+      // assume peaks aren't "close" together
+      x_it++;
+      y_it++;
+      continue;
+#endif
+    }
+    if (x_it->mz < y_it->mz)
+      x_it++;
+    else
+      y_it++;
+  }
+
+  return score;
+}
+
+double 
+spectrum::score_similarity(const spectrum &x, const spectrum &y, int
+			   *peak_count) {
+  return score_similarity_(x, y, peak_count);
 }
 
 
@@ -528,7 +551,33 @@ generator::generate_static_aa_mod(score_stats &stats, const match &m,
   ((*g_it).*(g_it->fx))(stats, m, position_mass, terminal_mass, g_it+1);
 }
 
-#endif		    
+#endif
+
+
+// FIX: does this actually help inlining?
+// returns log-scaled hyperscore
+static inline double
+scale_hyperscore_(double hyper_score) {
+  assert(hyper_score >= 0);	// otherwise check for EDOM, ERANGE
+  if (hyper_score == 0)
+    return -DBL_MAX;		// FIX: this shouldn't be reached?
+  return 4 * std::log10(hyper_score);
+}
+double
+scale_hyperscore(double hyper_score) { return scale_hyperscore_(hyper_score); }
+
+
+static inline double
+get_peptide_mass(const std::vector<double> &mass_list,
+		 const double N_terminal_mass, const double C_terminal_mass) {
+  const parameters &CP = parameters::the;
+
+  double m = (N_terminal_mass + C_terminal_mass
+	      + CP.cleavage_N_terminal_mass_change
+	      + CP.cleavage_C_terminal_mass_change
+	      + CP.proton_mass);
+  return std::accumulate(mass_list.begin(), mass_list.end(), m);
+}
 
 
 // FIX: currently only one mass_list is implemented, meaning that parent and
@@ -595,7 +644,7 @@ evaluate_peptide_mod_variation(match &m,
 
     // update spectrum histograms
     std::vector<int> &hh = stats.hyperscore_histogram[m.spectrum_index];
-    int binned_scaled_hyper_score = int(0.5 + scale_hyperscore(m.hyper_score));
+    int binned_scaled_hyper_score = int(0.5 + scale_hyperscore_(m.hyper_score));
     assert(binned_scaled_hyper_score >= 0);
     // FIX
     if (static_cast<int>(hh.size())-1 < binned_scaled_hyper_score) {
@@ -654,61 +703,142 @@ evaluate_peptide_mod_variation(match &m,
 }
 
 
-// Two separate functions for N- and C-terminus potential mods.  The former
-// should include the PCA possibility.
+// The choose_* functions generate the different modification possibilities.
 
-// Choose a possible modification to account for PCA (pyrrolidone carboxyl
-// acid) circularization of the peptide N-terminal.  This is excluded if a
-// static N-terminal mod was specified.  (FIX: Does a PCA mod exclude other
-// potential mods?)
+// IDEA FIX: Use a cost parameter to define the iterative search front.
+
+
+// Choose a possible residue modification.
 static inline void
-choose_potential_mod(match &m, std::vector<double> &mass_list,
-		     const double N_terminal_mass, const double C_terminal_mass,
-		     score_stats &stats) {
+choose_residue_mod(match &m, std::vector<double> &mass_list,
+		   const double N_terminal_mass,
+		   const double C_terminal_mass, score_stats &stats,
+		   const unsigned remaining_residues_to_choose,
+		   const unsigned number_of_positions_to_consider,
+		   const int *const mod_positions_to_consider) {
   const parameters &CP = parameters::the;
-  evaluate_peptide_mod_variation(m, mass_list, N_terminal_mass,
-				 C_terminal_mass, stats);
+  assert(remaining_residues_to_choose <= number_of_positions_to_consider);
 
-  const int mass_regime=0;	// FIX
+  if (remaining_residues_to_choose == 0)
+    evaluate_peptide_mod_variation(m, mass_list, N_terminal_mass,
+				   C_terminal_mass, stats);
+  else {
+    const int mass_regime=0;	// FIX
 
+    // consider all of the positions where we could next add a mod
+    for (unsigned i=0;
+	 i<number_of_positions_to_consider-remaining_residues_to_choose+1;
+	 i++) {
+      const int pos=mod_positions_to_consider[i];
+      assert(pos >= 0);
+      const double save_mass=mass_list[pos];
+      const std::vector<double> &deltas
+	= CP.fragment_mass_regime[mass_regime]
+	.potential_modification_mass[m.peptide_sequence[pos]];
+      // step through the deltas for this amino acid
+      for (std::vector<double>::const_iterator it=deltas.begin();
+	   it != deltas.end(); it++) {
+	mass_list[pos] = save_mass + *it;
+	choose_residue_mod(m, mass_list, N_terminal_mass, C_terminal_mass,
+			   stats, remaining_residues_to_choose-1,
+			   number_of_positions_to_consider-i-1,
+			   mod_positions_to_consider+i+1);
+      }
+      mass_list[pos] = save_mass;
+    }
+  }
 }
 
 
-// Choose a possible modification to account for PCA (pyrrolidone carboxyl
-// acid) circularization of the peptide N-terminal.  This is excluded if a
-// static N-terminal mod was specified.  (FIX: Does a PCA mod exclude other
-// potential mods?)
+// Choose the number of modified residue positions.  Start with zero and count
+// up to the maximum number (which is not greater than the length of the
+// peptide).
 static inline void
-choose_PCA_mod(match &m, std::vector<double> &mass_list,
-	       const double N_terminal_mass, const double C_terminal_mass,
-	       score_stats &stats) {
+choose_residue_mod_count(match &m, std::vector<double> &mass_list,
+			 const double N_terminal_mass,
+			 const double C_terminal_mass, score_stats &stats) {
   const parameters &CP = parameters::the;
-  evaluate_peptide_mod_variation(m, mass_list, N_terminal_mass,
+  const int mass_regime=0;	// FIX
+
+  int mod_positions[m.peptide_sequence.size()+1];
+  unsigned max_count=0;
+  for (unsigned i=0; i<m.peptide_sequence.size(); i++)
+    if (not CP.fragment_mass_regime[mass_regime]
+	.potential_modification_mass[m.peptide_sequence[i]].empty())
+      mod_positions[max_count++] = i;
+  mod_positions[max_count] = -1;
+
+  for (unsigned count=0; count <= max_count; count++)
+    choose_residue_mod(m, mass_list, N_terminal_mass, C_terminal_mass, stats,
+		       count, max_count, mod_positions);
+}
+
+// FIX: Is there some way to treat terminal mods in the same way as residue
+// mods?
+
+// Choose a possible peptide C-terminal modification.
+static inline void
+choose_C_terminal_mod(match &m, std::vector<double> &mass_list,
+		      const double N_terminal_mass,
+		      const double C_terminal_mass, score_stats &stats) {
+  const parameters &CP = parameters::the;
+  choose_residue_mod_count(m, mass_list, N_terminal_mass, C_terminal_mass,
+			   stats);
+  
+  const int mass_regime=0;	// FIX
+  const std::vector<double> &C_deltas
+    = CP.fragment_mass_regime[mass_regime].potential_modification_mass[']'];
+
+  for (std::vector<double>::const_iterator it=C_deltas.begin();
+       it != C_deltas.end(); it++)
+    choose_residue_mod_count(m, mass_list, N_terminal_mass,
+			     C_terminal_mass+*it, stats);
+}
+
+
+// Choose a possible peptide N-terminal modification.  In addition to those
+// specified in the parameter file, we may also choose a modification to
+// account for PCA (pyrrolidone carboxyl acid) circularization of the peptide
+// N-terminal.  PCA mods are excluded if a static N-terminal mod has been
+// specified.  (The PCA mod for 'C' is dependent on a static mod of C+57 being
+// in effect.)
+static inline void
+choose_N_terminal_mod(match &m, std::vector<double> &mass_list,
+		      const double N_terminal_mass,
+		      const double C_terminal_mass, score_stats &stats) {
+  const parameters &CP = parameters::the;
+  choose_C_terminal_mod(m, mass_list, N_terminal_mass,
 				 C_terminal_mass, stats);
 
   const int mass_regime=0;	// FIX
+  const mass_regime_parameters &mrp = CP.fragment_mass_regime[mass_regime];
+  const std::vector<double> &N_deltas = mrp.potential_modification_mass['['];
 
-  if (CP.fragment_mass_regime[mass_regime].modification_mass['['] == 0) {
+  for (std::vector<double>::const_iterator it=N_deltas.begin();
+       it != N_deltas.end(); it++)
+    choose_C_terminal_mod(m, mass_list, N_terminal_mass+*it, C_terminal_mass,
+			  stats);
+
+  // Now try a possible PCA mod.
+  if (mrp.modification_mass['['] == 0) {
     for (int bug=0; bug<(CP.quirks_mode? 2 : 1); bug++)	// FIX
       switch (m.peptide_sequence[0]) {
       case 'E':
-	evaluate_peptide_mod_variation(m, mass_list,
-				       N_terminal_mass
-				       -CP.fragment_mass_regime[mass_regime].water_mass,
-				       C_terminal_mass, stats);
+	choose_C_terminal_mod(m, mass_list,
+			      N_terminal_mass - mrp.water_mass,
+			      C_terminal_mass, stats);
 	break;
       case 'C': {
 	// FIX: need better test for C+57? (symbolic?)
-	const double C_mod
-	  = CP.fragment_mass_regime[mass_regime].modification_mass['C'];
+	const double C_mod = mrp.modification_mass['C'];
 	if (CP.quirks_mode ? int(C_mod) != 57 : std::abs(C_mod - 57) > 0.5)
 	  break;		// skip unless C+57
+	// else fall through...
       }
       case 'Q':
-	evaluate_peptide_mod_variation(m, mass_list,
-				       N_terminal_mass
-				       -CP.fragment_mass_regime[mass_regime].ammonia_mass,
-				       C_terminal_mass, stats);
+	choose_C_terminal_mod(m, mass_list,
+			      N_terminal_mass - mrp.ammonia_mass,
+			      C_terminal_mass, stats);
 	break;
       }
   }
@@ -725,17 +855,14 @@ choose_mass_regime(match &m, std::vector<double> &mass_list,
   const parameters &CP = parameters::the;
 
   const int mass_regime=0;	// FIX
+  const mass_regime_parameters &mrp = CP.fragment_mass_regime[mass_regime];
   for (std::vector<double>::size_type i=0; i<m.peptide_sequence.size(); i++) {
     const char res = m.peptide_sequence[i];
-    mass_list[i] = (CP.fragment_mass_regime[mass_regime].residue_mass[res]
-		    + CP.fragment_mass_regime[mass_regime].modification_mass[res]);
+    mass_list[i] = mrp.residue_mass[res] + mrp.modification_mass[res];
   }
-  choose_PCA_mod(m, mass_list,
-		 N_terminal_mass
-		 + CP.fragment_mass_regime[mass_regime].modification_mass['['],
-		 C_terminal_mass
-		 + CP.fragment_mass_regime[mass_regime].modification_mass[']'],
-		 stats);
+  choose_N_terminal_mod(m, mass_list,
+			N_terminal_mass + mrp.modification_mass['['],
+			C_terminal_mass + mrp.modification_mass[']'], stats);
 }
 
 
@@ -761,101 +888,8 @@ spectrum::search_peptide_all_mods(int idno, int offset, int begin,
   m.peptide_sequence = peptide_seq;
   m.missed_cleavage_count = missed_cleavage_count;
 
+  //spectrum sp;
+  //std::cerr << "sizes: " << sizeof(sp) << " " << sizeof(m) << std::endl;
+
   choose_mass_regime(m, mass_list, N_terminal_mass, C_terminal_mass, stats);
 }
-
-
-// Return the similarity score between this spectrum and that, and also a
-// count of common peaks in *peak_count.
-
-// xtandem quantizes mz values into bins of width fragment_mass_error first,
-// and adds a bin on either side.  This makes the effective fragment mass
-// error for each peak an arbitrary value between 1x and 2x the parameter,
-// based on quantization of that peak.  If quirks_mode is on, we'll try to
-// emulate this behavior.
-double
-spectrum::score_similarity(const spectrum &x, const spectrum &y,
-			   int *peak_count) {
-  const double frag_err = parameters::the.fragment_mass_error;
-  const bool quirks_mode = parameters::the.quirks_mode;
-
-  double score = 0;
-  *peak_count = 0;
-  std::vector<peak>::const_iterator x_it = x.peaks.begin();
-  std::vector<peak>::const_iterator y_it = y.peaks.begin();
-  
-  while (x_it != x.peaks.end() and y_it != y.peaks.end()) {
-    double x_mz = x_it->mz, y_mz = y_it->mz;
-    if (quirks_mode) {
-      const float ffe = frag_err;
-      x_mz = std::floor(static_cast<float>(x_mz) / ffe) * ffe;
-      y_mz = std::floor(static_cast<float>(y_mz) / ffe) * ffe;
-    }
-    // in quirks mode, must be within one frag_err-wide bin
-    if (std::abs(x_mz - y_mz) < (quirks_mode ? frag_err*1.5 : frag_err)) {
-      *peak_count += 1;
-      score += (x_it->intensity * y_it->intensity);
-      //std::cerr << "hit " << x_mz << " vs " << y_mz << ", i = " << x_it->intensity * y_it->intensity << std::endl;
-#if 0
-      // assume peaks aren't "close" together
-      x_it++;
-      y_it++;
-      continue;
-#endif
-    }
-    if (x_it->mz < y_it->mz)
-      x_it++;
-    else
-      y_it++;
-  }
-
-  return score;
-}
-
-
-// FIX: obsolete?
-double
-get_parent_peptide_mass(const std::string &peptide_seq,
-			const unsigned mass_regime) {
-  const parameters &CP = parameters::the;
-  const bool is_N=false, is_C=false; // FIX
-  double NC_mods = 0;
-  if (is_N)
-    NC_mods += CP.parent_mass_regime[mass_regime].modification_mass['['];
-  if (is_C)
-    NC_mods += CP.parent_mass_regime[mass_regime].modification_mass[']'];
-
-  double residue_sum = 0;
-  for (std::string::const_iterator it=peptide_seq.begin();
-       it != peptide_seq.end(); it++)
-    residue_sum += (CP.parent_mass_regime[mass_regime].residue_mass[*it]
-		    + CP.parent_mass_regime[mass_regime].modification_mass[*it]);
-  return (NC_mods + residue_sum
-	  + CP.cleavage_N_terminal_mass_change
-	  + CP.cleavage_C_terminal_mass_change
-	  + CP.proton_mass);
-}
-
-
-double
-get_peptide_mass(const std::vector<double> &mass_list,
-		 const double N_terminal_mass, const double C_terminal_mass) {
-  const parameters &CP = parameters::the;
-
-  double m = (N_terminal_mass + C_terminal_mass
-	      + CP.cleavage_N_terminal_mass_change
-	      + CP.cleavage_C_terminal_mass_change
-	      + CP.proton_mass);
-  return std::accumulate(mass_list.begin(), mass_list.end(), m);
-}
-
-
-// returns log-scaled hyperscore
-double
-scale_hyperscore(double hyper_score) {
-  assert(hyper_score >= 0);	// otherwise check for EDOM, ERANGE
-  if (hyper_score == 0)
-    return -DBL_MAX;		// FIX: this shouldn't be reached?
-  return 4 * std::log10(hyper_score);
-}
-

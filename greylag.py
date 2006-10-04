@@ -304,8 +304,9 @@ def split_sequence_into_aa_runs(idno, defline, sequence, filename):
 
 
 def clean_defline(s):
-    """Return the given string with control characters removed."""
-    return re.sub(r'[^ -~]', '', s)
+    """Return the given string with tags replaced by spaces and control
+    characters removed."""
+    return re.sub(r'[^ -~]', '', s.replace('\t', ' '))
 
 
 def abbrev_defline(s):
@@ -1246,7 +1247,8 @@ def main():
         parser.print_help()
         sys.exit(1)
 
-    part_fn_pattern = '%s.0.%sof%s.part.gz'
+    #part_fn_pattern = '%s.0.%sof%s.part.gz'
+    part_fn_pattern = '%s.0.%sof%s.part'
     part = None                         # or "2of10" -> (2, 10)
     if options.part:
         if options.part_merge:

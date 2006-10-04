@@ -1,6 +1,6 @@
 # Makefile for cgreylag module
 
-#	$Id: Makefile,v 1.6 2006/09/29 19:58:41 mkc Exp $
+#	$Id$
 
 
 # SWIG is still experiencing rapid development--1.3.28 or better is required.
@@ -16,11 +16,19 @@
 # for debugging (extra checking, slow)
 #CXXFLAGS = -Wall -g3 -O0 -D_GLIBCXX_DEBUG
 
+#ARCHFLAGS += -mfpmath=sse,387
+#ARCHFLAGS = -march=pentium3
+#ARCHFLAGS = -march=pentium4
+#ARCHFLAGS = -march=opteron
+ARCHFLAGS = -march=nocona
+
+CXXFASTFLAGS = -finline-limit=20000 --param inline-unit-growth=1000 --param large-function-growth=1000
+
 # for speed (fastest?, fewest checks)
-#CXXFLAGS = -Wall -g -O3 -DNDEBUG
+CXXFLAGS = -Wall -g -O3 -DNDEBUG $(ARCHFLAGS)
 
 # reasonably fast
-CXXFLAGS = -Wall -g -O2
+#CXXFLAGS = -Wall -g -O2 $(ARCHFLAGS)
 
 SWIGCXXFLAGS = $(CXXFLAGS) -fno-strict-aliasing -Wno-unused-function -fPIC \
 			-I$(PYTHON_I)
@@ -41,9 +49,10 @@ $(MODULE)_wrap.o : $(MODULE)_wrap.cpp $(MODULE).hpp
 	g++ $(SWIGCXXFLAGS) -c $<
 
 $(MODULE).o : $(MODULE).cpp $(MODULE).hpp
+	g++ $(CXXFLAGS) $(CXXFASTFLAGS) -c $<
 
 _$(MODULE).so : $(MODULE).o $(MODULE)_wrap.o
-	g++ $(CXXFLAGS) -shared $^ -o $@
+	g++ $(CXXFLAGS) $(CXXFASTFLAGS) -shared $^ -o $@
 
 
 clean::

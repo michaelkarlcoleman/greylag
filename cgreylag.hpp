@@ -1,6 +1,6 @@
 // cgreylag.hpp
 
-//	$Id: cgreylag.hpp,v 1.8 2006/09/29 19:58:41 mkc Exp $
+//	$Id$
 
 #ifndef CGREYLAG_H
 #define CGREYLAG_H
@@ -30,11 +30,8 @@ public:
   std::vector< std::vector<double> > potential_modification_mass;
   std::vector< std::vector<double> > potential_modification_mass_refine;
 
-  mass_regime_parameters() : hydroxyl_mass(0), water_mass(0),
-			     ammonia_mass(0) { } 
-
-  mass_regime_parameters(unsigned size) : hydroxyl_mass(0), water_mass(0),
-					  ammonia_mass(0) {
+  mass_regime_parameters(unsigned size=0) : hydroxyl_mass(0), water_mass(0),
+					    ammonia_mass(0) {
     residue_mass.resize(size);
     modification_mass.resize(size);
     potential_modification_mass.resize(size);
@@ -132,15 +129,21 @@ private:
   }
 
 public:
-
+  // Construct an empty spectrum.
   spectrum(double mass=0, int charge=0) { init(mass, charge); }
 
-  // Construct a synthetic spectrum from these parameters.
+  // Construct a (synthetic) spectrum from these parameters.
   spectrum(double peptide_mod_mass, int charge,
-	   const std::vector<peak> &mass_ladder);
+	   const std::vector<peak> &mass_ladder) {
+    init(peptide_mod_mass, charge);
+    peaks = mass_ladder;
+    for (std::vector<peak>::size_type i=0; i<mass_ladder.size(); i++)
+      peaks[i].mz = peak::get_mz(peaks[i].mz, charge);
+  }
 
   char *__repr__() const;
 
+  // for tinkering
   void set_peaks_from_matrix(const std::vector< std::vector<double> > &m) {
     peaks.resize(m.size());
     std::vector<peak>::iterator p_it = peaks.begin();
@@ -158,7 +161,19 @@ public:
 
   // Sets max/sum_peak_intensity, according to peaks and
   // normalization_factor.
-  void calculate_intensity_statistics();
+  void calculate_intensity_statistics() {
+    sum_peak_intensity = 0;
+    max_peak_intensity = -1;
+
+    for (std::vector<peak>::const_iterator it=peaks.begin(); it != peaks.end();
+	 it++) {
+      sum_peak_intensity += it->intensity;
+      max_peak_intensity = std::max<double>(it->intensity, max_peak_intensity);
+    }
+    max_peak_intensity *= normalization_factor;
+    sum_peak_intensity *= normalization_factor;
+  }
+
 
   // Examine this spectrum to see if it should be kept.  If so, return true
   // and sort the peaks by mz, normalize them and limit their number.
@@ -174,8 +189,7 @@ public:
 				      int missed_cleavage_count,
 				      score_stats &stats);
 
-  // Return the similarity score between this spectrum and that, and also a
-  // count of common peaks in *peak_count.
+  // exposed for tinkering
   static double score_similarity(const spectrum &x, const spectrum &y,
 				 int *peak_count);
 
@@ -245,17 +259,6 @@ public:
   std::vector< std::vector<match> > best_match;
   unsigned long long candidate_spectrum_count; // may be > 2^32
 };
-
-
-// OLD
-// "parent" would typically use average mass, though not necessarily
-double get_parent_peptide_mass(const std::string &peptide_seq,
-			       const unsigned mass_regime=0);
-
-// NEW
-double get_peptide_mass(const std::vector<double> &mass_list,
-			const double N_terminal_mass,
-			const double C_terminal_mass);
 
 
 // returns log-scaled hyperscore
