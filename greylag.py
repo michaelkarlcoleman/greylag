@@ -676,7 +676,7 @@ def calculate_spectrum_mass_band(part, parts, spectrum_fns):
     masses = []
     found_spectrum = False
     for fn in spectrum_fns:
-        for line in open(fn):
+        for line in zopen(fn):
             if found_spectrum:
                 masses.append(float(line.split(None, 1)[0]))
                 found_spectrum = False
@@ -1366,6 +1366,9 @@ def main():
     cleavage_pattern = re.compile(cleavage_pattern)
 
     if not options.part_merge:
+        if part:
+            del spectra                 # try to release memory
+
         for idno, offset, defline, seq, seq_filename in db:
             if options.show_progress:
                 sys.stderr.write("\r%s of %s sequences, %s candidates"
@@ -1390,6 +1393,10 @@ def main():
         filter_matches(score_statistics)
 
         if part:
+            # try to release memory
+            del db
+            del fasta_db
+            cgreylag.spectrum.set_searchable_spectra([])
             cPickle.dump((part, pythonize_swig_object(score_statistics)),
                          partfile, cPickle.HIGHEST_PROTOCOL)
             partfile.close()

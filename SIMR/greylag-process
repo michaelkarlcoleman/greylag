@@ -39,6 +39,7 @@ err() {
 
 die() {
     err "$@"
+    touch "$jobname.done-failed" || err "touch failed"
     exit 1
 }
 
@@ -68,8 +69,8 @@ for f in "$@"; do
 	die "file '$f' must be in the current working directory"
     fi
     case "$f" in
-	*.ms2) true;;
-	*) die "argument file '$f' should end in '.ms2'";;
+	*.ms2 | *.ms2.gz | *.ms2.bz2) true;;
+	*) die "argument file '$f' should end in '.ms2' (or '.ms2.{gz,bz2}')";;
     esac
 done
 
@@ -90,7 +91,7 @@ ln -s $$ $lockfile 2>/dev/null || true
 lockpid=$(ls -ld $lockfile | sed -e 's/^.*> //')
 
 if [ $lockpid != $$ ]; then
-    die "this directory locked by someone else (pid = $lockpid)?
+    die "this directory locked by another process (pid = $lockpid)?
          remove $lockfile if not"
 fi
 
@@ -142,7 +143,7 @@ err round 1 processing
 # run on the same node.
 
 # first do parts on nodes
-qsub -sync y -r y -b y -cwd -V -hard -l mem_free=2.7G \
+qsub -sync y -r y -b y -cwd -V -hard -l mem_free=400M \
     -q greylag.q \
     -t 1-$PARTS \
     -N "greylag-$jobbasedir-$jobname-$$" \
@@ -154,7 +155,7 @@ qsub -sync y -r y -b y -cwd -V -hard -l mem_free=2.7G \
     --part='${SGE_TASK_ID}of${SGE_TASK_LAST}' \
     "$params" "$@"
 qsub_status=$?
-cat $(ls -1 round-1.*.{out,err} | sort -t . -k 2n,3)
+cat $(ls -1 round-1.*.{out,err} | sort -t . -k 2n,3) /dev/null
 if [ $qsub_status != 0 ]; then
     die "round 1 on nodes failed"
 fi
@@ -182,5 +183,5 @@ cp -p $shared_d/"$results" . || die "cp failed!"
 #rm -fr "$shared_d" $lockfile
 
 err complete
-touch "$jobname.done-$status" || err "touch failed"
+touch "$jobname.done-ok" || err "touch failed"
 exit 0

@@ -27,10 +27,10 @@ DEST = /n/site/inst/Linux-i686/bioinfo/greylag/
 CXXFLAGS = -Wall -g -O2 $(ARCHFLAGS)
 
 #ARCHFLAGS += -mfpmath=sse,387???
-ARCHFLAGS = -march=pentium3
+#ARCHFLAGS = -march=pentium3
 #ARCHFLAGS = -march=pentium4
 #ARCHFLAGS = -march=opteron -mfpmath=sse
-#ARCHFLAGS = -march=nocona -mfpmath=sse
+ARCHFLAGS = -march=nocona -mfpmath=sse
 
 # is this faster?
 ##CXXFASTFLAGS = -finline-limit=20000 --param inline-unit-growth=1000 --param large-function-growth=1000
@@ -62,6 +62,7 @@ _$(MODULE).so : $(MODULE).o $(MODULE)_wrap.o
 
 # FIX: we could compile the .py files here
 install::
+	[ -d $(DEST) ] || install -d $(DEST)
 	install -p _$(MODULE).so $(DEST)
 	install -p --mode=444 $(MODULE).py $(DEST)
 	install -p greylag.py $(DEST)
