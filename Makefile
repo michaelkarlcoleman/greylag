@@ -20,22 +20,23 @@ DEST = /n/site/inst/Linux-i686/bioinfo/greylag/
 # for debugging (extra checking, slow)
 #CXXFLAGS = -Wall -g3 -O0 -D_GLIBCXX_DEBUG
 
+# for speed (fastest?, fewest checks)
+#CXXFLAGS = -Wall -g -O3 -DNDEBUG $(ARCHFLAGS)
+
+# reasonably fast
+CXXFLAGS = -Wall -g -O2 $(ARCHFLAGS)
+
 #ARCHFLAGS += -mfpmath=sse,387???
 #ARCHFLAGS = -march=pentium3
 #ARCHFLAGS = -march=pentium4
-ARCHFLAGS = -march=opteron -mfpmath=sse
-#ARCHFLAGS = -march=nocona -mfpmath=sse
+#ARCHFLAGS = -march=opteron -mfpmath=sse
+ARCHFLAGS = -march=nocona -mfpmath=sse
 
+# is this faster?
 ##CXXFASTFLAGS = -finline-limit=20000 --param inline-unit-growth=1000 --param large-function-growth=1000
 
-# for speed (fastest?, fewest checks)
-CXXFLAGS = -Wall -g -O3 -DNDEBUG $(ARCHFLAGS)
-
-# reasonably fast
-#CXXFLAGS = -Wall -g -O2 $(ARCHFLAGS)
-
-SWIGCXXFLAGS = $(CXXFLAGS) -fno-strict-aliasing -Wno-unused-function -fPIC \
-			-I$(PYTHON_I)
+SWIGCXXFLAGS = $(CXXFLAGS) -fPIC -I$(PYTHON_I) -fno-strict-aliasing \
+		-Wno-unused-function -Wno-uninitialized
 
 
 # Generally, this is where the 'Python.h' corresponding to your 'python' lives.

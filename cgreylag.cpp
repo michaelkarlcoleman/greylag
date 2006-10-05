@@ -82,13 +82,21 @@ read_error(FILE *f, const char *message="") {
 }
 
 
-// Read spectra from a file in ms2 format.  Multiply charge spectra (e.g.,
-// +2/+3) are split into separate spectra having the same physical id.  The
-// peak list is initially sorted by mz.  Throws an exception on invalid
-// input.
+// Read spectra from file in ms2 format, tagging them with file_id.  Only
+// spectra with parent masses in the range [min_mass, max_mass) are included.
+// (All of them are read, though, so the ids for any spectrum will be the same
+// regardless of the range used.)
+
+// Multiply charge spectra (e.g., +2/+3) are split into separate spectra
+// having the same physical id.  The peak list is initially sorted by mz.
+// Throws an exception on invalid input.
+
+// FIX: could save a small bit of time by not reading peaks if they'll be
+// discarded?
 
 std::vector<spectrum>
-spectrum::read_spectra(FILE *f, const int file_id) {
+spectrum::read_spectra(FILE *f, const int file_id, const double min_mass,
+		       const double max_mass) {
   std::vector<spectrum> spectra;
 
   const int bufsiz = 1024;
@@ -149,6 +157,10 @@ spectrum::read_spectra(FILE *f, const int file_id) {
 
     for (std::vector<double>::size_type i=0; i<names.size(); i++) {
       spectrum sp(masses[i], charges[i]);
+      // Every spectrum gets created, but only those within the specified mass
+      // range are kept.
+      if (masses[i] < min_mass or masses[i] >= max_mass)
+	continue;
       sp.peaks = peaks;
       sp.name = names[i];
       sp.file_id = file_id;

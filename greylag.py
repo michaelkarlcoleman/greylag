@@ -669,6 +669,29 @@ def get_final_protein_expect(sp_count, valid_spectra, match_ratio, raw_expect,
     return r
 
 
+def calculate_spectrum_mass_band(part, parts, spectrum_fns):
+    """Return the mass band [min_mass, max_mass) corresponding to this part,
+    by reading and then sorting all spectra.  (Note that 'part' starts at 1.)
+    """
+    masses = []
+    found_spectrum = False
+    for fn in spectrum_fns:
+        for line in open(fn):
+            if found_spectrum:
+                masses.append(float(line.split(None, 1)[0]))
+                found_spectrum = False
+            elif line[:1] == ":":
+                found_spectrum = True
+    masses.sort()
+    info('%s spectra (mass %s - %s)', len(masses), masses[0], masses[-1])
+    part_size = len(masses) / parts + 1 # ensure complete coverage
+    min_mass = masses[(part-1)*part_size]
+    max_mass = round(masses[-1] + 1)
+    if part != parts:
+        max_mass = masses[part*part_size]
+    return (min_mass, max_mass)
+    
+
 class struct:
     "generic struct class used by pythonize_swig_object"
     def __repr__(self):
@@ -710,59 +733,15 @@ def filter_matches(score_statistics):
     # else there shouldn't be anything to filter
 
 
-def extend_zeros(list1, list2):
-    """Make both lists the same length by end-padding the shorter one with
-    zeros.
-    """
-    l1, l2 = len(list1), len(list2)
-    l = max(l1, l2)
-    if l1 < l:
-        list1.extend([0] * (l - l1))
-    if l2 < l:
-        list2.extend([0] * (l - l2))
-
-
 def merge_score_statistics(ss0, ss1):
-    """Merge ss1 into ss0, keeping the best of both."""
-    n = len(ss0.best_score)
-    assert n == len(ss1.best_score), "quick sanity check"
-
+    """Merge ss1 into ss0, keeping the best of both.  (Currently this is
+    trivial since the statistics are for distinct (adjacent) sets of spectra.)
+    """
     ss0.candidate_spectrum_count += ss1.candidate_spectrum_count
-
-    for i in xrange(n):
-        extend_zeros(ss0.hyperscore_histogram[i], ss1.hyperscore_histogram[i])
-            
-        ss0.hyperscore_histogram[i] \
-            = [ x0+x1 for x0, x1 in zip(ss0.hyperscore_histogram[i],
-                                        ss1.hyperscore_histogram[i]) ]
-
-        ratio = ss0.best_score[i] / ss1.best_score[i]
-        if (not CP.quirks_mode
-            and (ratio > CP.hyper_score_epsilon_ratio and
-                 1/ratio > CP.hyper_score_epsilon_ratio)):
-            # essentially equal
-            ss0.second_best_score[i] = max(ss0.second_best_score[i],
-                                           ss1.second_best_score[i])
-        else:
-            ss0.second_best_score[i] \
-                = max(min(ss0.best_score[i], ss1.best_score[i]),
-                      max(ss0.second_best_score[i],
-                          ss1.second_best_score[i]))
-
-        ss0.best_score[i] = bs = max(ss0.best_score[i], ss1.best_score[i])
-
-        if CP.quirks_mode:
-            ss0.best_match[i] = [ x0 for x0 in ss0.best_match[i]
-                                  if x0.hyper_score >= bs ]
-            ss0.best_match[i].extend([ x1 for x1 in ss1.best_match[i]
-                                       if x1.hyper_score >= bs ])
-        else:
-            ss0.best_match[i] = [ x0 for x0 in ss0.best_match[i]
-                                  if (x0.hyper_score/bs
-                                      > CP.hyper_score_epsilon_ratio) ]
-            ss0.best_match[i].extend([ x1 for x1 in ss1.best_match[i]
-                                       if (x1.hyper_score/bs
-                                           > CP.hyper_score_epsilon_ratio) ])
+    ss0.hyperscore_histogram.extend(ss1.hyperscore_histogram)
+    ss0.second_best_score.extend(ss1.second_best_score)
+    ss0.best_score.extend(ss1.best_score)
+    ss0.best_match.extend(ss1.best_match)
 
 
 def find_repeats(best_protein_matches, passing_spectra, expect):
@@ -1251,12 +1230,13 @@ def main():
         parser.print_help()
         sys.exit(1)
 
-    #part_fn_pattern = '%s.0.%sof%s.part.gz'
+    if options.part and options.part_merge:
+        error("cannot combine --part and --part-merge")
+
     part_fn_pattern = '%s.0.%sof%s.part'
     part = None                         # or "2of10" -> (2, 10)
+
     if options.part:
-        if options.part_merge:
-            error("cannot specify both --part and --part-merge")
         try:
             part = tuple(int(x) for x in options.part.split('of', 1))
         except:
@@ -1265,7 +1245,7 @@ def main():
         if not 1 <= part[0] <= part[1]:
             error("bad --part parameter")
         part_fn_pattern %= (options.part_prefix, '%s', part[1])
-    if options.part_merge:
+    elif options.part_merge:
         part_fn_pattern %= (options.part_prefix, '%s', options.part_merge)
 
     log_level = logging.WARNING
@@ -1299,6 +1279,11 @@ def main():
         if output_path:
             sys.stdout = zopen(output_path, 'w')
 
+    if len(args) > 1:
+        spectrum_fns = args[1:]
+    else:
+        spectrum_fns = [XTP["spectrum, path"]]
+
     taxonomy = read_taxonomy(XTP["list path, taxonomy information"])
 
     initialize_spectrum_parameters(options.quirks_mode)
@@ -1324,17 +1309,17 @@ def main():
         error("no database sequences")
 
     # read spectra
-    if len(args) > 1:
-        spectrum_fns = args[1:]
-    else:
-        spectrum_fns = [XTP["spectrum, path"]]
-
-    spectra = list(itertools.chain(*[ cgreylag.spectrum.read_spectra(zopen(fn),
-                                                                     n)
-                                      for n, fn in enumerate(spectrum_fns) ]))
-    #spectra = list(cgreylag.spectrum.read_spectra(zopen(spectrum_fn), 0))
+    mass_band = -1, 100000000           # everything
+    if part:
+        mass_band = calculate_spectrum_mass_band(part[0], part[1],
+                                                 spectrum_fns)
+        info("using mass band [%s, %s)", mass_band[0], mass_band[1])
+    spectra = list(itertools.chain(
+        *[ cgreylag.spectrum.read_spectra(zopen(fn), n, mass_band[0],
+                                          mass_band[1])
+           for n, fn in enumerate(spectrum_fns) ]))
     if not spectra:
-        error("no input spectra")
+        warning("no input spectra")
     info("read %s spectra", len(spectra))
 
     spectra.sort(key=lambda x: x.mass)
@@ -1369,9 +1354,6 @@ def main():
                 sys.stderr.write("\r%s of %s sequences, %s candidates"
                                  % (idno, len(fasta_db),
                                     score_statistics.candidate_spectrum_count))
-            if part and idno % part[1] != part[0]-1:
-                continue
-
             cleavage_points = list(generate_cleavage_points(cleavage_pattern,
                                                             cleavage_pos, seq))
             for begin, end, missed_cleavage_count \
@@ -1395,35 +1377,27 @@ def main():
                          partfile, cPickle.HIGHEST_PROTOCOL)
             partfile.close()
             info("finished, part file written to '%s'", part_fn)
-            part_done_fn = part_fn + '.done'
-            try:
-                open(part_done_fn, 'w').close()
-            except IOError, e:
-                warning("failed to write '%s'", part_done_fn)
             logging.shutdown()
             return
     else:
         info('loading %s parts' % options.part_merge)
-
-        part_fn = '%s.0.%sof%s.part'
-
-        part0, score_statistics = cPickle.load(zopen(part_fn_pattern % 1,
-                                                     'rb')) 
+        part0, score_statistics = cPickle.load(zopen(part_fn_pattern % 1))
         info('loaded part 1')
         #debug('ss0: %s', score_statistics)
-        if part0[0] != 1 or part0[1] != options.part_merge:
-            error('part file mismatch')
         for p in range(2, options.part_merge+1):
             part0, score_statistics0 \
-                   = cPickle.load(zopen(part_fn_pattern % p, 'rb'))
+                   = cPickle.load(zopen(part_fn_pattern % p))
             info('loaded part %s', p)
             #debug('ssn: %s', score_statistics0)
             merge_score_statistics(score_statistics, score_statistics0)
             info('merged part %s', p)
+        if len(score_statistics.best_score) != len(spectra):
+            error("error during statistics merge (expecting %s, got %s)",
+                  len(spectra), len(score_statistics.best_score))
 
     info('processing results')
 
-    debug('best score: %s', tuple(score_statistics.best_score))
+    #debug('best score: %s', tuple(score_statistics.best_score))
 
     # filter results and calculate statistics
     (spec_prot_info_items, expect, protein_expect, intensity, survival_curve,
