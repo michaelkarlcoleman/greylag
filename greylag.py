@@ -305,8 +305,8 @@ def split_sequence_into_aa_runs(idno, defline, sequence, filename):
 
 def clean_defline(s):
     """Return the given string with tags replaced by spaces and control
-    characters removed."""
-    return re.sub(r'[^ -~]', '', s.replace('\t', ' '))
+    characters removed, then stripped."""
+    return re.sub(r'[^ -~]', '', s.replace('\t', ' ')).strip()
 
 
 def abbrev_defline(s):
@@ -449,7 +449,7 @@ XML_PARAMETER_INFO = {
     "refine, unanticipated cleavage" : (bool, p_ni_equal(False)),
     "refine, use potential modifications for full refinement" : (bool, "no", p_ni_equal(False)),
     "residue, modification mass" : (mod_list, ""),
-    "residue, potential modification mass" : (potential_mod_list, "", p_ni_empty),
+    "residue, potential modification mass" : (potential_mod_list, ""),
     "residue, potential modification motif" : (str, "", p_ni_empty),
     "scoring, a ions" : (bool, "no", p_ni_equal(False)),
     "scoring, b ions" : (bool, "yes", p_ni_equal(True)),
@@ -659,7 +659,7 @@ def get_final_protein_expect(sp_count, valid_spectra, match_ratio, raw_expect,
     r = raw_expect + math.log10(db_length)
     for a in range(sp_count):
         r += math.log10(float(valid_spectra - a)/(sp_count - a))
-    debug('valid_spectra: %s, match_ratio: %s', valid_spectra, match_ratio)
+    #debug('valid_spectra: %s, match_ratio: %s', valid_spectra, match_ratio)
     r -= math.log10(valid_spectra) + (sp_count-1) * math.log10(match_ratio)
     #debug('x: %s', (match_ratio, candidate_spectra))
     p = min(float(match_ratio) / candidate_spectra, 0.9999999)
@@ -1030,9 +1030,8 @@ def print_results_XML(options, XTP, db_info, spectrum_fns,
                           protein_id+1,
                           abbrev_defline(clean_defline(d0_defline)),
                           math.log10(intensity[protein_id])))
-                print ('<note label="description">%s'
+                print ('<note label="description">%s</note>'
                        % clean_defline(d0_defline))
-                print '</note>'
                 print '<file type="peptide" URL="%s"/>' % d0_seq_filename
                 print '<peptide start="1" end="%s">' % len(d0_run_seq)
                 if XTP["output, sequences"]:
@@ -1073,7 +1072,25 @@ def print_results_XML(options, XTP, db_info, spectrum_fns,
                               get_suffix_sequence(dom.peptide_begin+len(dom.peptide_sequence), dom.sequence_offset,
                                                   dom_run_seq),
                               dom.peptide_sequence, dom.missed_cleavage_count))
-                    # FIX: print '<aa type="C" modified="42" />'s here (mods)
+                    mt_items = list(dom.mass_trace)
+                    mt_items.reverse()
+                    for mt_item in mt_items:
+                        if CP.quirks_mode or True: # FIX
+                            mt_item_pos = mt_item.position
+                            if mt_item_pos == cgreylag.POSITION_NTERM:
+                                mt_item_pos = 0
+                            elif mt_item_pos == cgreylag.POSITION_CTERM:
+                                mt_item_pos = len(dom.peptide_sequence)-1
+                            if mt_item_pos >= 0:
+                                print ('<aa type="%s" at="%s" modified="%s" />'
+                                       % (dom.peptide_sequence[mt_item_pos],
+                                          dom.peptide_begin+mt_item_pos+1,
+                                          mt_item.delta))
+                            #else:
+                            #    print ('<!-- modified="%s" description="%s" -->'
+                            #           % (mt_item.delta, mt_item.description))
+                        else:
+                            pass        # FIX
                     print '</domain>'
                 print '</peptide>'
                 print '</protein>'

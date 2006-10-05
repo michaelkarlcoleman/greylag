@@ -592,6 +592,14 @@ get_peptide_mass(const std::vector<double> &mass_list,
 }
 
 
+struct mass_trace_list {
+  mass_trace_item item;
+  const mass_trace_list *next;
+
+  mass_trace_list(const mass_trace_list *p=0) : next(p) { }
+};
+
+
 // FIX: currently only one mass_list is implemented, meaning that parent and
 // fragment masses must be the same (e.g., mono/mono).  A workaround is to
 // just increase the parent error plus a bit (the xtandem default seems to
@@ -601,7 +609,7 @@ get_peptide_mass(const std::vector<double> &mass_list,
 // against the spectra.  Updates score_stats and returns the number of
 // candidate spectra found.
 static inline void
-evaluate_peptide_mod_variation(match &m,
+evaluate_peptide_mod_variation(match &m, const mass_trace_list *mtlp,
 			       const std::vector<double> &mass_list,
 			       const double N_terminal_mass,
 			       const double C_terminal_mass,
@@ -710,6 +718,9 @@ evaluate_peptide_mod_variation(match &m,
     }
     // Now remember this match because it's at least as good as those
     // previously seen.
+    m.mass_trace.clear();
+    for (const mass_trace_list *p=mtlp; p; p=p->next)
+      m.mass_trace.push_back(p->item);
     stats.best_match[m.spectrum_index].push_back(m);
   }
 }
@@ -722,7 +733,8 @@ evaluate_peptide_mod_variation(match &m,
 
 // Choose a possible residue modification.
 static inline void
-choose_residue_mod(match &m, std::vector<double> &mass_list,
+choose_residue_mod(match &m, const mass_trace_list *mtlp,
+		   std::vector<double> &mass_list,
 		   const double N_terminal_mass,
 		   const double C_terminal_mass, score_stats &stats,
 		   const unsigned remaining_residues_to_choose,
@@ -731,17 +743,25 @@ choose_residue_mod(match &m, std::vector<double> &mass_list,
   const parameters &CP = parameters::the;
   assert(remaining_residues_to_choose <= number_of_positions_to_consider);
 
-  if (remaining_residues_to_choose == 0)
-    evaluate_peptide_mod_variation(m, mass_list, N_terminal_mass,
+  if (CP.quirks_mode and stats.combinations_searched >= (1 << 12))
+    return;
+
+  if (remaining_residues_to_choose == 0) {
+    if (CP.quirks_mode)
+      stats.combinations_searched++;
+
+    evaluate_peptide_mod_variation(m, mtlp, mass_list, N_terminal_mass,
 				   C_terminal_mass, stats);
-  else {
+  } else {
     const int mass_regime=0;	// FIX
+    mass_trace_list mtl(mtlp);
 
     // consider all of the positions where we could next add a mod
     for (unsigned i=0;
 	 i<number_of_positions_to_consider-remaining_residues_to_choose+1;
 	 i++) {
       const int pos=mod_positions_to_consider[i];
+      mtl.item.position = pos;
       assert(pos >= 0);
       const double save_mass=mass_list[pos];
       const std::vector<double> &deltas
@@ -750,9 +770,12 @@ choose_residue_mod(match &m, std::vector<double> &mass_list,
       // step through the deltas for this amino acid
       for (std::vector<double>::const_iterator it=deltas.begin();
 	   it != deltas.end(); it++) {
+	mtl.item.delta = *it;
+	mtl.item.description = "position mod"; // FIX
 	mass_list[pos] = save_mass + *it;
-	choose_residue_mod(m, mass_list, N_terminal_mass, C_terminal_mass,
-			   stats, remaining_residues_to_choose-1,
+	choose_residue_mod(m, &mtl, mass_list, N_terminal_mass,
+			   C_terminal_mass, stats,
+			   remaining_residues_to_choose-1,
 			   number_of_positions_to_consider-i-1,
 			   mod_positions_to_consider+i+1);
       }
@@ -766,7 +789,8 @@ choose_residue_mod(match &m, std::vector<double> &mass_list,
 // up to the maximum number (which is not greater than the length of the
 // peptide).
 static inline void
-choose_residue_mod_count(match &m, std::vector<double> &mass_list,
+choose_residue_mod_count(match &m, const mass_trace_list *mtlp,
+			 std::vector<double> &mass_list,
 			 const double N_terminal_mass,
 			 const double C_terminal_mass, score_stats &stats) {
   const parameters &CP = parameters::the;
@@ -780,9 +804,12 @@ choose_residue_mod_count(match &m, std::vector<double> &mass_list,
       mod_positions[max_count++] = i;
   mod_positions[max_count] = -1;
 
+  if (CP.quirks_mode)
+    stats.combinations_searched = 0;
+
   for (unsigned count=0; count <= max_count; count++)
-    choose_residue_mod(m, mass_list, N_terminal_mass, C_terminal_mass, stats,
-		       count, max_count, mod_positions);
+    choose_residue_mod(m, mtlp, mass_list, N_terminal_mass, C_terminal_mass,
+		       stats, count, max_count, mod_positions);
 }
 
 // FIX: Is there some way to treat terminal mods in the same way as residue
@@ -790,21 +817,27 @@ choose_residue_mod_count(match &m, std::vector<double> &mass_list,
 
 // Choose a possible peptide C-terminal modification.
 static inline void
-choose_C_terminal_mod(match &m, std::vector<double> &mass_list,
+choose_C_terminal_mod(match &m, const mass_trace_list *mtlp,
+		      std::vector<double> &mass_list,
 		      const double N_terminal_mass,
 		      const double C_terminal_mass, score_stats &stats) {
   const parameters &CP = parameters::the;
-  choose_residue_mod_count(m, mass_list, N_terminal_mass, C_terminal_mass,
-			   stats);
+  choose_residue_mod_count(m, mtlp, mass_list, N_terminal_mass,
+			   C_terminal_mass, stats);
   
   const int mass_regime=0;	// FIX
+  mass_trace_list mtl(mtlp);
+  mtl.item.position = POSITION_CTERM;
   const std::vector<double> &C_deltas
     = CP.fragment_mass_regime[mass_regime].potential_modification_mass[']'];
 
   for (std::vector<double>::const_iterator it=C_deltas.begin();
-       it != C_deltas.end(); it++)
-    choose_residue_mod_count(m, mass_list, N_terminal_mass,
+       it != C_deltas.end(); it++) {
+    mtl.item.delta = *it;
+    mtl.item.description = "C-terminal mod"; // FIX
+    choose_residue_mod_count(m, &mtl, mass_list, N_terminal_mass,
 			     C_terminal_mass+*it, stats);
+  }
 }
 
 
@@ -815,45 +848,55 @@ choose_C_terminal_mod(match &m, std::vector<double> &mass_list,
 // specified.  (The PCA mod for 'C' is dependent on a static mod of C+57 being
 // in effect.)
 static inline void
-choose_N_terminal_mod(match &m, std::vector<double> &mass_list,
+choose_N_terminal_mod(match &m, const mass_trace_list *mtlp,
+		      std::vector<double> &mass_list,
 		      const double N_terminal_mass,
 		      const double C_terminal_mass, score_stats &stats) {
   const parameters &CP = parameters::the;
-  choose_C_terminal_mod(m, mass_list, N_terminal_mass,
-				 C_terminal_mass, stats);
+
+  choose_C_terminal_mod(m, mtlp, mass_list, N_terminal_mass,
+			C_terminal_mass, stats);
 
   const int mass_regime=0;	// FIX
+  mass_trace_list mtl(mtlp);
+  mtl.item.position = POSITION_NTERM;
   const mass_regime_parameters &mrp = CP.fragment_mass_regime[mass_regime];
   const std::vector<double> &N_deltas = mrp.potential_modification_mass['['];
 
   for (std::vector<double>::const_iterator it=N_deltas.begin();
-       it != N_deltas.end(); it++)
-    choose_C_terminal_mod(m, mass_list, N_terminal_mass+*it, C_terminal_mass,
-			  stats);
+       it != N_deltas.end(); it++) {
+    mtl.item.delta = *it;
+    mtl.item.description = "N-terminal mod"; // FIX
+    choose_C_terminal_mod(m, &mtl, mass_list, N_terminal_mass+*it,
+			  C_terminal_mass, stats);
+  }
 
   // Now try a possible PCA mod.
-  if (mrp.modification_mass['['] == 0) {
-    for (int bug=0; bug<(CP.quirks_mode? 2 : 1); bug++)	// FIX
-      switch (m.peptide_sequence[0]) {
-      case 'E':
-	choose_C_terminal_mod(m, mass_list,
-			      N_terminal_mass - mrp.water_mass,
-			      C_terminal_mass, stats);
-	break;
-      case 'C': {
-	// FIX: need better test for C+57? (symbolic?)
-	const double C_mod = mrp.modification_mass['C'];
-	if (CP.quirks_mode ? int(C_mod) != 57 : std::abs(C_mod - 57) > 0.5)
-	  break;		// skip unless C+57
-	// else fall through...
-      }
-      case 'Q':
-	choose_C_terminal_mod(m, mass_list,
-			      N_terminal_mass - mrp.ammonia_mass,
-			      C_terminal_mass, stats);
-	break;
-      }
-  }
+  // FIX: somehow xtandem generates these twice??
+  if (mrp.modification_mass['['] == 0)
+    switch (m.peptide_sequence[0]) {
+    case 'E':
+      mtl.item.delta = -mrp.water_mass;
+      mtl.item.description = "PCA";
+      choose_C_terminal_mod(m, &mtl, mass_list,
+			    N_terminal_mass - mrp.water_mass,
+			    C_terminal_mass, stats);
+      break;
+    case 'C': {
+      // FIX: need better test for C+57? (symbolic?)
+      const double C_mod = mrp.modification_mass['C'];
+      if (CP.quirks_mode ? int(C_mod) != 57 : std::abs(C_mod - 57) > 0.5)
+	break;		// skip unless C+57
+      // else fall through...
+    }
+    case 'Q':
+      mtl.item.delta = -mrp.ammonia_mass;
+      mtl.item.description = "PCA";
+      choose_C_terminal_mod(m, &mtl, mass_list,
+			    N_terminal_mass - mrp.ammonia_mass,
+			    C_terminal_mass, stats);
+      break;
+    }
 }
 
 
@@ -867,12 +910,16 @@ choose_mass_regime(match &m, std::vector<double> &mass_list,
   const parameters &CP = parameters::the;
 
   const int mass_regime=0;	// FIX
+  mass_trace_list mtl;
+  mtl.item.position = POSITION_WHOLE;
+  mtl.item.delta = 0.0;
+  mtl.item.description = "monoisotopic";
   const mass_regime_parameters &mrp = CP.fragment_mass_regime[mass_regime];
   for (std::vector<double>::size_type i=0; i<m.peptide_sequence.size(); i++) {
     const char res = m.peptide_sequence[i];
     mass_list[i] = mrp.residue_mass[res] + mrp.modification_mass[res];
   }
-  choose_N_terminal_mod(m, mass_list,
+  choose_N_terminal_mod(m, &mtl, mass_list,
 			N_terminal_mass + mrp.modification_mass['['],
 			C_terminal_mass + mrp.modification_mass[']'], stats);
 }

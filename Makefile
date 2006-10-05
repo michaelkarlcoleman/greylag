@@ -27,10 +27,10 @@ DEST = /n/site/inst/Linux-i686/bioinfo/greylag/
 CXXFLAGS = -Wall -g -O2 $(ARCHFLAGS)
 
 #ARCHFLAGS += -mfpmath=sse,387???
-#ARCHFLAGS = -march=pentium3
+ARCHFLAGS = -march=pentium3
 #ARCHFLAGS = -march=pentium4
 #ARCHFLAGS = -march=opteron -mfpmath=sse
-ARCHFLAGS = -march=nocona -mfpmath=sse
+#ARCHFLAGS = -march=nocona -mfpmath=sse
 
 # is this faster?
 ##CXXFASTFLAGS = -finline-limit=20000 --param inline-unit-growth=1000 --param large-function-growth=1000

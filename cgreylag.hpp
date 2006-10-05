@@ -215,6 +215,16 @@ public:
 };
 
 
+enum position { POSITION_NTERM=-3, POSITION_CTERM=-2, POSITION_WHOLE=-1 };
+
+struct mass_trace_item {
+  int position;			// enum position or 0..N
+  double delta;			// 0 means delta is implied (i.e., for the
+				// mass regime)
+  const char *description;
+};
+
+
 // This is everything we want to remember about a match, so that we can report
 // it later.
 // FIX: Are any of these fields unneeded?
@@ -232,6 +242,7 @@ public:
   double peptide_mass;
   int sequence_index;
   int sequence_offset;
+  std::vector<mass_trace_item> mass_trace;
 
   match() : hyper_score(-1), convolution_score(-1), missed_cleavage_count(-1),
 	    spectrum_index(-1), peptide_begin(-1), peptide_mass(-1),
@@ -263,6 +274,10 @@ public:
   // spectrum index -> [ <match info>, ... ]
   std::vector< std::vector<match> > best_match;
   unsigned long long candidate_spectrum_count; // may be > 2^32
+
+  // This is a temp variable to implement xtandem's search limit (quirks mode
+  // only)
+  int combinations_searched;
 };
 
 
