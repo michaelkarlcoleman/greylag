@@ -1243,6 +1243,10 @@ def main():
     (options, args) = parser.parse_args()
 
     if (len(args) < 1
+        or not args[0].endswith('.xml')
+        or sum(1 for f in args[1:]
+               if not (f.endswith('.ms2') or f.endswith('.ms2.gz') or
+                       f.endswith('.ms2.bz2')))
         or (options.part_merge and options.part_merge < 1)):
         parser.print_help()
         sys.exit(1)
@@ -1405,14 +1409,17 @@ def main():
 
         part0, score_statistics = cPickle.load(zopen(part_fn_pattern % 1,
                                                      'rb')) 
+        info('loaded part 1')
         #debug('ss0: %s', score_statistics)
         if part0[0] != 1 or part0[1] != options.part_merge:
             error('part file mismatch')
         for p in range(2, options.part_merge+1):
             part0, score_statistics0 \
                    = cPickle.load(zopen(part_fn_pattern % p, 'rb'))
+            info('loaded part %s', p)
             #debug('ssn: %s', score_statistics0)
             merge_score_statistics(score_statistics, score_statistics0)
+            info('merged part %s', p)
 
     info('processing results')
 

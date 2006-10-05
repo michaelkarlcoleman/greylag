@@ -1,0 +1,186 @@
+#!/bin/bash
+#        $Id$
+
+# This directory is assumed to be shared across all cluster nodes
+SHAREDTMPDIR=/clusterfs/home/proteomics/tmp
+
+# The python image to use
+PYTHON=/n/site/inst/Linux-i686/sys/bin/python2.4
+
+# greylag lives here (use python2.4 explicitly)
+greylag=/clusterfs/site/inst/Linux-i686/bioinfo/greylag/greylag.py
+
+# Divide this run into this many parts.  This should probably be something
+# like 3-5x the number of cluster nodes available.  Currently, there is a
+# noticeable fixed overhead cost for each part (a couple of minutes), so
+# throughput will be harmed if this number is too large.
+PARTS=10
+
+
+p=`basename $0`
+
+usage() {
+    cat <<EOF 1>&2
+usage: $p [-l] <greylag-params.xml> [ <ms2-file> ... ]
+
+Process a set of ms2 files as specified by the given params file (which must
+end in '.xml' and should probably be in the current directory).
+
+If the '-l' flag is given, stdout and stderr will be redirected to a
+corresponding '.log' file.
+
+EOF
+    exit 0
+}
+
+err() {
+    echo 1>&2 "$p: $@"
+}
+
+die() {
+    err "$@"
+    exit 1
+}
+
+if [ "$1" == "-l" ]; then
+    shift 
+    logging=1
+fi
+
+if [ $# -lt 2 ]; then
+    usage
+fi
+
+params="$1"
+
+rm -f ${params%.xml}.done-*
+
+case "$params" in
+    *.xml) true;;
+    *) die "parameter filename must end in '*.xml'";;
+esac
+
+jobname=$(basename $params .xml)
+
+shift
+for f in "$@"; do
+    if [ $(dirname $f) != "." ]; then
+	die "file '$f' must be in the current working directory"
+    fi
+    case "$f" in
+	*.ms2) true;;
+	*) die "argument file '$f' should end in '.ms2'";;
+    esac
+done
+
+[ -e $params ] || die "'$params' not found"
+
+if ! ls -ld . | egrep -q '^drwxrws'; then
+    chmod g+rwxs . || err "attempt to make this directory group writable failed"
+fi
+
+
+# Do some basic locking.  This tries to prevent simultaneous runs on the same
+# parameter file, which would produce output to the same file, wasting
+# resources and causing confusion.
+
+lockfile="$PWD/$jobname.lock"
+trap "rm -f $lockfile" EXIT
+ln -s $$ $lockfile 2>/dev/null || true
+lockpid=$(ls -ld $lockfile | sed -e 's/^.*> //')
+
+if [ $lockpid != $$ ]; then
+    die "this directory locked by someone else (pid = $lockpid)?
+         remove $lockfile if not"
+fi
+
+# point of no return
+if [ "$logging" == "1" ]; then
+    exec < /dev/null > "$jobname.log" 2>&1
+fi
+
+# priority?
+
+# Be very careful with quoting, as these names may eventually come from
+# Windows users...
+
+shared_d=$SHAREDTMPDIR/greylag-$$-$(date +%s) # unique
+
+# Could add removal of the shared directory to the EXIT trap, but probably we
+# shouldn't because pdq (and maybe SGE) may react badly
+#    trap "rm -rf $lockfile $shared_d &" EXIT
+
+mkdir $shared_d || die "'mkdir $shared_d' failed!"
+
+cp -p "$params" $shared_d/ || die "params cp failed!"
+
+for f in "$@"; do
+    cp -p "$f" $shared_d/ || die "ms2 cp failed!"
+done
+
+results="$jobname.out.xml.bz2"
+
+jobbasedir=$(basename $PWD)
+
+#########################################################################
+# submit the job in this shared directory so that the nodes can see it  
+pushd $shared_d > /dev/null || die "pushd failed!"
+
+# use err
+
+cat <<EOF
+job name: $jobname
+shared dir: $shared_d
+params: $params
+ms2: $@
+EOF
+ls -l $shared_d/
+
+err round 1 processing
+
+# The -pe option is currently a hack to try to stop multiple jobs from being
+# run on the same node.
+
+# first do parts on nodes
+qsub -sync y -r y -b y -cwd -V -hard -l mem_free=2.7G \
+    -q greylag.q \
+    -t 1-$PARTS \
+    -N "greylag-$jobbasedir-$jobname-$$" \
+    -e 'round-1.$TASK_ID.err' \
+    -o 'round-1.$TASK_ID.out' \
+    $PYTHON $greylag \
+    -v --quirks-mode \
+    -o "$results" \
+    --part='${SGE_TASK_ID}of${SGE_TASK_LAST}' \
+    "$params" "$@"
+qsub_status=$?
+cat $(ls -1 round-1.*.{out,err} | sort -t . -k 2n,3)
+if [ $qsub_status != 0 ]; then
+    die "round 1 on nodes failed"
+fi
+
+err round 1 merge
+
+# now merge results (on master, for now)
+$PYTHON $greylag \
+    -v --quirks-mode \
+    -o "$results" \
+    --part-merge=$PARTS \
+    "$params" "$@" \
+    || die "round 1 merge on master failed"
+
+popd > /dev/null || die "popd failed!"
+#########################################################################
+
+if ! [ -e $shared_d/"$results" ]; then
+    die 'no results file present after processing--job failed?'
+fi
+
+cp -p $shared_d/"$results" . || die "cp failed!"
+
+# for now, don't do this
+#rm -fr "$shared_d" $lockfile
+
+err complete
+touch "$jobname.done-$status" || err "touch failed"
+exit 0
