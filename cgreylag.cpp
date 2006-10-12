@@ -409,9 +409,9 @@ synthetic_spectra(spectrum synth_sp[/* max_fragment_charge+1 */][ION_MAX],
 		  const std::vector<double> &mass_list,
 		  const double N_terminal_mass, const double C_terminal_mass,
 		  const double max_fragment_charge) {
-  for (ion ion_type=ION_MIN; ion_type<ION_MAX; ion_type++) {
-    std::vector<peak> mass_ladder(mass_list.size()-1);
+  std::vector<peak> mass_ladder(mass_list.size()-1);
 
+  for (ion ion_type=ION_MIN; ion_type<ION_MAX; ion_type++) {
     switch (ion_type) {
     case ION_Y:
       get_synthetic_Y_mass_ladder(mass_ladder, peptide_seq, mass_list,
@@ -428,9 +428,16 @@ synthetic_spectra(spectrum synth_sp[/* max_fragment_charge+1 */][ION_MAX],
     //for (unsigned int i=0; i<mass_ladder.size(); i++)
     //  std::cerr << "ladder step " << peptide_seq[i] << " " << mass_ladder[i].mz << std::endl;
 
-    for (int charge=1; charge<=max_fragment_charge; charge++)
-      synth_sp[charge][ion_type] = spectrum(peptide_mass, charge,
-					    mass_ladder);
+    for (int charge=1; charge<=max_fragment_charge; charge++) {
+      spectrum &sp = synth_sp[charge][ion_type];
+      sp.mass = peptide_mass;
+      sp.charge = charge;
+      sp.peaks.resize(mass_ladder.size());
+      for (std::vector<peak>::size_type i=0; i<mass_ladder.size(); i++) {
+	sp.peaks[i].intensity = mass_ladder[i].intensity;
+	sp.peaks[i].mz = peak::get_mz(mass_ladder[i].mz, charge);
+      }
+    }
   }
 }
 
@@ -447,6 +454,7 @@ static inline double
 score_similarity_(const spectrum &x, const spectrum &y, int *peak_count) {
   const double frag_err = parameters::the.fragment_mass_error;
   const bool quirks_mode = parameters::the.quirks_mode;
+  const double error_limit = quirks_mode ? frag_err*1.5 : frag_err;
 
   double score = 0;
   *peak_count = 0;
@@ -457,11 +465,12 @@ score_similarity_(const spectrum &x, const spectrum &y, int *peak_count) {
     double x_mz = x_it->mz, y_mz = y_it->mz;
     if (quirks_mode) {
       const float ffe = frag_err;
-      x_mz = std::floor(static_cast<float>(x_mz) / ffe) * ffe;
-      y_mz = std::floor(static_cast<float>(y_mz) / ffe) * ffe;
+      x_mz = int(static_cast<float>(x_mz) / ffe) * ffe;
+      y_mz = int(static_cast<float>(y_mz) / ffe) * ffe;
     }
     // in quirks mode, must be within one frag_err-wide bin
-    if (std::abs(x_mz - y_mz) < (quirks_mode ? frag_err*1.5 : frag_err)) {
+    const double delta = y_mz - x_mz;
+    if (std::abs(delta) < error_limit) {
       *peak_count += 1;
       score += (x_it->intensity * y_it->intensity);
       //std::cerr << "hit " << x_mz << " vs " << y_mz << ", i = " << x_it->intensity * y_it->intensity << std::endl;
@@ -472,7 +481,7 @@ score_similarity_(const spectrum &x, const spectrum &y, int *peak_count) {
       continue;
 #endif
     }
-    if (x_it->mz < y_it->mz)
+    if (delta > 0)		// y_mz > x_mz
       x_it++;
     else
       y_it++;
@@ -621,23 +630,23 @@ evaluate_peptide_mod_variation(match &m, const mass_trace_list *mtlp,
 				    C_terminal_mass);
   double sp_mass_lb = m.peptide_mass + CP.parent_monoisotopic_mass_error_minus;
   double sp_mass_ub = m.peptide_mass + CP.parent_monoisotopic_mass_error_plus;
-  std::multimap<double, std::vector<spectrum>::size_type>::const_iterator
+  const std::multimap<double, std::vector<spectrum>::size_type>::const_iterator
     candidate_spectra_info_begin
     = spectrum::spectrum_mass_index.lower_bound(sp_mass_lb);
-  // FIX: is there a better way?
+
   std::multimap<double, std::vector<spectrum>::size_type>::const_iterator
-    candidate_spectra_info_end
-    = spectrum::spectrum_mass_index.upper_bound(sp_mass_ub);
-  if (candidate_spectra_info_begin == candidate_spectra_info_end)
-    return;
+    candidate_spectra_info_end = candidate_spectra_info_begin;
 
   int max_candidate_charge = 0;
-  for (std::multimap<double, std::vector<spectrum>::size_type>::const_iterator
-	 it = candidate_spectra_info_begin;
-       it != candidate_spectra_info_end; it++)
+  for (;(candidate_spectra_info_end != spectrum::spectrum_mass_index.end()
+	 and (spectrum::searchable_spectra[candidate_spectra_info_end->second].mass
+	      < sp_mass_ub)); candidate_spectra_info_end++)
     max_candidate_charge
       = std::max<int>(max_candidate_charge,
-		      spectrum::searchable_spectra[it->second].charge);
+		      spectrum::searchable_spectra[candidate_spectra_info_end->second].charge);
+
+  if (max_candidate_charge < 1)
+    return;			// no spectrum with parent mass in range
 
   const int max_fragment_charge = std::max<int>(1, max_candidate_charge-1);
   assert(max_fragment_charge <= spectrum::max_supported_charge);
@@ -730,7 +739,6 @@ evaluate_peptide_mod_variation(match &m, const mass_trace_list *mtlp,
 
 // IDEA FIX: Use a cost parameter to define the iterative search front.
 
-
 // Choose a possible residue modification.
 static inline void
 choose_residue_mod(match &m, const mass_trace_list *mtlp,
@@ -753,7 +761,6 @@ choose_residue_mod(match &m, const mass_trace_list *mtlp,
     evaluate_peptide_mod_variation(m, mtlp, mass_list, N_terminal_mass,
 				   C_terminal_mass, stats);
   } else {
-    const int mass_regime=0;	// FIX
     mass_trace_list mtl(mtlp);
 
     // consider all of the positions where we could next add a mod
@@ -765,7 +772,7 @@ choose_residue_mod(match &m, const mass_trace_list *mtlp,
       assert(pos >= 0);
       const double save_mass=mass_list[pos];
       const std::vector<double> &deltas
-	= CP.fragment_mass_regime[mass_regime]
+	= CP.fragment_mass_regime[m.mass_regime]
 	.potential_modification_mass[m.peptide_sequence[pos]];
       // step through the deltas for this amino acid
       for (std::vector<double>::const_iterator it=deltas.begin();
@@ -794,12 +801,10 @@ choose_residue_mod_count(match &m, const mass_trace_list *mtlp,
 			 const double N_terminal_mass,
 			 const double C_terminal_mass, score_stats &stats) {
   const parameters &CP = parameters::the;
-  const int mass_regime=0;	// FIX
-
   int mod_positions[m.peptide_sequence.size()+1];
   unsigned max_count=0;
   for (unsigned i=0; i<m.peptide_sequence.size(); i++)
-    if (not CP.fragment_mass_regime[mass_regime]
+    if (not CP.fragment_mass_regime[m.mass_regime]
 	.potential_modification_mass[m.peptide_sequence[i]].empty())
       mod_positions[max_count++] = i;
   mod_positions[max_count] = -1;
@@ -824,12 +829,10 @@ choose_C_terminal_mod(match &m, const mass_trace_list *mtlp,
   const parameters &CP = parameters::the;
   choose_residue_mod_count(m, mtlp, mass_list, N_terminal_mass,
 			   C_terminal_mass, stats);
-  
-  const int mass_regime=0;	// FIX
   mass_trace_list mtl(mtlp);
   mtl.item.position = POSITION_CTERM;
   const std::vector<double> &C_deltas
-    = CP.fragment_mass_regime[mass_regime].potential_modification_mass[']'];
+    = CP.fragment_mass_regime[m.mass_regime].potential_modification_mass[']'];
 
   for (std::vector<double>::const_iterator it=C_deltas.begin();
        it != C_deltas.end(); it++) {
@@ -857,10 +860,9 @@ choose_N_terminal_mod(match &m, const mass_trace_list *mtlp,
   choose_C_terminal_mod(m, mtlp, mass_list, N_terminal_mass,
 			C_terminal_mass, stats);
 
-  const int mass_regime=0;	// FIX
   mass_trace_list mtl(mtlp);
   mtl.item.position = POSITION_NTERM;
-  const mass_regime_parameters &mrp = CP.fragment_mass_regime[mass_regime];
+  const mass_regime_parameters &mrp = CP.fragment_mass_regime[m.mass_regime];
   const std::vector<double> &N_deltas = mrp.potential_modification_mass['['];
 
   for (std::vector<double>::const_iterator it=N_deltas.begin();
@@ -909,17 +911,13 @@ choose_mass_regime(match &m, std::vector<double> &mass_list,
 		   score_stats &stats) {
   const parameters &CP = parameters::the;
 
-  const int mass_regime=0;	// FIX
-  mass_trace_list mtl;
-  mtl.item.position = POSITION_WHOLE;
-  mtl.item.delta = 0.0;
-  mtl.item.description = "monoisotopic";
-  const mass_regime_parameters &mrp = CP.fragment_mass_regime[mass_regime];
+  m.mass_regime = 0;		// FIX
+  const mass_regime_parameters &mrp = CP.fragment_mass_regime[m.mass_regime];
   for (std::vector<double>::size_type i=0; i<m.peptide_sequence.size(); i++) {
     const char res = m.peptide_sequence[i];
     mass_list[i] = mrp.residue_mass[res] + mrp.modification_mass[res];
   }
-  choose_N_terminal_mod(m, &mtl, mass_list,
+  choose_N_terminal_mod(m, NULL, mass_list,
 			N_terminal_mass + mrp.modification_mass['['],
 			C_terminal_mass + mrp.modification_mass[']'], stats);
 }

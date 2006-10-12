@@ -1072,25 +1072,29 @@ def print_results_XML(options, XTP, db_info, spectrum_fns,
                               get_suffix_sequence(dom.peptide_begin+len(dom.peptide_sequence), dom.sequence_offset,
                                                   dom_run_seq),
                               dom.peptide_sequence, dom.missed_cleavage_count))
+                    # print static mods
+                    # FIX: handle '[', ']' too
+                    for i, c in enumerate(dom.peptide_sequence):
+                        delta = CP.fragment_mass_regime[dom.mass_regime].modification_mass[ord(c)]
+                        if delta:
+                            print ('<aa type="%s" at="%s" modified="%s" />'
+                                   % (c, dom.peptide_begin+i+1, delta))
+                    # print potential mods
                     mt_items = list(dom.mass_trace)
                     mt_items.reverse()
                     for mt_item in mt_items:
-                        if CP.quirks_mode or True: # FIX
-                            mt_item_pos = mt_item.position
-                            if mt_item_pos == cgreylag.POSITION_NTERM:
-                                mt_item_pos = 0
-                            elif mt_item_pos == cgreylag.POSITION_CTERM:
-                                mt_item_pos = len(dom.peptide_sequence)-1
-                            if mt_item_pos >= 0:
-                                print ('<aa type="%s" at="%s" modified="%s" />'
-                                       % (dom.peptide_sequence[mt_item_pos],
-                                          dom.peptide_begin+mt_item_pos+1,
-                                          mt_item.delta))
-                            #else:
-                            #    print ('<!-- modified="%s" description="%s" -->'
-                            #           % (mt_item.delta, mt_item.description))
-                        else:
-                            pass        # FIX
+                        mt_item_pos = mt_item.position
+                        if mt_item_pos == cgreylag.POSITION_NTERM:
+                            mt_item_pos = 0
+                        elif mt_item_pos == cgreylag.POSITION_CTERM:
+                            mt_item_pos = len(dom.peptide_sequence)-1
+                        if mt_item_pos >= 0:
+                            print ('<aa type="%s" at="%s" modified="%s" />'
+                                   % (dom.peptide_sequence[mt_item_pos],
+                                      dom.peptide_begin+mt_item_pos+1,
+                                      mt_item.delta))
+                        #    print ('<!-- modified="%s" description="%s" -->'
+                        #           % (mt_item.delta, mt_item.description))
                     print '</domain>'
                 print '</peptide>'
                 print '</protein>'

@@ -113,10 +113,8 @@ public:
   int id;			// unique for all spectra
   int physical_id;
 
-private:
-  void init(double mass_=0, int charge_=0) {
-    mass = mass_;
-    charge = charge_;
+  // Construct an empty spectrum.
+  spectrum(double mass=0, int charge=0) : mass(mass), charge(charge) {
     if (charge > max_supported_charge)
       throw std::invalid_argument("attempt to create a spectrum with greater"
 				  " than supported charge");
@@ -126,19 +124,6 @@ private:
     normalization_factor = 1;
     file_id = -1;
     physical_id = -1;
-  }
-
-public:
-  // Construct an empty spectrum.
-  spectrum(double mass=0, int charge=0) { init(mass, charge); }
-
-  // Construct a (synthetic) spectrum from these parameters.
-  spectrum(double peptide_mod_mass, int charge,
-	   const std::vector<peak> &mass_ladder) {
-    init(peptide_mod_mass, charge);
-    peaks = mass_ladder;
-    for (std::vector<peak>::size_type i=0; i<mass_ladder.size(); i++)
-      peaks[i].mz = peak::get_mz(peaks[i].mz, charge);
   }
 
   char *__repr__() const;
@@ -242,6 +227,7 @@ public:
   double peptide_mass;
   int sequence_index;
   int sequence_offset;
+  int mass_regime;
   std::vector<mass_trace_item> mass_trace;
 
   match() : hyper_score(-1), convolution_score(-1), missed_cleavage_count(-1),
