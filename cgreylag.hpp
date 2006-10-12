@@ -141,13 +141,8 @@ public:
     }
   }
 
-  // Read spectra from file in ms2 format, tagging them with file_id.  Only
-  // spectra with parent masses in the range [min_mass, max_mass) are
-  // included.  (All of them are read, though, so the ids for any spectrum
-  // will be the same regardless of the range used.)
-  static std::vector<spectrum> read_spectra(FILE *f, const int file_id,
-					    const double min_mass,
-					    const double max_mass);
+  // Read spectra from file in ms2 format, tagging them with file_id.
+  static std::vector<spectrum> read_spectra(FILE *f, const int file_id);
 
   // Sets max/sum_peak_intensity, according to peaks and
   // normalization_factor.

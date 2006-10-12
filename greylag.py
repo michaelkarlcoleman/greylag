@@ -667,29 +667,6 @@ def get_final_protein_expect(sp_count, valid_spectra, match_ratio, raw_expect,
     r += (sp_count * math.log10(p)
           + (valid_spectra - sp_count) * math.log10(1 - p))
     return r
-
-
-def calculate_spectrum_mass_band(part, parts, spectrum_fns):
-    """Return the mass band [min_mass, max_mass) corresponding to this part,
-    by reading and then sorting all spectra.  (Note that 'part' starts at 1.)
-    """
-    masses = []
-    found_spectrum = False
-    for fn in spectrum_fns:
-        for line in zopen(fn):
-            if found_spectrum:
-                masses.append(float(line.split(None, 1)[0]))
-                found_spectrum = False
-            elif line[:1] == ":":
-                found_spectrum = True
-    masses.sort()
-    info('%s spectra (mass %s - %s)', len(masses), masses[0], masses[-1])
-    part_size = len(masses) / parts + 1 # ensure complete coverage
-    min_mass = masses[(part-1)*part_size]
-    max_mass = round(masses[-1] + 1)
-    if part != parts:
-        max_mass = masses[part*part_size]
-    return (min_mass, max_mass)
     
 
 class struct:
@@ -1214,13 +1191,15 @@ def main():
                       help="try to generate results as close as possible to"
                       " those of X!Tandem (possibly at the expense of"
                       " accuracy)") 
+    parser.add_option("--part-split", dest="part_split", type="int",
+                      help="split input into M parts, to prepare for"
+                      " --part=XofM runs", metavar="M")  
     parser.add_option("--part", dest="part",
-                      help="do part of the search, writing the result to a"
-                      " intermediary file with suffix '.NofM.part.gz'.  For"
-                      " example, to split into two parts, use '1of2' and"
-                      " '2of2'.", metavar="NofM")
+                      help="search one part, previously created with"
+                      " --part-split.  For example, to split into two parts,"
+                      " use '1of2' and '2of2'.", metavar="NofM")
     parser.add_option("--part-merge", dest="part_merge", type="int",
-                      help="merge the previously created M parts and"
+                      help="merge the previously searched M results and"
                       " continue", metavar="M")  
     parser.add_option("--part-prefix", dest="part_prefix", default='greylag',
                       help="prefix to use for temporary part files"
@@ -1247,17 +1226,21 @@ def main():
         or sum(1 for f in args[1:]
                if not (f.endswith('.ms2') or f.endswith('.ms2.gz') or
                        f.endswith('.ms2.bz2')))
+        or (options.part_split and options.part_split < 1)
         or (options.part_merge and options.part_merge < 1)):
         parser.print_help()
         sys.exit(1)
 
-    if options.part and options.part_merge:
-        error("cannot combine --part and --part-merge")
+    if sum(1 for x in (options.part_split, options.part, options.part_merge)
+           if x != None) > 1:
+        error("specify only one of --part-split, --part and --part-merge")
 
     part_fn_pattern = '%s.0.%sof%s.part'
-    part = None                         # or "2of10" -> (2, 10)
+    part = None                         # "2of10" -> (2, 10)
 
-    if options.part:
+    if options.part_split:
+        part_fn_pattern %= (options.part_prefix, '%s', options.part_split)
+    elif options.part:
         try:
             part = tuple(int(x) for x in options.part.split('of', 1))
         except:
@@ -1265,7 +1248,7 @@ def main():
             sys.exit(1)
         if not 1 <= part[0] <= part[1]:
             error("bad --part parameter")
-        part_fn_pattern %= (options.part_prefix, '%s', part[1])
+        part_fn_pattern %= (options.part_prefix, part[0], part[1])
     elif options.part_merge:
         part_fn_pattern %= (options.part_prefix, '%s', options.part_merge)
 
@@ -1278,6 +1261,7 @@ def main():
         log_level = logging.DEBUG
     logging.basicConfig(level=log_level, datefmt='%b %e %H:%M:%S',
                         format='%(asctime)s %(levelname)s: %(message)s')
+    info("starting")
 
     # read params
     parameters = read_xml_parameters(args[0])
@@ -1289,17 +1273,6 @@ def main():
     global XTP
     XTP = validate_parameters(parameters)
 
-    if part:
-        part_fn = part_fn_pattern % part[0]
-        partfile = zopen(part_fn, 'w')
-    elif options.output:
-        if options.output != '-':
-            sys.stdout = zopen(options.output, 'w')
-    else:
-        output_path = XTP["output, path"]
-        if output_path:
-            sys.stdout = zopen(output_path, 'w')
-
     if len(args) > 1:
         spectrum_fns = args[1:]
     else:
@@ -1309,6 +1282,46 @@ def main():
 
     initialize_spectrum_parameters(options.quirks_mode)
     #greylag_search.CP = CP
+
+    ########################################
+
+    # read spectra
+    part_fn_suffix = '.in.gz'
+    if not options.part:
+        spectra = list(itertools.chain(
+            *[ cgreylag.spectrum.read_spectra(zopen(fn), n)
+               for n, fn in enumerate(spectrum_fns) ]))
+        spectra.sort(key=lambda x: x.mass)
+        if options.part_split:
+            band_size = len(spectra) / options.part_split + 1
+            for bn in range(1, options.part_split+1):
+                band_spectra = spectra[bn*band_size:(bn+1)*band_size]
+                f = zopen(part_fn_pattern % bn + part_fn_suffix, 'w')
+                cPickle.dump(band_spectra, f, cPickle.HIGHEST_PROTOCOL)
+                f.close()
+            info("finished, wrote %s input files", options.part_split)
+            logging.shutdown()
+            return
+    else:
+        spectra = cPickle.load(zopen(part_fn_pattern % part[0]
+                                     + part_fn_suffix))
+    if not spectra:
+        warning("no input spectra")
+    info("read %s spectra", len(spectra))
+
+
+    ########################################
+
+    # filter and normalize spectra
+    # NI: optionally using "contrast angle" (mprocess::subtract)
+    if XTP["spectrum, use conditioning"]:
+        spectra = [ s for s in spectra
+                    if s.filter_and_normalize(XTP["spectrum, minimum fragment mz"],
+                                              XTP["spectrum, dynamic range"],
+                                              XTP["spectrum, minimum peaks"],
+                                              XTP["spectrum, total peaks"]) ]
+    cgreylag.spectrum.set_searchable_spectra(spectra)
+    info("     %s spectra after filtering", len(spectra))
 
     # read sequence dbs
     # [(defline, seq, filename), ...]
@@ -1328,36 +1341,6 @@ def main():
          db_residue_count)
     if not db:
         error("no database sequences")
-
-    # read spectra
-    mass_band = -1, 100000000           # everything
-    if part:
-        mass_band = calculate_spectrum_mass_band(part[0], part[1],
-                                                 spectrum_fns)
-        info("using mass band [%s, %s)", mass_band[0], mass_band[1])
-    spectra = list(itertools.chain(
-        *[ cgreylag.spectrum.read_spectra(zopen(fn), n, mass_band[0],
-                                          mass_band[1])
-           for n, fn in enumerate(spectrum_fns) ]))
-    if not spectra:
-        warning("no input spectra")
-    info("read %s spectra", len(spectra))
-
-    spectra.sort(key=lambda x: x.mass)
-
-    # filter and normalize spectra
-    # NI: optionally using "contrast angle" (mprocess::subtract)
-    if XTP["spectrum, use conditioning"]:
-        spectra = [ s for s in spectra
-                    if s.filter_and_normalize(XTP["spectrum, minimum fragment mz"],
-                                              XTP["spectrum, dynamic range"],
-                                              XTP["spectrum, minimum peaks"],
-                                              XTP["spectrum, total peaks"]) ]
-    info("     %s spectra after filtering", len(spectra))
-
-    cgreylag.spectrum.set_searchable_spectra(spectra)
-    #sys.exit('len = %s' % len(cgreylag.cvar.spectrum_searchable_spectra))
-    #print >> sys.stderr, cgreylag.cvar.spectrum_spectrum_mass_index.keys()
 
     score_statistics = cgreylag.score_stats(len(spectra))
 
@@ -1401,10 +1384,12 @@ def main():
             del db
             del fasta_db
             cgreylag.spectrum.set_searchable_spectra([])
+
+            partfile = zopen(part_fn_pattern, 'w')
             cPickle.dump((part, pythonize_swig_object(score_statistics)),
                          partfile, cPickle.HIGHEST_PROTOCOL)
             partfile.close()
-            info("finished, part file written to '%s'", part_fn)
+            info("finished, part file written to '%s'", part_fn_pattern)
             logging.shutdown()
             return
     else:
@@ -1434,6 +1419,14 @@ def main():
                            db_residue_count)
 
     info('writing results')
+
+    if options.output:
+        if options.output != '-':
+            sys.stdout = zopen(options.output, 'w')
+    else:
+        output_path = XTP["output, path"]
+        if output_path:
+            sys.stdout = zopen(output_path, 'w')
 
     print_results_XML(options, XTP, db_info, spectrum_fns,
                       spec_prot_info_items, spectra, expect, protein_expect,

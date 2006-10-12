@@ -17,24 +17,24 @@
 DEST = /n/site/inst/Linux-i686/bioinfo/greylag/
 
 # for debugging (extra checking, slow)
-CXXFLAGS = -Wall -g3 -O0 -D_GLIBCXX_DEBUG
+#CXXFLAGS = -Wall -g3 -O0 -D_GLIBCXX_DEBUG
 
 # for speed (fastest?, fewest checks)
 #CXXFLAGS = -Wall -g -O3 -DNDEBUG -ffast-math $(ARCHFLAGS)
 
 # reasonably fast
-#CXXFLAGS = -Wall -g -O2 $(ARCHFLAGS)
+CXXFLAGS = -Wall -g -O2 -ffast-math $(ARCHFLAGS)
 
-#ARCHFLAGS += -mfpmath=sse,387???
-ARCHFLAGS = -march=pentium3
+#ARCHFLAGS = -march=pentium3
 #ARCHFLAGS = -march=pentium4 -mfpmath=sse
+ARCHFLAGS = -march=prescott -mfpmath=sse
 #ARCHFLAGS = -march=opteron -mfpmath=sse
 #ARCHFLAGS = -march=nocona -mfpmath=sse
 
 # is this faster?
 ##
-#  --param inline-unit-growth=1000 --param large-function-growth=1000
-#CXXFASTFLAGS = -finline-limit=20000
+#  
+#CXXFASTFLAGS = -finline-limit=20000 --param inline-unit-growth=1000 --param large-function-growth=1000
 
 SWIGCXXFLAGS = $(CXXFLAGS) -fPIC -I$(PYTHON_I) -fno-strict-aliasing \
 		-Wno-unused-function -Wno-uninitialized
