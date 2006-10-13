@@ -10,11 +10,14 @@ PYTHON=/n/site/inst/Linux-i686/sys/bin/python2.4
 # greylag lives here (use python2.4 explicitly)
 greylag=/clusterfs/site/inst/Linux-i686/bioinfo/greylag/greylag.py
 
+# options passed to all greylag invocations
+greylag_options="-v --quirks-mode"
+
 # Divide this run into this many parts.  This should probably be something
 # like 3-5x the number of cluster nodes available.  Currently, there is a
 # noticeable fixed overhead cost for each part (a couple of minutes), so
 # throughput will be harmed if this number is too large.
-PARTS=100
+PARTS=10
 
 
 p=`basename $0`
@@ -116,7 +119,11 @@ mkdir $shared_d || die "'mkdir $shared_d' failed!"
 cp -p "$params" $shared_d/ || die "params cp failed!"
 
 for f in "$@"; do
-    cp -p "$f" $shared_d/ || die "ms2 cp failed!"
+    case "$f" in
+	*.gz) zcat < "$f" > "$shared_d/$f" || die "ms2 zcat failed";;
+	*.bz2) bzcat < "$f" > "$shared_d/$f" || die "ms2 zcat failed";;
+	*) ln -s "$PWD/$f" $shared_d/ || die "ms2 ln -s failed";;
+    esac
 done
 
 results="$jobname.out.xml.bz2"
@@ -129,15 +136,27 @@ pushd $shared_d > /dev/null || die "pushd failed!"
 
 # use err
 
-cat <<EOF
-job name: $jobname
-shared dir: $shared_d
-params: $params
-ms2: $@
-EOF
-ls -l $shared_d/
+#cat <<EOF
+#job name: $jobname
+#shared dir: $shared_d
+#params: $params
+#ms2: $@
+#EOF
+#ls -l $shared_d/
 
-err round 1 processing
+err round 0 setup
+
+# Use of *.ms2 implies that there are no such files here except for the ones
+# we just created.  Fix?
+
+# split ms2 files (on master, for now)
+$PYTHON $greylag $greylag_options \
+    -o "$results" \
+    --part-split=$PARTS \
+    "$params" *.ms2 \
+    || die "round 0 setup on master failed"
+
+err round 0 processing
 
 # The -pe option is currently a hack to try to stop multiple jobs from being
 # run on the same node.
@@ -149,26 +168,24 @@ qsub -sync y -r y -b y -cwd -V -hard -l mem_free=400M \
     -N "greylag-$jobbasedir-$jobname-$$" \
     -e 'round-1.$TASK_ID.err' \
     -o 'round-1.$TASK_ID.out' \
-    $PYTHON $greylag \
-    -v --quirks-mode \
+    $PYTHON $greylag $greylag_options \
     -o "$results" \
     --part='${SGE_TASK_ID}of${SGE_TASK_LAST}' \
-    "$params" "$@"
+    "$params" *.ms2
 qsub_status=$?
 cat $(ls -1 round-1.*.{out,err} | sort -t . -k 2n,3) /dev/null
 if [ $qsub_status != 0 ]; then
-    die "round 1 on nodes failed"
+    die "round 0 on nodes failed"
 fi
 
-err round 1 merge
+err round 0 merge
 
 # now merge results (on master, for now)
-$PYTHON $greylag \
-    -v --quirks-mode \
+$PYTHON $greylag $greylag_options \
     -o "$results" \
     --part-merge=$PARTS \
-    "$params" "$@" \
-    || die "round 1 merge on master failed"
+    "$params" *.ms2 \
+    || die "round 0 merge on master failed"
 
 popd > /dev/null || die "popd failed!"
 #########################################################################

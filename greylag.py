@@ -28,6 +28,16 @@ import elementtree.ElementTree
 import cgreylag
 
 
+# Try to drop dead immediately on interrupt (control-C), instead of normal
+# Python KeyboardInterrupt processing, since we may spend long periods of time
+# in uninterruptible C++ calls.
+try:
+    import signal
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+except:
+    pass
+
+
 def error(s, *args):
     logging.error(s, *args)
     sys.exit(1)
@@ -158,32 +168,39 @@ STANDARD_AVG_RESIDUE_MASS = dict((residue,
 def initialize_spectrum_parameters(quirks_mode):
     """Initialize parameters known to the spectrum module."""
 
+    # This is the size of vectors that are indexed by residues (A-Z) or
+    # special characters ('[]').
+    RESIDUE_LIMIT = max(ord(c) for c in 'Z[]') + 1
+
     # These two aren't currently part of the regime, so we're not handling
     # deuterium yet (pointless?)
     CP.proton_mass = PROTON_MASS
     CP.hydrogen_mass = formula_mass("H")
 
     # FIX: only a mono/mono regime 0 implemented for now
-    mono_regime = cgreylag.mass_regime_parameters(128)
+    mono_regime = cgreylag.mass_regime_parameters()
 
     mono_regime.hydroxyl_mass = formula_mass("OH")
     mono_regime.water_mass = formula_mass("H2O")
     mono_regime.ammonia_mass = formula_mass("NH3")
 
+    mono_regime.residue_mass.resize(128)
     for residue in RESIDUE_FORMULA:
         mono_regime.residue_mass[ord(residue)] = STANDARD_RESIDUE_MASS[residue]
 
     # FIX: for the moment we don't differentiate the parent/fragment cases
+    mono_regime.modification_mass.resize(128)
     for residue, modvalue in XTP["residue, modification mass"]:
         mono_regime.modification_mass[ord(residue)] = modvalue
 
     # SWIG currently only exposes the outermost vector as a modifiable object.
-    # Inner vectors appear as tuples, and are thus unmodifiable.  Thus they
-    # must be assigned all at once.  This shortcoming will probably be fixed
-    # in a future version of SWIG.
+    # Inner vectors appear as tuples, and are thus unmodifiable.  They must
+    # therefore be assigned all at once.  This shortcoming will probably be
+    # fixed in a future version of SWIG.
 
     rpmm = XTP["residue, potential modification mass"]
     mono_regime.potential_modification_mass.resize(len(rpmm))
+    info("%s potential mod alternative set(s)", len(rpmm))
     for altn, alternative in enumerate(rpmm):
         v = [ [] for i in range(128) ]
         for residue, modvalue in alternative:
@@ -364,11 +381,12 @@ def mod_list(modification_list_specification, unique_mods=True):
     """Check and return a sorted list of (residue, modification) tuples.  If
     unique_mods is True, also check that each residue is specified only once.
     """
+    modification_list_specification = modification_list_specification.strip()
     if not modification_list_specification:
         return []
     speclist = []
     for modspec in modification_list_specification.split(','):
-        parts = modspec.split('@')
+        parts = modspec.strip().split('@')
         if len(parts) != 2:
             raise ValueError("invalid modification list specification"
                              " (missing or extra '@'?)")
@@ -1366,6 +1384,8 @@ def main():
     spectra.sort(key=lambda x: x.mass)
 
     if options.part_split:
+        # FIX: faster to just read masses (not whole spectra) in this case?
+
         for n, lb, ub in generate_mass_bands(options.part_split, spectra):
             info("creating part %s (%s - %s)" % (n, lb, ub))
             partdir = partdir_pattern % (options.part_prefix, n)
@@ -1373,10 +1393,13 @@ def main():
                 error("'%s' already exists" % partdir)
             os.mkdir(partdir)
             for fn in spectrum_fns:
-                out = open(os.path.join(partdir, fn), 'w')
-                for line in filter_ms2_by_mass(open(fn), lb, ub):
-                    out.write(line)
-                out.close()
+                inf = open(fn)
+                outfn = os.path.join(partdir, fn)
+                info("writing '%s'", outfn)
+                outf = open(outfn, 'w')
+                cgreylag.spectrum.filter_ms2_by_mass(outf, inf, lb, ub)
+                outf.close()
+                inf.close()
 
         info("finished, wrote %s sets of input files", options.part_split)
         logging.shutdown()

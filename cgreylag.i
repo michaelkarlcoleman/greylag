@@ -5,6 +5,11 @@
 
 %module cgreylag
 
+
+// Declare this read-only, to suppress a warning about a possible memory leak.
+%immutable mass_trace_item::description;
+
+
 %feature("autodoc");
 
 %{

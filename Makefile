@@ -14,35 +14,33 @@
 .DELETE_ON_ERROR:
 
 
+# MARCH = pentium3
+# MARCH = pentium4
+MARCH = prescott
+# MARCH = opteron
+# MARCH = nocona
+
+
 DEST = /n/site/inst/Linux-i686/bioinfo/greylag/
-
-# for debugging (extra checking, slow)
-CXXFLAGS = -Wall -g3 -O0 -D_GLIBCXX_DEBUG
-
-# for speed (fastest?, fewest checks)
-#CXXFLAGS = -Wall -g3 -O3 -DNDEBUG -ffast-math $(ARCHFLAGS)
-
-# reasonably fast
-#CXXFLAGS = -Wall -g3 -O2 -ffast-math $(ARCHFLAGS)
-
-ARCHFLAGS = -march=pentium3
-#ARCHFLAGS = -march=pentium4 -mfpmath=sse
-#ARCHFLAGS = -march=prescott -mfpmath=sse
-#ARCHFLAGS = -march=opteron -mfpmath=sse
-#ARCHFLAGS = -march=nocona -mfpmath=sse
-
-# is this faster?
-##
-#  
-#CXXFASTFLAGS = -finline-limit=20000 --param inline-unit-growth=1000 --param large-function-growth=1000
-
-SWIGCXXFLAGS = $(CXXFLAGS) -fPIC -I$(PYTHON_I) -fno-strict-aliasing \
-		-Wno-unused-function -Wno-uninitialized
-
 
 # Generally, this is where the 'Python.h' corresponding to your 'python' lives.
 #PYTHON_I = /n/site/inst/Linux-i686/sys/include/python2.4
 PYTHON_I = /usr/include/python2.4
+
+
+# for debugging (extra checking, slow)
+#CXXFLAGS = -Wall -g3 -O0 -D_GLIBCXX_DEBUG -march=$(MARCH)
+
+# for speed (fastest?, fewest checks)
+#CXXFLAGS = -Wall -g3 -O3 -DNDEBUG -ffast-math -mfpmath=sse -march=$(MARCH)
+#CXXFASTFLAGS = -finline-limit=20000 --param inline-unit-growth=1000 --param large-function-growth=1000
+
+# reasonably fast
+CXXFLAGS = -Wall -g3 -O2 -ffast-math -mfpmath=sse -march=$(MARCH)
+
+SWIGCXXFLAGS = $(CXXFLAGS) -fPIC -I$(PYTHON_I) -fno-strict-aliasing \
+		-Wno-unused-function -Wno-uninitialized
+
 
 MODULE = cgreylag
 

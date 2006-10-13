@@ -31,16 +31,6 @@ public:
   // alternative -> residue char -> vector of deltas
   std::vector< std::vector< std::vector<double> > > potential_modification_mass;
   std::vector< std::vector< std::vector<double> > > potential_modification_mass_refine;
-
-  mass_regime_parameters(unsigned size=0) : hydroxyl_mass(0), water_mass(0),
-					    ammonia_mass(0) {
-    residue_mass.resize(size);
-    modification_mass.resize(size);
-    potential_modification_mass.resize(1);
-    potential_modification_mass_refine.resize(1);
-    potential_modification_mass[0].resize(size);
-    potential_modification_mass_refine[0].resize(size);
-  }
 };
 
 // FIX: want these class members to all be static, but had SWIG trouble
@@ -84,7 +74,7 @@ class peak {
   double mz;
   double intensity;
 
-  peak(double mz=0, double intensity=0) : mz(mz), intensity(intensity) { }
+  explicit peak(double mz=0, double intensity=0) : mz(mz), intensity(intensity) { }
 
   char *__repr__() const;
 
@@ -118,7 +108,7 @@ public:
   int physical_id;
 
   // Construct an empty spectrum.
-  spectrum(double mass=0, int charge=0) : mass(mass), charge(charge) {
+  explicit spectrum(double mass=0, int charge=0) : mass(mass), charge(charge) {
     assert(charge >= 0);
     if (charge > max_supported_charge)
       throw std::invalid_argument("attempt to create a spectrum with greater"
@@ -152,6 +142,16 @@ public:
   // range used.)
   static std::vector<spectrum> read_spectra_from_ms2(FILE *f,
 						     const int file_id);
+
+
+  // Copy spectra from inf (an open ms2 file) to outf, zeroing out any spectra
+  // with mass outside [lb, ub).  Specifically, a zeroed spectrum will have an
+  // empty name and a mass and charge of zero.  If all charges for a physical
+  // spectrum are zeroed, its peaklist will be replaced with a single peak
+  // having mass and intensity zero.  Thus the zeroed spectra are validly
+  // formatted placeholders.
+  static void filter_ms2_by_mass(FILE *outf, FILE *inf, double lb, double ub);
+
 
   // Sets max/sum_peak_intensity, according to peaks and
   // normalization_factor.
@@ -232,7 +232,6 @@ public:
   int sequence_index;
   int sequence_offset;
   int mass_regime;
-  int potential_mod_alternative;
   std::vector<mass_trace_item> mass_trace;
 
   match() : hyper_score(-1), convolution_score(-1), missed_cleavage_count(-1),
