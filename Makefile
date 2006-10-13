@@ -17,17 +17,17 @@
 DEST = /n/site/inst/Linux-i686/bioinfo/greylag/
 
 # for debugging (extra checking, slow)
-#CXXFLAGS = -Wall -g3 -O0 -D_GLIBCXX_DEBUG
+CXXFLAGS = -Wall -g3 -O0 -D_GLIBCXX_DEBUG
 
 # for speed (fastest?, fewest checks)
-#CXXFLAGS = -Wall -g -O3 -DNDEBUG -ffast-math $(ARCHFLAGS)
+#CXXFLAGS = -Wall -g3 -O3 -DNDEBUG -ffast-math $(ARCHFLAGS)
 
 # reasonably fast
-CXXFLAGS = -Wall -g -O2 -ffast-math $(ARCHFLAGS)
+#CXXFLAGS = -Wall -g3 -O2 -ffast-math $(ARCHFLAGS)
 
-#ARCHFLAGS = -march=pentium3
+ARCHFLAGS = -march=pentium3
 #ARCHFLAGS = -march=pentium4 -mfpmath=sse
-ARCHFLAGS = -march=prescott -mfpmath=sse
+#ARCHFLAGS = -march=prescott -mfpmath=sse
 #ARCHFLAGS = -march=opteron -mfpmath=sse
 #ARCHFLAGS = -march=nocona -mfpmath=sse
 

@@ -33,7 +33,7 @@
 %include std_string.i
 %apply const std::string & { std::string *name };
 
-%include std_list.i
+// %include std_list.i
 %include std_vector.i
 
 %template(vector_int) std::vector<int>;
@@ -46,6 +46,7 @@
 %template(vector_vector_int) std::vector< std::vector<int> >;
 %template(vector_vector_double) std::vector< std::vector<double> >;
 %template(vector_vector_match) std::vector< std::vector<match> >;
+%template(vector_vector_vector_double) std::vector< std::vector< std::vector<double> > >;
 
 
 %include std_pair.i

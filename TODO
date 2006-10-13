@@ -3,15 +3,9 @@
 What doesn't greylag do that SIMR cares about?
 
 
-- differential modification of residues
+- differential modification of residues, w/alternation
 
 - cluster implementation
-
-    qsub -t 1-5 -b y -shell n -cwd -V \
-        python -c 'import os, socket; print socket.gethostname(), os.getcwd(), os.getenv("SGE_TASK_ID")'
-	SGE_TASK_FIRST
-	SGE_TASK_LAST
-
 
 - cyclic "permutations" (for scoring accuracy)
 
@@ -44,6 +38,7 @@ These features would be better than what we currently have
 
 current sloccount comparison:
 xtandem: cpp: 13058
+  (add count for parallel tandem)
 greylag: cpp: 595 py: 863
 omssa: cpp: 7583 (plus an unknown, possibly large number from the NCBI toolkits [33 distinct headers])
 		(the toolkits are 1000000 sloc, 65% cpp, 34% c)

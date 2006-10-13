@@ -17,6 +17,9 @@
 #include <iostream>
 
 
+const int ALTERNATIVE = 0;	// FIX!!!
+
+
 //#define FAST_LOWER_READ_ACCURACY
 
 #ifdef __GNU__
@@ -77,18 +80,22 @@ spectrum::__repr__() const {
 static void
 read_error(FILE *f, const char *message="") {
   if (ferrorX(f))
-    message = "I/O error while reading ms2 file";
+    message = "I/O error while reading spectrum file";
   throw std::ios_base::failure(message);
 }
 
 
-// Read spectra from file in ms2 format, tagging them with file_id.  Multiply
-// charge spectra (e.g., +2/+3) are split into separate spectra having the
-// same physical id.  The peak list is initially sorted by mz.  Throws an
-// exception on invalid input.
+// Read spectra from file in ms2 format, tagging them with file_id.  Spectra
+// with charge zero are omitted from the result.  (All of them are read,
+// though, so the ids for any spectrum will be the same regardless of the
+// range used.)
+
+// Multiply charge spectra (e.g., +2/+3) are split into separate spectra
+// having the same physical id.  The peak list is initially sorted by mz.
+// Throws an exception on invalid input.
 
 std::vector<spectrum>
-spectrum::read_spectra(FILE *f, const int file_id) {
+spectrum::read_spectra_from_ms2(FILE *f, const int file_id) {
   std::vector<spectrum> spectra;
 
   const int bufsiz = 1024;
@@ -149,6 +156,10 @@ spectrum::read_spectra(FILE *f, const int file_id) {
 
     for (std::vector<double>::size_type i=0; i<names.size(); i++) {
       spectrum sp(masses[i], charges[i]);
+      // Every spectrum gets created, but only those with non-zero charge are
+      // kept.  (This is used to allow compression of part-split files.)
+      if (charges[i] == 0)
+	continue;
       sp.peaks = peaks;
       sp.name = names[i];
       sp.file_id = file_id;
@@ -761,7 +772,7 @@ choose_residue_mod(match &m, const mass_trace_list *mtlp,
       const double save_mass=mass_list[pos];
       const std::vector<double> &deltas
 	= CP.fragment_mass_regime[m.mass_regime]
-	.potential_modification_mass[m.peptide_sequence[pos]];
+	.potential_modification_mass[ALTERNATIVE][m.peptide_sequence[pos]];
       // step through the deltas for this amino acid
       for (std::vector<double>::const_iterator it=deltas.begin();
 	   it != deltas.end(); it++) {
@@ -793,7 +804,7 @@ choose_residue_mod_count(match &m, const mass_trace_list *mtlp,
   unsigned max_count=0;
   for (unsigned i=0; i<m.peptide_sequence.size(); i++)
     if (not CP.fragment_mass_regime[m.mass_regime]
-	.potential_modification_mass[m.peptide_sequence[i]].empty())
+	.potential_modification_mass[ALTERNATIVE][m.peptide_sequence[i]].empty())
       mod_positions[max_count++] = i;
   mod_positions[max_count] = -1;
 
@@ -820,7 +831,7 @@ choose_C_terminal_mod(match &m, const mass_trace_list *mtlp,
   mass_trace_list mtl(mtlp);
   mtl.item.position = POSITION_CTERM;
   const std::vector<double> &C_deltas
-    = CP.fragment_mass_regime[m.mass_regime].potential_modification_mass[']'];
+    = CP.fragment_mass_regime[m.mass_regime].potential_modification_mass[ALTERNATIVE][']'];
 
   for (std::vector<double>::const_iterator it=C_deltas.begin();
        it != C_deltas.end(); it++) {
@@ -851,7 +862,7 @@ choose_N_terminal_mod(match &m, const mass_trace_list *mtlp,
   mass_trace_list mtl(mtlp);
   mtl.item.position = POSITION_NTERM;
   const mass_regime_parameters &mrp = CP.fragment_mass_regime[m.mass_regime];
-  const std::vector<double> &N_deltas = mrp.potential_modification_mass['['];
+  const std::vector<double> &N_deltas = mrp.potential_modification_mass[ALTERNATIVE]['['];
 
   for (std::vector<double>::const_iterator it=N_deltas.begin();
        it != N_deltas.end(); it++) {

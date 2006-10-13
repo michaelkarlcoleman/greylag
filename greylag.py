@@ -1,13 +1,11 @@
 #!/usr/bin/env python
 
-'''
-Analyze mass spectra and assign peptides and proteins.  (This is a partial
-re-implementation of X!Tandem algorithm, with many extra features.)
-
+'''Analyze mass spectra and assign peptides and proteins.  (This is a partial
+   re-implementation of the X!Tandem algorithm, with many extra features.)
 '''
 
 
-# "Simplicity is prerequisite for reliability" - Edsger W. Dijkstra
+### "Simplicity is prerequisite for reliability" - Edsger W. Dijkstra ###
 
 
 __version__ = "$Id$"
@@ -39,7 +37,7 @@ def fileerror(s, *args):
           *args)
 
 
-# name -> value map of processed XML parameters
+# name -> value map of processed XML input parameters
 XTP = {}
 
 # handle to the singleton parameter object shared with the C++ module
@@ -179,15 +177,22 @@ def initialize_spectrum_parameters(quirks_mode):
     for residue, modvalue in XTP["residue, modification mass"]:
         mono_regime.modification_mass[ord(residue)] = modvalue
 
-    for residue, modvalue in XTP["residue, potential modification mass"]:
-        # NB: SWIG currently only exposes inner vector as tuple
-        # CP.potential_modification_mass[ord(residue)].append(modvalue)
-        mono_regime.potential_modification_mass[ord(residue)] \
-            = mono_regime.potential_modification_mass[ord(residue)] + (modvalue,)
+    # SWIG currently only exposes the outermost vector as a modifiable object.
+    # Inner vectors appear as tuples, and are thus unmodifiable.  Thus they
+    # must be assigned all at once.  This shortcoming will probably be fixed
+    # in a future version of SWIG.
 
-    for residue, modvalue in XTP["refine, potential modification mass"]:
-        mono_regime.potential_modification_mass_refine[ord(residue)] \
-            = mono_regime.potential_modification_mass_refine[ord(residue)] + (modvalue,)
+    rpmm = XTP["residue, potential modification mass"]
+    mono_regime.potential_modification_mass.resize(len(rpmm))
+    for altn, alternative in enumerate(rpmm):
+        v = [ [] for i in range(128) ]
+        for residue, modvalue in alternative:
+            v[ord(residue)].append(modvalue)
+        mono_regime.potential_modification_mass[altn] = v
+
+    #for residue, modvalue in XTP["refine, potential modification mass"]:
+    #    mono_regime.potential_modification_mass_refine[0][ord(residue)] \
+    #        = mono_regime.potential_modification_mass_refine[0][ord(residue)] + (modvalue,)
 
     # regime 0 is mono/mono
     CP.parent_mass_regime.append(mono_regime);
@@ -386,6 +391,15 @@ def mod_list(modification_list_specification, unique_mods=True):
 def potential_mod_list(modification_list_specification):
     """Check and return a list of (residue, modification) tuples."""
     return mod_list(modification_list_specification, unique_mods=False)
+
+def alternative_mod_list(modification_list_specification):
+    """Check and return a list of lists of (residue, modification) tuples.
+    The top-level list corresponds to the ';'-separated alternatives.
+    """
+    alist = [ mod_list(alternative_specification, unique_mods=False)
+              for alternative_specification
+              in modification_list_specification.split(';') ]
+    return [ a for a in alist if a ]    # omit empty alternatives
         
 
 # "ni" means check verifies that "not implemented" functionality is not
@@ -441,7 +455,7 @@ XML_PARAMETER_INFO = {
     "refine, potential C-terminus modifications": (potential_mod_list, "", p_ni_empty),
     "refine, potential N-terminus modifications": (potential_mod_list, "", p_ni_empty),
     "refine, potential N-terminus modification position limit" : (int, 50), # nyi
-    "refine, potential modification mass" : (potential_mod_list, "", p_ni_empty),
+    "refine, potential modification mass" : (alternative_mod_list, "", p_ni_empty),
     "refine, potential modification motif" : (str, "", p_ni_empty),
     "refine, sequence path" : (str, "", p_ni_empty),
     "refine, spectrum synthesis" : (bool, "no"),
@@ -449,7 +463,7 @@ XML_PARAMETER_INFO = {
     "refine, unanticipated cleavage" : (bool, p_ni_equal(False)),
     "refine, use potential modifications for full refinement" : (bool, "no", p_ni_equal(False)),
     "residue, modification mass" : (mod_list, ""),
-    "residue, potential modification mass" : (potential_mod_list, ""),
+    "residue, potential modification mass" : (alternative_mod_list, ""),
     "residue, potential modification motif" : (str, "", p_ni_empty),
     "scoring, a ions" : (bool, "no", p_ni_equal(False)),
     "scoring, b ions" : (bool, "yes", p_ni_equal(True)),
@@ -667,6 +681,64 @@ def get_final_protein_expect(sp_count, valid_spectra, match_ratio, raw_expect,
     r += (sp_count * math.log10(p)
           + (valid_spectra - sp_count) * math.log10(1 - p))
     return r
+
+
+def generate_mass_bands(band_count, spectra):
+    """Yield (n, mass_lb, mass_ub) for each mass band, where n ranges from 1
+    to band_count.  To generate the bands, spectra (which is assumed already
+    sorted by mass) is evenly partitioned into bands with masses in the range
+    [mass_lb, mass_ub).
+    """
+    assert spectra
+    band_size = len(spectra) / band_count + 1
+    lb = spectra[0].mass
+    for bn in range(1, band_count):
+        i = min(bn*band_size, len(spectra)-1)
+        ub = spectra[i].mass
+        yield bn, lb, ub
+        lb = ub
+    # Since the upper bound is exclusive, we add a little slop to make sure
+    # the last spectrum is included.
+    yield band_count, lb, round(spectra[-1].mass+1)
+
+
+def filter_ms2_by_mass(f, lb, ub):
+    """Yield lines from f (an open ms2 file), zeroing out any spectra with
+    mass outside [lb, ub).  Specifically, a zeroed spectrum will have an empty
+    name and a mass and charge of zero.  If all charges for a physical
+    spectrum are zeroed, its peaklist will be replaced with a single peak
+    having mass and intensity zero.  Thus the zeroed spectra are validly
+    formatted placeholders.
+    """
+    line = f.readline()
+    while line:
+        if not line.startswith(':'):
+            error("bad ms2 format: missing header lines?")
+        zero_peaks = True
+        headers = []
+        while line.startswith(':'):
+            name = line
+            mass_charge = f.readline()
+            try:
+                mass = float(mass_charge.split()[0])
+            except:
+                error("bad ms2 format: bad mass")
+            if lb <= mass < ub:
+                zero_peaks = False
+                yield name
+                yield mass_charge
+            else:
+                yield ':\n'
+                yield '0 0\n'
+            line = f.readline()
+        if not zero_peaks:
+            while line and not line.startswith(':'):
+                yield line
+                line = f.readline()
+        else:
+            yield '0 0\n'
+            while line and not line.startswith(':'):
+                line = f.readline()
     
 
 class struct:
@@ -1183,9 +1255,7 @@ def main():
                                    description=__doc__)
     parser.add_option("-o", "--output", dest="output",
                       help="destination file [default as given in parameter"
-                      " file, '-' for stdout, must be provided if --part"
-                      " specified]", 
-                      metavar="FILE")
+                      " file, '-' for stdout]", metavar="FILE")
     parser.add_option("--quirks-mode", action="store_true",
                       dest="quirks_mode",
                       help="try to generate results as close as possible to"
@@ -1193,17 +1263,18 @@ def main():
                       " accuracy)") 
     parser.add_option("--part-split", dest="part_split", type="int",
                       help="split input into M parts, to prepare for"
-                      " --part=XofM runs", metavar="M")  
+                      " --part runs", metavar="M")  
     parser.add_option("--part", dest="part",
                       help="search one part, previously created with"
-                      " --part-split.  For example, to split into two parts,"
-                      " use '1of2' and '2of2'.", metavar="NofM")
+                      " --part-split; e.g. '1of2' and '2of2'", metavar="NofM")
     parser.add_option("--part-merge", dest="part_merge", type="int",
                       help="merge the previously searched M results and"
                       " continue", metavar="M")  
-    parser.add_option("--part-prefix", dest="part_prefix", default='greylag',
+    default_prefix = 'greylag'
+    parser.add_option("--part-prefix", dest="part_prefix",
+                      default=default_prefix,
                       help="prefix to use for temporary part files"
-                      " [default='greylag']", metavar="PREFIX")
+                      " [default='%s']" % default_prefix, metavar="PREFIX")
     parser.add_option("--compress-level", dest="compress_level", type="int",
                       help="compression level to use for compressed files"
                       " created [default=1 for *.gz, 9 for *.bz2]",
@@ -1218,7 +1289,7 @@ def main():
                       dest="debug", help="output debugging info")
     parser.add_option("--profile", action="store_true",
                       dest="profile",
-                      help="dump profiling output to './greylag.prof'")
+                      help="dump Python profiling output to './greylag.prof'")
     (options, args) = parser.parse_args()
 
     if (len(args) < 1
@@ -1235,11 +1306,11 @@ def main():
            if x != None) > 1:
         error("specify only one of --part-split, --part and --part-merge")
 
-    part_fn_pattern = '%s.0.%sof%s.part'
+    part_fn_pattern = '%s.0.%sof%s.part.gz'
     part = None                         # "2of10" -> (2, 10)
 
     if options.part_split:
-        part_fn_pattern %= (options.part_prefix, '%s', options.part_split)
+        del part_fn_pattern
     elif options.part:
         try:
             part = tuple(int(x) for x in options.part.split('of', 1))
@@ -1283,34 +1354,37 @@ def main():
     initialize_spectrum_parameters(options.quirks_mode)
     #greylag_search.CP = CP
 
-    ########################################
-
     # read spectra
-    part_fn_suffix = '.in.gz'
-    if not options.part:
-        spectra = list(itertools.chain(
-            *[ cgreylag.spectrum.read_spectra(zopen(fn), n)
-               for n, fn in enumerate(spectrum_fns) ]))
-        spectra.sort(key=lambda x: x.mass)
-        if options.part_split:
-            band_size = len(spectra) / options.part_split + 1
-            for bn in range(1, options.part_split+1):
-                band_spectra = spectra[bn*band_size:(bn+1)*band_size]
-                f = zopen(part_fn_pattern % bn + part_fn_suffix, 'w')
-                cPickle.dump(band_spectra, f, cPickle.HIGHEST_PROTOCOL)
-                f.close()
-            info("finished, wrote %s input files", options.part_split)
-            logging.shutdown()
-            return
-    else:
-        spectra = cPickle.load(zopen(part_fn_pattern % part[0]
-                                     + part_fn_suffix))
+    partdir_pattern = '%s-part-%s'
+    if options.part:
+        partdir = partdir_pattern % (options.part_prefix, part[0])
+        spectrum_fns = [ os.path.join(partdir, os.path.basename(x))
+                         for x in spectrum_fns ]
+    spectra = list(itertools.chain(
+        *[ cgreylag.spectrum.read_spectra_from_ms2(open(fn), n)
+           for n, fn in enumerate(spectrum_fns) ]))
+    spectra.sort(key=lambda x: x.mass)
+
+    if options.part_split:
+        for n, lb, ub in generate_mass_bands(options.part_split, spectra):
+            info("creating part %s (%s - %s)" % (n, lb, ub))
+            partdir = partdir_pattern % (options.part_prefix, n)
+            if os.path.exists(partdir):
+                error("'%s' already exists" % partdir)
+            os.mkdir(partdir)
+            for fn in spectrum_fns:
+                out = open(os.path.join(partdir, fn), 'w')
+                for line in filter_ms2_by_mass(open(fn), lb, ub):
+                    out.write(line)
+                out.close()
+
+        info("finished, wrote %s sets of input files", options.part_split)
+        logging.shutdown()
+        return
+
     if not spectra:
         warning("no input spectra")
     info("read %s spectra", len(spectra))
-
-
-    ########################################
 
     # filter and normalize spectra
     # NI: optionally using "contrast angle" (mprocess::subtract)
