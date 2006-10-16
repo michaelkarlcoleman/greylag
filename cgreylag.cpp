@@ -12,31 +12,30 @@
 #include <cstdlib>
 #include <cmath>
 #include <numeric>
+#include <set>
 #include <stdexcept>
 
 #include <iostream>
 
-
-const int ALTERNATIVE = 0;	// FIX!!!
-
-
-//#define FAST_LOWER_READ_ACCURACY
 
 #ifdef __GNU__
 #define NOTHROW __attribute__ ((nothrow))
 // use faster, non-threadsafe versions, since we don't use threads
 #define fgetsX fgets_unlocked
 #define fputsX fputs_unlocked
+#define fprintfX __builtin_fprintf_unlocked
 #define ferrorX ferror_unlocked
 #else
 #define NOTHROW
 #define fgetsX std::fgets
 #define fputsX std::fputs
+#define fprintfX std::fprintf
 #define ferrorX std::ferror
 #endif
 
+//#define FAST_LOWER_READ_ACCURACY
 #ifdef FAST_LOWER_READ_ACCURACY
-// possibly faster, at some cost in accuracy // TEST
+// possibly faster, at some cost in accuracy // FIX: TEST
 #define strtodX std::strtof
 #else
 #define strtodX std::strtod
@@ -53,9 +52,9 @@ peak::__repr__() const {
   return &temp[0];
 }
 
-
-int spectrum::next_id = 1;
-int spectrum::next_physical_id = 1;
+const int FIRST_SPECTRUM_ID = 1;
+int spectrum::next_id = FIRST_SPECTRUM_ID;
+int spectrum::next_physical_id = FIRST_SPECTRUM_ID;
 
 std::vector<spectrum> spectrum::searchable_spectra;
 // parent mass -> searchable_spectra index
@@ -242,6 +241,101 @@ spectrum::filter_ms2_by_mass(FILE *outf, FILE *inf, double lb, double ub) {
 	io_error(outf, "error writing ms2 file");
     }
   }
+}
+
+
+// Copy spectra from an ms2 file to a set of output ms2 files, one for each
+// band in the set of mass bands described by their upper bounds.  Extra
+// information is written in the first header line of each spectra so that
+// id's may be recovered.  So, for example, ':0002.0002.1' might become
+// ':0002.0002.1 # 0 45 78', where 0, 45, 78 are the spectrum's file_id,
+// physical_id, and id, respectively.  Multiply charged spectra will be
+// split into separate spectra (having the same physical_id).
+
+// FIX: cleaner to just pass in a vector of filenames, rather than fds?
+void
+spectrum::split_ms2_by_mass_band(FILE *inf, const std::vector<int> &outfds,
+				 const int file_id, 
+				 const std::vector<double> &mass_band_upper_bounds) {
+  std::map<double, FILE *> mass_file_index;
+
+  if (outfds.size() < 1
+      or outfds.size() != mass_band_upper_bounds.size())
+    throw std::invalid_argument("invalid argument value");
+
+  for (std::vector<int>::size_type i=0; i<outfds.size(); i++) {
+    FILE *f = fdopen(outfds[i], "w");
+    if (not f)
+      throw std::ios_base::failure("fdopen failed: fd limit exceeded?");
+    mass_file_index.insert(std::make_pair(mass_band_upper_bounds[i], f));
+  }
+
+  int o_next_id = FIRST_SPECTRUM_ID;
+  int o_next_physical_id = FIRST_SPECTRUM_ID;
+
+  const int bufsiz = 1024;
+  char buf0[bufsiz], buf1[bufsiz];
+  char *endp;
+  char *result = fgetsX(buf0, bufsiz, inf);
+  while (true) {
+    double mass;
+    std::set<FILE *> sp_files;
+    
+    // copy headers
+    while (true) {
+      if (ferrorX(inf))
+	io_error(inf);
+      if (not result or buf0[0] != ':')
+	break;
+      if (not fgetsX(buf1, bufsiz, inf))
+	io_error(inf, "bad ms2 format: mass/charge line expected");
+      errno = 0;
+      mass = std::strtod(buf1, &endp); // need double accuracy here
+      if (errno or endp == buf1)
+	io_error(inf, "bad ms2 format: bad mass");
+      errno = 0;
+      std::map<double, FILE *>::const_iterator bit
+	= mass_file_index.lower_bound(mass);
+      if (bit == mass_file_index.end())
+	throw std::invalid_argument("internal error: mass out of range");
+      FILE *bandf = bit->second;
+      sp_files.insert(bandf);
+      assert(buf0[strlen(buf0)-1] == '\n');
+      buf0[strlen(buf0)-1] = 0;	// chop newline
+      fprintfX(bandf, "%s # %d %d %d\n", buf0, file_id, o_next_physical_id,
+	       o_next_id++);
+      fputsX(buf1, bandf);
+      if (errno)
+	io_error(bandf, "error writing ms2 file");
+      result = fgetsX(buf0, bufsiz, inf);
+    }
+    if (not result)
+      break;
+    if (sp_files.empty())
+      io_error(inf, "bad ms2 format: missing header lines?");
+    // copy peaks
+    while (true) {
+      peak p;
+      errno = 0;
+      for (std::set<FILE *>::const_iterator fit = sp_files.begin();
+	   fit != sp_files.end(); fit++) {
+	fputsX(buf0, *fit);
+	if (errno)
+	  io_error(*fit, "error writing ms2 file");
+      }
+      result = fgetsX(buf0, bufsiz, inf);
+      if (ferrorX(inf))
+	io_error(inf);
+      if (not result or buf0[0] == ':')
+	break;
+    }
+    o_next_physical_id++;
+  }
+
+  // flush all output files (is this necessary?)
+  for (std::map<double, FILE *>::const_iterator it = mass_file_index.begin();
+       it != mass_file_index.end(); it++)
+    std::fflush(it->second);
 }
 
 

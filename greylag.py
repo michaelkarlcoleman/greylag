@@ -1373,7 +1373,7 @@ def main():
     #greylag_search.CP = CP
 
     # read spectra
-    partdir_pattern = '%s-part-%s'
+    partdir_pattern = '%s-part-%s.tmp'
     if options.part:
         partdir = partdir_pattern % (options.part_prefix, part[0])
         spectrum_fns = [ os.path.join(partdir, os.path.basename(x))
@@ -1386,20 +1386,35 @@ def main():
     if options.part_split:
         # FIX: faster to just read masses (not whole spectra) in this case?
 
-        for n, lb, ub in generate_mass_bands(options.part_split, spectra):
-            info("creating part %s (%s - %s)" % (n, lb, ub))
-            partdir = partdir_pattern % (options.part_prefix, n)
-            if os.path.exists(partdir):
-                error("'%s' already exists" % partdir)
-            os.mkdir(partdir)
-            for fn in spectrum_fns:
-                inf = open(fn)
-                outfn = os.path.join(partdir, fn)
-                info("writing '%s'", outfn)
-                outf = open(outfn, 'w')
-                cgreylag.spectrum.filter_ms2_by_mass(outf, inf, lb, ub)
-                outf.close()
-                inf.close()
+        #for n, lb, ub in generate_mass_bands(options.part_split, spectra):
+        #    info("creating part %s (%s - %s)" % (n, lb, ub))
+        #    partdir = partdir_pattern % (options.part_prefix, n)
+        #    if os.path.exists(partdir):
+        #        error("'%s' already exists" % partdir)
+        #    os.mkdir(partdir)
+        #    for fn in spectrum_fns:
+        #        inf = open(fn)
+        #        outfn = os.path.join(partdir, fn)
+        #        info("writing '%s'", outfn)
+        #        outf = open(outfn, 'w')
+        #        cgreylag.spectrum.filter_ms2_by_mass(outf, inf, lb, ub)
+        #        outf.close()
+        #        inf.close()
+
+        # FIX: clean this up
+        mass_band_ubs = [ x[2] for x
+                          in generate_mass_bands(options.part_split, spectra) ]
+        mass_band_files = [ open(partdir_pattern % (options.part_prefix, n),
+                                 'w')
+                            for n in range(1, options.part_split+1) ]
+        mass_band_fds = [ f.fileno() for f in mass_band_files ]
+        for n, fn in enumerate(spectrum_fns):
+            inf = open(fn)
+            cgreylag.spectrum.split_ms2_by_mass_band(inf, mass_band_fds, n,
+                                                     mass_band_ubs)
+            inf.close()
+        for f in mass_band_files:
+            f.close()
 
         info("finished, wrote %s sets of input files", options.part_split)
         logging.shutdown()

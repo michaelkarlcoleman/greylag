@@ -153,6 +153,18 @@ public:
   static void filter_ms2_by_mass(FILE *outf, FILE *inf, double lb, double ub);
 
 
+  // Copy spectra from an ms2 file to a set of output ms2 files, one for each
+  // band in the set of mass bands described by their upper bounds.  Extra
+  // information is written in the first header line of each spectra so that
+  // id's may be recovered.  So, for example, ':0002.0002.1' might become
+  // ':0002.0002.1 # 0 45 78', where 0, 45, 78 are the spectrum's file_id,
+  // physical_id, and id, respectively.  Multiply charged spectra will be
+  // split into separate spectra (having the same physical_id).
+  static void split_ms2_by_mass_band(FILE *inf, const std::vector<int> &outfds,
+				     const int file_id, 
+				     const std::vector<double> &mass_band_upper_bounds);
+
+
   // Sets max/sum_peak_intensity, according to peaks and
   // normalization_factor.
   void calculate_intensity_statistics() {
