@@ -86,7 +86,8 @@ io_error(FILE *f, const char *message="") {
 
 // Read spectra from file in ms2 format, tagging them with file_id.  Spectra
 // with charge zero are omitted from the result.  (All of them are read,
-// though, to keep spectrum ids in sync.)
+// though, to keep spectrum ids in sync.)  If file_id == -1, the ms2 file is
+// an annotated file produced by split_ms2_by_mass_band.
 
 // Multiply charge spectra (e.g., +2/+3) are split into separate spectra
 // having the same physical id.  The peak list is initially sorted by mz.
@@ -105,7 +106,10 @@ spectrum::read_spectra_from_ms2(FILE *f, const int file_id) {
     std::vector<std::string> names;
     std::vector<double> masses;
     std::vector<int> charges;
-    std::vector<peak> peaks;
+    // for annotated ms2
+    std::vector<int> file_ids;
+    std::vector<int> physical_ids;
+    std::vector<int> ids;
 
     // read headers
     while (true) {
@@ -113,29 +117,46 @@ spectrum::read_spectra_from_ms2(FILE *f, const int file_id) {
 	io_error(f);
       if (not result or buf[0] != ':')
 	break;
-      names.push_back(std::string(buf+1, buf+std::strlen(buf)-1));
+      if (file_id != -1)
+	names.push_back(std::string(buf+1, buf+std::strlen(buf)-1));
+      else {
+	char *anno_hash = std::strrchr(buf, '#'); // const, but C++ doesn't
+						  // like it declared thus--yuck
+	if (not anno_hash)
+	  io_error(f, "bad ms2+ format: '#' not found");
+	names.push_back(std::string(buf+1, anno_hash));
+	errno = 0;
+	file_ids.push_back(std::strtol(anno_hash+1, &endp, 10));
+	physical_ids.push_back(std::strtol(endp+1, &endp, 10));
+	ids.push_back(std::strtol(endp+1, &endp, 10));
+	if (errno)		// FIX: improve error check
+	  io_error(f, "bad ms2+ format: bad values");
+      }
       if (not fgetsX(buf, bufsiz, f))
 	io_error(f, "bad ms2 format: mass/charge line expected");
       errno = 0;
       masses.push_back(std::strtod(buf, &endp)); // need double accuracy here
       if (errno or endp == buf)
 	io_error(f, "bad ms2 format: bad mass");
-      charges.push_back(std::strtol(endp, &endp, 10));
-      if (errno or endp == buf)
+      const char *endp0 = endp;
+      charges.push_back(std::strtol(endp0, &endp, 10));
+      if (errno or endp == endp0)
 	io_error(f, "bad ms2 format: bad charge");
       result = fgetsX(buf, bufsiz, f);
     }
     if (not result)
       break;
     // read peaks
+    std::vector<peak> peaks;
     while (true) {
       peak p;
       errno = 0;
       p.mz = strtodX(buf, &endp);
       if (errno or endp == buf)
 	io_error(f, "bad ms2 format: bad peak mz");
-      p.intensity = strtodX(endp, &endp);
-      if (errno or endp == buf)
+      const char *endp0 = endp;
+      p.intensity = strtodX(endp0, &endp);
+      if (errno or endp == endp0)
 	io_error(f, "bad ms2 format: bad peak intensity");
       peaks.push_back(p);
 
@@ -154,18 +175,24 @@ spectrum::read_spectra_from_ms2(FILE *f, const int file_id) {
 
     for (std::vector<double>::size_type i=0; i<names.size(); i++) {
       spectrum sp(masses[i], charges[i]);
-      // Every spectrum gets created, but only those with non-zero charge are
-      // kept.  (This is used to allow compression of part-split files.)
-      if (charges[i] == 0)
-	continue;
       sp.peaks = peaks;
       sp.name = names[i];
-      sp.file_id = file_id;
-      sp.physical_id = next_physical_id;
+      if (file_id != -1) {
+	sp.file_id = file_id;
+	sp.physical_id = next_physical_id;
+      } else {
+	sp.file_id = file_ids[i];
+	sp.physical_id = physical_ids[i];
+	sp.id = ids[i];
+	spectrum::next_id = std::max(spectrum::next_id, sp.id+1);
+	spectrum::next_physical_id = std::max(spectrum::next_physical_id,
+					      sp.physical_id+1);
+      }
       sp.calculate_intensity_statistics();
       spectra.push_back(sp);
     }
-    spectrum::next_physical_id++;
+    if (file_id != -1)
+      spectrum::next_physical_id++;
   }
   return spectra;
 }

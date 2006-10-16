@@ -139,7 +139,8 @@ public:
   // Read spectra from file in ms2 format, tagging them with file_id.  Spectra
   // with charge zero are omitted from the result.  (All of them are read,
   // though, so the ids for any spectrum will be the same regardless of the
-  // range used.)
+  // range used.)  If file_id == -1, the ms2 file is an annotated file
+  // produced by split_ms2_by_mass_band.
   static std::vector<spectrum> read_spectra_from_ms2(FILE *f,
 						     const int file_id);
 

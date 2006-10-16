@@ -17,7 +17,7 @@ greylag_options="-v --quirks-mode"
 # like 3-5x the number of cluster nodes available.  Currently, there is a
 # noticeable fixed overhead cost for each part (a couple of minutes), so
 # throughput will be harmed if this number is too large.
-PARTS=10
+PARTS=500
 
 
 p=`basename $0`

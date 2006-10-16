@@ -1324,11 +1324,15 @@ def main():
            if x != None) > 1:
         error("specify only one of --part-split, --part and --part-merge")
 
-    part_fn_pattern = '%s.0.%sof%s.part.gz'
+    part_fn_pattern = '%s.0.%sof%s.part.%s'
+    part_fn_in_suffix = 'ms2+'
+    part_fn_out_suffix = 'out'
     part = None                         # "2of10" -> (2, 10)
 
     if options.part_split:
-        del part_fn_pattern
+        part_infn_pattern = (part_fn_pattern % (options.part_prefix, '%s',
+                                                options.part_split,
+                                                part_fn_in_suffix))
     elif options.part:
         try:
             part = tuple(int(x) for x in options.part.split('of', 1))
@@ -1337,10 +1341,14 @@ def main():
             sys.exit(1)
         if not 1 <= part[0] <= part[1]:
             error("bad --part parameter")
-        part_fn_pattern %= (options.part_prefix, part[0], part[1])
+        part_infn_pattern = (part_fn_pattern % (options.part_prefix, '%s',
+                                                part[1], part_fn_in_suffix))
+        part_outfn_pattern = (part_fn_pattern % (options.part_prefix, part[0],
+                                                 part[1], part_fn_out_suffix))
     elif options.part_merge:
-        part_fn_pattern %= (options.part_prefix, '%s', options.part_merge)
-
+        part_outfn_pattern = (part_fn_pattern % (options.part_prefix, '%s',
+                                                 options.part_merge,
+                                                 part_fn_out_suffix))
     log_level = logging.WARNING
     if options.quiet:
         log_level = logging.ERROR
@@ -1373,39 +1381,24 @@ def main():
     #greylag_search.CP = CP
 
     # read spectra
-    partdir_pattern = '%s-part-%s.tmp'
     if options.part:
-        partdir = partdir_pattern % (options.part_prefix, part[0])
-        spectrum_fns = [ os.path.join(partdir, os.path.basename(x))
-                         for x in spectrum_fns ]
-    spectra = list(itertools.chain(
-        *[ cgreylag.spectrum.read_spectra_from_ms2(open(fn), n)
-           for n, fn in enumerate(spectrum_fns) ]))
+        # read from a --part-split file
+        spectra = list(cgreylag.spectrum.read_spectra_from_ms2(open(part_infn_pattern
+                                                                    % part[0]),
+                                                               -1))
+    else:
+        spectra = list(itertools.chain(
+            *[ cgreylag.spectrum.read_spectra_from_ms2(open(fn), n)
+               for n, fn in enumerate(spectrum_fns) ]))
     spectra.sort(key=lambda x: x.mass)
 
     if options.part_split:
         # FIX: faster to just read masses (not whole spectra) in this case?
-
-        #for n, lb, ub in generate_mass_bands(options.part_split, spectra):
-        #    info("creating part %s (%s - %s)" % (n, lb, ub))
-        #    partdir = partdir_pattern % (options.part_prefix, n)
-        #    if os.path.exists(partdir):
-        #        error("'%s' already exists" % partdir)
-        #    os.mkdir(partdir)
-        #    for fn in spectrum_fns:
-        #        inf = open(fn)
-        #        outfn = os.path.join(partdir, fn)
-        #        info("writing '%s'", outfn)
-        #        outf = open(outfn, 'w')
-        #        cgreylag.spectrum.filter_ms2_by_mass(outf, inf, lb, ub)
-        #        outf.close()
-        #        inf.close()
-
         # FIX: clean this up
+        info("writing %s sets of input files", options.part_split)
         mass_band_ubs = [ x[2] for x
                           in generate_mass_bands(options.part_split, spectra) ]
-        mass_band_files = [ open(partdir_pattern % (options.part_prefix, n),
-                                 'w')
+        mass_band_files = [ open(part_infn_pattern % n, 'w')
                             for n in range(1, options.part_split+1) ]
         mass_band_fds = [ f.fileno() for f in mass_band_files ]
         for n, fn in enumerate(spectrum_fns):
@@ -1497,21 +1490,21 @@ def main():
             del fasta_db
             cgreylag.spectrum.set_searchable_spectra([])
 
-            partfile = zopen(part_fn_pattern, 'w')
+            partfile = zopen(part_outfn_pattern, 'w')
             cPickle.dump((part, pythonize_swig_object(score_statistics)),
                          partfile, cPickle.HIGHEST_PROTOCOL)
             partfile.close()
-            info("finished, part file written to '%s'", part_fn_pattern)
+            info("finished, part file written to '%s'", part_outfn_pattern)
             logging.shutdown()
             return
     else:
         info('loading %s parts' % options.part_merge)
-        part0, score_statistics = cPickle.load(zopen(part_fn_pattern % 1))
+        part0, score_statistics = cPickle.load(zopen(part_outfn_pattern % 1))
         info('loaded part 1')
         #debug('ss0: %s', score_statistics)
         for p in range(2, options.part_merge+1):
             part0, score_statistics0 \
-                   = cPickle.load(zopen(part_fn_pattern % p))
+                   = cPickle.load(zopen(part_outfn_pattern % p))
             info('loaded part %s', p)
             #debug('ssn: %s', score_statistics0)
             merge_score_statistics(score_statistics, score_statistics0)
