@@ -136,6 +136,8 @@ public:
     }
   }
 
+
+
   // Read spectra from file in ms2 format, tagging them with file_id.  Spectra
   // with charge zero are omitted from the result.  (All of them are read,
   // though, so the ids for any spectrum will be the same regardless of the
@@ -144,6 +146,8 @@ public:
   static std::vector<spectrum> read_spectra_from_ms2(FILE *f,
 						     const int file_id);
 
+  // Return sorted list of parent masses present in the given ms2 files.
+  static std::vector<double> read_ms2_spectrum_masses(std::vector<int> fds);
 
   // Copy spectra from inf (an open ms2 file) to outf, zeroing out any spectra
   // with mass outside [lb, ub).  Specifically, a zeroed spectrum will have an

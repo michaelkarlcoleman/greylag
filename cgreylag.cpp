@@ -84,6 +84,52 @@ io_error(FILE *f, const char *message="") {
 }
 
 
+// Return sorted list of parent masses present in the given ms2 files.
+std::vector<double>
+spectrum::read_ms2_spectrum_masses(std::vector<int> fds) {
+  std::vector<double> masses;
+
+  for (std::vector<int>::const_iterator fdit=fds.begin(); fdit != fds.end();
+       fdit++) {
+    FILE *f = fdopen(*fdit, "r");
+
+    const int bufsiz = 1024;
+    char buf[bufsiz];
+    char *endp;
+    char *result = fgetsX(buf, bufsiz, f);
+    while (true) {
+      // read headers
+      while (true) {
+	if (ferrorX(f))
+	  io_error(f);
+	if (not result or buf[0] != ':')
+	  break;
+	if (not fgetsX(buf, bufsiz, f))
+	  io_error(f, "bad ms2 format: mass/charge line expected");
+	errno = 0;
+	masses.push_back(std::strtod(buf, &endp)); // need double accuracy here
+	if (errno or endp == buf)
+	  io_error(f, "bad ms2 format: bad mass");
+	result = fgetsX(buf, bufsiz, f);
+      }
+      if (not result)
+	break;
+      // read peaks
+      std::vector<peak> peaks;
+      while (true) {
+	result = fgetsX(buf, bufsiz, f);
+	if (ferrorX(f))
+	  io_error(f);
+	if (not result or buf[0] == ':')
+	  break;
+      }
+    }
+  }
+  std::sort(masses.begin(), masses.end());
+  return masses;
+}
+
+
 // Read spectra from file in ms2 format, tagging them with file_id.  Spectra
 // with charge zero are omitted from the result.  (All of them are read,
 // though, to keep spectrum ids in sync.)  If file_id == -1, the ms2 file is

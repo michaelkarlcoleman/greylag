@@ -701,23 +701,36 @@ def get_final_protein_expect(sp_count, valid_spectra, match_ratio, raw_expect,
     return r
 
 
-def generate_mass_bands(band_count, spectra):
+# def read_ms2_spectrum_masses(spectrum_fns):
+#     """Return a list of all parent masses present in the given ms2 files."""
+#     masses = []
+#     for fn in spectrum_fns:
+#         header_line = False
+#         for line in open(fn):
+#             if line.startswith(':'):
+#                 header_line = True
+#             elif header_line:
+#                 masses.append(float(line.split(None, 1)[0]))
+#     return masses
+    
+
+def generate_mass_bands(band_count, mass_list):
     """Yield (n, mass_lb, mass_ub) for each mass band, where n ranges from 1
-    to band_count.  To generate the bands, spectra (which is assumed already
-    sorted by mass) is evenly partitioned into bands with masses in the range
-    [mass_lb, mass_ub).
+    to band_count.  To generate the bands, the mass list (which is assumed
+    already sorted by mass) is evenly partitioned into bands with masses in
+    the range [mass_lb, mass_ub).
     """
-    assert spectra
-    band_size = len(spectra) / band_count + 1
-    lb = spectra[0].mass
+    assert mass_list and band_count > 0
+    band_size = len(mass_list) / band_count + 1
+    lb = mass_list[0]
     for bn in range(1, band_count):
-        i = min(bn*band_size, len(spectra)-1)
-        ub = spectra[i].mass
+        i = min(bn*band_size, len(mass_list)-1)
+        ub = mass_list[i]
         yield bn, lb, ub
         lb = ub
     # Since the upper bound is exclusive, we add a little slop to make sure
     # the last spectrum is included.
-    yield band_count, lb, round(spectra[-1].mass+1)
+    yield band_count, lb, round(mass_list[-1]+1)
 
 
 def filter_ms2_by_mass(f, lb, ub):
@@ -1380,24 +1393,18 @@ def main():
     initialize_spectrum_parameters(options.quirks_mode)
     #greylag_search.CP = CP
 
-    # read spectra
-    if options.part:
-        # read from a --part-split file
-        spectra = list(cgreylag.spectrum.read_spectra_from_ms2(open(part_infn_pattern
-                                                                    % part[0]),
-                                                               -1))
-    else:
-        spectra = list(itertools.chain(
-            *[ cgreylag.spectrum.read_spectra_from_ms2(open(fn), n)
-               for n, fn in enumerate(spectrum_fns) ]))
-    spectra.sort(key=lambda x: x.mass)
-
     if options.part_split:
-        # FIX: faster to just read masses (not whole spectra) in this case?
         # FIX: clean this up
+        info("reading spectrum masses")
+        sp_files = [ open(fn) for fn in spectrum_fns ]
+        masses = cgreylag.spectrum.read_ms2_spectrum_masses([ f.fileno()
+                                                              for f in sp_files ])
+        for f in sp_files:
+            f.close()
         info("writing %s sets of input files", options.part_split)
-        mass_band_ubs = [ x[2] for x
-                          in generate_mass_bands(options.part_split, spectra) ]
+        mass_bands = list(generate_mass_bands(options.part_split, masses))
+        #info("mass bands: %s", mass_bands)
+        mass_band_ubs = [ x[2] for x in mass_bands ]
         mass_band_files = [ open(part_infn_pattern % n, 'w')
                             for n in range(1, options.part_split+1) ]
         mass_band_fds = [ f.fileno() for f in mass_band_files ]
@@ -1412,6 +1419,18 @@ def main():
         info("finished, wrote %s sets of input files", options.part_split)
         logging.shutdown()
         return
+
+    # read spectra
+    if options.part:
+        # read from a --part-split file
+        spectra = list(cgreylag.spectrum.read_spectra_from_ms2(open(part_infn_pattern
+                                                                    % part[0]),
+                                                               -1))
+    else:
+        spectra = list(itertools.chain(
+            *[ cgreylag.spectrum.read_spectra_from_ms2(open(fn), n)
+               for n, fn in enumerate(spectrum_fns) ]))
+    spectra.sort(key=lambda x: x.mass)
 
     if not spectra:
         warning("no input spectra")
@@ -1498,17 +1517,14 @@ def main():
             logging.shutdown()
             return
     else:
-        info('loading %s parts' % options.part_merge)
+        info('loading/merging %s parts' % options.part_merge)
         part0, score_statistics = cPickle.load(zopen(part_outfn_pattern % 1))
-        info('loaded part 1')
         #debug('ss0: %s', score_statistics)
         for p in range(2, options.part_merge+1):
             part0, score_statistics0 \
                    = cPickle.load(zopen(part_outfn_pattern % p))
-            info('loaded part %s', p)
             #debug('ssn: %s', score_statistics0)
             merge_score_statistics(score_statistics, score_statistics0)
-            info('merged part %s', p)
         if len(score_statistics.best_score) != len(spectra):
             error("error during statistics merge (expecting %s, got %s)",
                   len(spectra), len(score_statistics.best_score))
