@@ -632,11 +632,13 @@ def get_spectrum_expectation(hyper_score, histogram):
         a0, a1 = 3.5, -0.18
         return 10.0 ** (a0 + a1 * scaled_hyper_score), survival, (a0, a1)
     
+    survival += [0]                     # FIX
     min_limit = 10
     max_limit = int(round(survival[0]/2.0))
     try:
         max_i = min(i for i in xrange(len(survival))
                     if survival[i] <= max_limit)
+        # this assumes rightmost element is < min_limit!
         min_i = min(i for i in xrange(max_i, len(survival))
                     if survival[i] <= min_limit)
     except ValueError:
@@ -1095,10 +1097,9 @@ def print_results_XML(options, XTP, db_info, spectrum_fns,
             for pn, (protein_id, domains) in enumerate(spectrum_info):
                 d0_defline, d0_run_seq, d0_seq_filename = db_info[(domains[0].sequence_index,
                                                                    domains[0].sequence_offset)]
-                # FIX: remove
                 if protein_id not in protein_expect:
-                    warning("protein id '%s' not in protein_expect",
-                            protein_id)
+                    #warning("protein id '%s' not in protein_expect",
+                    #        protein_id)
                     continue
                 if protein_id not in intensity:
                     warning("protein id '%s' not in intensity", protein_id)

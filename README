@@ -1,0 +1,91 @@
+# README for greylag
+
+#	$Id$
+
+
+
+
+##############################################################################
+
+Features:
+
+- Can simultaneously search multiple potential modifications on the same
+residue (e.g., K+14, K+16, K+28).  [X!Tandem cannot do this.  SEQUEST
+neither?]
+
+- Can simultaneously search multiple mass regimes in a single search.  (A
+"mass regime" is an assignment of residue masses.  Two common regimes would be
+"monoisotopic" and "monoisotopic with N15".)  [Currently X!Tandem supports
+isotopes searches in a manner similar to SEQUEST (requiring a follow-on
+merge), or by searching for isotopes as potential modifications.]  XXX
+
+- Can simultaneously search alternate potential modification sets.  So, for
+example, one can search for methylation of {K,S}, or acetylation of {K,S,T},
+without searching peptides that may have combinations of both.
+
+- Simultaneous search should improve statistical accuracy, as compared to
+separate search with a subsequent merge.  It also should be at least a little
+faster.
+
+- Modification limit can be specified as a limit on modifications per peptide
+(as with SEQUEST) and/or as a limit on the combinations searched per peptide
+(similar to X!Tandem).  XXX
+
+- Modifications can be specified by formula (e.g., +CH2 instead of +14 for
+methylation).  This allows the mass delta to be calculated more accurately,
+and correctly handles cases for which the delta depends on the mass regime
+(e.g., because the modification involves an isotope).  XXX
+
+- Modifications may be named ("14@K(methylation),14@S(methylation)"), which
+simplifies modification tracking in downstream software.  XXX
+
+- Supports different mass regimes for parent and fragment mass calculations
+(e.g., average for parent and monoisotopic for fragment).  [X!Tandem currently
+only supports monoisotopic parent masses.]  XXX
+
+- Automatic search for PCA (pyrrolidone carboxyl acid) potential
+modifications, as X!Tandem does.  (SEQUEST doesn't do this?)
+
+- Refinement steps, similar to X!Tandem.  XXX
+
+- X!Tandem-compatible input and output file formats.  Can be used as a drop-in
+replacement for X!Tandem, with some limitations.
+
+- Has a "quirks-mode" feature that attempts to replicate X!Tandem's behavior
+as closely as possible (warts and all).
+
+- Supports ms2 spectrum files.  [X!Tandem requires conversion.]
+
+- Integrated cluster implementation.  [X!Tandem has a multithreading feature
+that works on single machines, and an add-on cluster implementation.]
+
+- Source code is relatively small and simple (10-15% of X!Tandem's size).
+Most functionality is implemented in a high-level interpreted language
+(Python), with low-level code (C++) used only for performance-critical
+sections.  This makes it much easier to understand, learn from, fix, and
+extend.
+
+- Carefully checks its input for correctness.  [X!Tandem ignores errors in
+many cases, leading to incorrect output.]
+
+- Implemented with numerical stability in mind.  [X!Tandem has some issues
+with quantization and floating-point comparison.]
+
+- Source code carefully examined for correctness.  [X!Tandem has mismatched
+new/delete, potential buffer overflows, etc.]
+
+- Relative speed.  XXX seems okay, but not yet tested or optimized...
+
+- Platform independent.  XXX (only Linux tried so far)
+
+- Better progress logging.
+
+- Built-in profiling feature.
+
+
+XXX = feature not yet completed
+
+
+
+
+

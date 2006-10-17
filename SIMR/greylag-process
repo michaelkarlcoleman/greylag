@@ -13,11 +13,10 @@ greylag=/clusterfs/site/inst/Linux-i686/bioinfo/greylag/greylag.py
 # options passed to all greylag invocations
 greylag_options="-v --quirks-mode"
 
-# Divide this run into this many parts.  This should probably be something
-# like 3-5x the number of cluster nodes available.  Currently, there is a
-# noticeable fixed overhead cost for each part (a couple of minutes), so
-# throughput will be harmed if this number is too large.
-PARTS=500
+# Divide this run into this many parts.  This should probably be at least 5x
+# the number of cluster nodes available.  Currently, the fixed overhead cost
+# for each part is pretty small (10-20 seconds?).
+PARTS=250
 
 
 p=`basename $0`
