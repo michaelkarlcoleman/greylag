@@ -36,9 +36,9 @@ These features would be better than what we currently have
 
 
 
-current sloccount comparison:
-xtandem: cpp: 13058 (+ 1271 for parallel tandem)
-greylag: cpp: 595 py: 863
+Current sloccount comparison (generated using David A. Wheeler's 'SLOCCount'):
+xtandem: cpp: 13058 (+ 1271 for parallel tandem -> 14329)
+greylag: cpp: 1047 py: 1135 (+336 sh to set up parallel jobs at SIMR)
 omssa: cpp: 7583 (plus an unknown, possibly large number from the NCBI toolkits [33 distinct headers])
 		(the toolkits are 1000000 sloc, 65% cpp, 34% c)
 

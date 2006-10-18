@@ -10,8 +10,11 @@
 Features:
 
 - Can simultaneously search multiple potential modifications on the same
-residue (e.g., K+14, K+16, K+28).  [X!Tandem cannot do this.  SEQUEST
-neither?]
+residue (e.g., K+14, K+16, K+28).  [X!Tandem cannot do this.  Not sure about
+SEQUEST.]
+
+- No limit on the number of simultaneous modifications searched (aside from
+user patience).  [SEQUEST limited to three deltas.]
 
 - Can simultaneously search multiple mass regimes in a single search.  (A
 "mass regime" is an assignment of residue masses.  Two common regimes would be
@@ -56,14 +59,16 @@ as closely as possible (warts and all).
 
 - Supports ms2 spectrum files.  [X!Tandem requires conversion.]
 
+- Supports multiple spectrum files.  [X!Tandem handles only one at a time.]
+
 - Integrated cluster implementation.  [X!Tandem has a multithreading feature
 that works on single machines, and an add-on cluster implementation.]
 
-- Source code is relatively small and simple (10-15% of X!Tandem's size).
-Most functionality is implemented in a high-level interpreted language
-(Python), with low-level code (C++) used only for performance-critical
-sections.  This makes it much easier to understand, learn from, fix, and
-extend.
+- Source code is relatively small and simple (currently about 15% of
+X!Tandem's size).  Most functionality is implemented in a high-level
+interpreted language (Python), with low-level code (C++) used only for
+performance-critical sections.  This makes it much easier to understand, learn
+from, fix, and extend.
 
 - Carefully checks its input for correctness.  [X!Tandem ignores errors in
 many cases, leading to incorrect output.]

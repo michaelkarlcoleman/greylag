@@ -107,7 +107,7 @@ fi
 # Be very careful with quoting, as these names may eventually come from
 # Windows users...
 
-shared_d=$SHAREDTMPDIR/greylag-$$-$(date +%s) # unique
+shared_d=$SHAREDTMPDIR/greylag-$(date +%s)-$$ # unique
 
 # Could add removal of the shared directory to the EXIT trap, but probably we
 # shouldn't because pdq (and maybe SGE) may react badly
@@ -147,6 +147,7 @@ err round 0 setup
 
 # Use of *.ms2 implies that there are no such files here except for the ones
 # we just created.  Fix?
+# [NB: the ms2 arguments must be given in the same order each time!]
 
 # split ms2 files (on master, for now)
 $PYTHON $greylag $greylag_options \
