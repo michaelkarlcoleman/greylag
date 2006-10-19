@@ -778,40 +778,40 @@ score_spectrum(double &hyper_score, double &convolution_score,
 }
 
 
-#if 0
+// #if 0
 
-struct generator;
-
-
-struct generator {
-  // fx = &generator::generate_static_aa_mod;
-
-  typedef void generator::generator_fx(score_stats &stats, const match &m,
-				       std::vector<double> position_mass,
-				       const std::vector<double> &terminal_mass,
-				       const std::vector<generator>::iterator g_it);
-
-  generator() : fx(0) { }
-
-  generator_fx generate_static_aa_mod;
-
-  generator_fx generator::*fx;
-  std::vector<double> args;
-};
+// struct generator;
 
 
-void
-generator::generate_static_aa_mod(score_stats &stats, const match &m,
-				  std::vector<double> position_mass,
-				  const std::vector<double> &terminal_mass,
-				  const std::vector<generator>::iterator g_it) {
-  for (unsigned int i=0; i<m.peptide_sequence.size(); i++)
-    position_mass[i] += args[m.peptide_sequence[i]];
+// struct generator {
+//   // fx = &generator::generate_static_aa_mod;
 
-  ((*g_it).*(g_it->fx))(stats, m, position_mass, terminal_mass, g_it+1);
-}
+//   typedef void generator::generator_fx(score_stats &stats, const match &m,
+// 				       std::vector<double> position_mass,
+// 				       const std::vector<double> &terminal_mass,
+// 				       const std::vector<generator>::iterator g_it);
 
-#endif
+//   generator() : fx(0) { }
+
+//   generator_fx generate_static_aa_mod;
+
+//   generator_fx generator::*fx;
+//   std::vector<double> args;
+// };
+
+
+// void
+// generator::generate_static_aa_mod(score_stats &stats, const match &m,
+// 				  std::vector<double> position_mass,
+// 				  const std::vector<double> &terminal_mass,
+// 				  const std::vector<generator>::iterator g_it) {
+//   for (unsigned int i=0; i<m.peptide_sequence.size(); i++)
+//     position_mass[i] += args[m.peptide_sequence[i]];
+
+//   ((*g_it).*(g_it->fx))(stats, m, position_mass, terminal_mass, g_it+1);
+// }
+
+// #endif
 
 
 // FIX: does this actually help inlining?
@@ -945,7 +945,7 @@ evaluate_peptide_mod_variation(match &m, const mass_trace_list *mtlp,
     // be "equal".  The best_match vector will need to be re-screened
     // against this ratio, because it may finally contain entries which
     // don't meet our criterion.  (We don't take the time to get it exactly
-    // right here, because we may end up discarding it all anyway.)
+    // right here, because we will often end up discarding it all anyway.)
 
     const double current_ratio = (m.hyper_score
 				  / stats.best_score[m.spectrum_index]);

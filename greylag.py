@@ -650,7 +650,7 @@ def get_spectrum_expectation(hyper_score, histogram):
     data_X = range(max_i, min_i)
     data_Y = [ math.log10(survival[x]) for x in data_X ]
     # FIX!
-    if not data_Y or data_Y[0] != max(data_Y):
+    if len(data_Y) < 2 or data_Y[0] != max(data_Y):
         warning('bad survival curve? (2) [%s] %s', len(data_Y), survival)
         a0, a1 = 3.5, -0.18
         return 10.0 ** (a0 + a1 * scaled_hyper_score), survival, (a0, a1)
@@ -660,16 +660,7 @@ def get_spectrum_expectation(hyper_score, histogram):
     sum_X, sum_Y = sum(data_X), sum(data_Y)
     sum_XX = sum(x**2 for x in data_X)
     sum_XY = sum(x*y for x,y in zip(data_X, data_Y))
-
-    try:
-        m = (n*sum_XY - sum_X*sum_Y) / (n*sum_XX - sum_X**2)
-    except ZeroDivisionError:
-        # FIX: why would this happen?
-        warning('bad survival curve? (3) [%s,%s,%s] %s', n, sum_XX, sum_X,
-                survival)
-        a0, a1 = 3.5, -0.18
-        return 10.0 ** (a0 + a1 * scaled_hyper_score), survival, (a0, a1)
-        
+    m = (n*sum_XY - sum_X*sum_Y) / (n*sum_XX - sum_X**2)
     b = (sum_Y - m*sum_X) / n
     return 10.0 ** (b + m * scaled_hyper_score), survival, (b, m)
 
@@ -815,35 +806,20 @@ def filter_matches(score_statistics):
     # else there shouldn't be anything to filter
 
 
-def merge_score_statistics(ss0, ss1):
+def merge_score_statistics(ss0, ss1, offset):
     """Merge ss1 into ss0, keeping the best of both.  (Currently this is
     trivial since the statistics are for distinct (adjacent) sets of spectra.)
+    Also, offset is added to the spectrum_index member of all matches.
     """
+    for sp_n in xrange(len(ss1.best_match)):
+        for m in ss1.best_match[sp_n]:
+            m.spectrum_index += offset
     ss0.candidate_spectrum_count += ss1.candidate_spectrum_count
     ss0.hyperscore_histogram.extend(ss1.hyperscore_histogram)
     ss0.second_best_score.extend(ss1.second_best_score)
     ss0.best_score.extend(ss1.best_score)
     ss0.best_match.extend(ss1.best_match)
 
-
-# FIX: ugly--is there a way to avoid having to reorder?
-def reorder_score_statistics(spectrum_ids, score_statistics):
-    """Reorder the sequence members of score_statistics using spectrum_ids as
-    an order key.
-    """
-    def reorder(ks, vs):
-        l = zip(ks, vs)
-        l.sort()
-        return [ e[1] for e in l ]
-    score_statistics.hyperscore_histogram \
-        = reorder(spectrum_ids, score_statistics.hyperscore_histogram)
-    score_statistics.second_best_score \
-        = reorder(spectrum_ids, score_statistics.second_best_score)
-    score_statistics.best_score \
-        = reorder(spectrum_ids, score_statistics.best_score)
-    score_statistics.best_match \
-        = reorder(spectrum_ids, score_statistics.best_match)
-    
 
 def find_repeats(best_protein_matches, passing_spectra, expect):
     """Find (passing) spectrum id's for spectra that are repeats.  A repeat is
@@ -1119,7 +1095,6 @@ def print_results_XML(options, XTP, db_info, spectrum_fns,
                 if protein_id not in protein_expect:
                     warning("protein id '%s' not in protein_expect",
                             protein_id)
-                    error("protein_expect: %s", protein_expect)
                     continue
                 if protein_id not in intensity:
                     warning("protein id '%s' not in intensity", protein_id)
@@ -1502,7 +1477,6 @@ def main():
 
     if not options.part_merge:
         if part:
-            spectrum_ids = [ sp.id for sp in spectra ]
             del spectra                 # try to release memory
 
         for idno, offset, defline, seq, seq_filename in db:
@@ -1535,10 +1509,7 @@ def main():
             cgreylag.spectrum.set_searchable_spectra([])
 
             partfile = zopen(part_outfn_pattern, 'w')
-            # spectrum_ids is needed to interpret score_statistics, since the
-            # spectra were reordered by mass during the split process
-            cPickle.dump((part, spectrum_ids,
-                          pythonize_swig_object(score_statistics)),
+            cPickle.dump((part, pythonize_swig_object(score_statistics)),
                          partfile, cPickle.HIGHEST_PROTOCOL)
             partfile.close()
             info("finished, part file written to '%s'", part_outfn_pattern)
@@ -1546,21 +1517,18 @@ def main():
             return
     else:
         info('loading/merging %s parts' % options.part_merge)
-        part0, spectrum_ids, score_statistics \
+        part0, score_statistics \
                = cPickle.load(zopen(part_outfn_pattern % 1))
-        #debug('ss0: %s', score_statistics)
+        offset = len(score_statistics.best_score)
         for p in range(2, options.part_merge+1):
-            part0, spectrum_ids0, score_statistics0 \
+            part0, score_statistics0 \
                    = cPickle.load(zopen(part_outfn_pattern % p))
-            spectrum_ids.extend(spectrum_ids0)
-            merge_score_statistics(score_statistics, score_statistics0)
-            assert len(spectrum_ids) == len(score_statistics.best_score)
-        if (len(score_statistics.best_score) != len(spectra)
-            or len(spectra) != len(spectrum_ids)):
-            error("error during statistics merge (expecting %s, got %s, %s)",
-                  len(spectra), len(score_statistics.best_score),
-                  len(spectrum_ids))
-        reorder_score_statistics(spectrum_ids, score_statistics)
+            merge_score_statistics(score_statistics, score_statistics0,
+                                   offset)
+            offset += len(score_statistics0.best_score)
+        if len(score_statistics.best_score) != len(spectra):
+            error("error during part merge (expecting %s, got %s)",
+                  len(spectra), len(score_statistics.best_score))
 
     info('processing results')
 
