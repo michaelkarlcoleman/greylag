@@ -16,7 +16,7 @@ greylag_options="-v --quirks-mode"
 # Divide this run into this many parts.  This should probably be at least 5x
 # the number of cluster nodes available.  Currently, the fixed overhead cost
 # for each part is pretty small (10-20 seconds?).
-PARTS=250
+PARTS=1000
 
 
 p=`basename $0`
@@ -125,7 +125,7 @@ for f in "$@"; do
     esac
 done
 
-results="$jobname.out.xml.bz2"
+results="$jobname.out.xml.gz"
 
 jobbasedir=$(basename $PWD)
 
@@ -162,8 +162,8 @@ err round 0 processing
 # run on the same node.
 
 # first do parts on nodes
-qsub -sync y -r y -b y -cwd -V -hard -l mem_free=400M \
-    -q greylag.q \
+qsub -sync y -r y -b y -cwd -V -hard -l mem_free=250M \
+    -q all.q \
     -t 1-$PARTS \
     -N "greylag-$jobbasedir-$jobname-$$" \
     -e 'round-1.$TASK_ID.err' \
@@ -174,7 +174,7 @@ qsub -sync y -r y -b y -cwd -V -hard -l mem_free=400M \
     "$params" *.ms2
 qsub_status=$?
 cat $(ls -1 round-1.*.{out,err} | sort -t . -k 2n,3) /dev/null
-if [ $qsub_status != 0 ]; then
+if [ "$qsub_status" != 0 ]; then
     die "round 0 on nodes failed"
 fi
 

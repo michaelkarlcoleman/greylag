@@ -14,9 +14,9 @@
 .DELETE_ON_ERROR:
 
 
-MARCH = pentium3
+# MARCH = pentium3
 # MARCH = pentium4
-# MARCH = prescott
+MARCH = prescott
 # MARCH = opteron
 # MARCH = nocona
 

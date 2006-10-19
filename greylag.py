@@ -1432,8 +1432,9 @@ def main():
 
     if not spectra:
         warning("no input spectra")
-    info("read %s spectra (mass range %s - %s)", len(spectra),
-         spectra[0].mass, spectra[-1].mass)
+    else:
+        info("read %s spectra (mass range %s - %s)", len(spectra),
+             spectra[0].mass, spectra[-1].mass)
 
     # filter and normalize spectra
     # NI: optionally using "contrast angle" (mprocess::subtract)
@@ -1443,7 +1444,6 @@ def main():
                                               XTP["spectrum, dynamic range"],
                                               XTP["spectrum, minimum peaks"],
                                               XTP["spectrum, total peaks"]) ]
-    cgreylag.spectrum.set_searchable_spectra(spectra)
     info("     %s spectra after filtering", len(spectra))
 
     # read sequence dbs
@@ -1465,8 +1465,6 @@ def main():
     if not db:
         error("no database sequences")
 
-    score_statistics = cgreylag.score_stats(len(spectra))
-
     # (cleavage_re, position of cleavage in cleavage_re)
     cleavage_pattern, cleavage_pos \
                       = cleavage_motif_re(XTP["protein, cleavage site"])
@@ -1476,6 +1474,9 @@ def main():
     cleavage_pattern = re.compile(cleavage_pattern)
 
     if not options.part_merge:
+        cgreylag.spectrum.set_searchable_spectra(spectra)
+        score_statistics = cgreylag.score_stats(len(spectra))
+
         if part:
             del spectra                 # try to release memory
 
@@ -1555,8 +1556,10 @@ def main():
                       intensity, survival_curve, line_parameters,
                       passing_spectra, score_statistics)
 
-    sys.stdout.flush()                  # finish writing before
-    info('finished')                    # saying 'finished'
+    # finish writing before saying 'finished' (this should be a flush(), but
+    # BZFile doesn't have that method)
+    sys.stdout.close()
+    info('finished')
     logging.shutdown()
 
 
