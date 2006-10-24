@@ -73,8 +73,9 @@ from, fix, and extend.
 - Carefully checks its input for correctness.  [X!Tandem ignores errors in
 many cases, leading to incorrect output.]
 
-- Implemented with numerical stability in mind.  [X!Tandem has some issues
-with quantization and floating-point comparison.]
+- Implemented with numerical stability in mind, and all calculations performed
+in double-precision.  [X!Tandem has some issues with quantization and
+floating-point comparison, and uses single-precision in most places.]
 
 - Source code carefully examined for correctness.  [X!Tandem has mismatched
 new/delete, potential buffer overflows, etc.]

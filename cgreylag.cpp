@@ -33,14 +33,6 @@
 #define ferrorX std::ferror
 #endif
 
-//#define FAST_LOWER_READ_ACCURACY
-#ifdef FAST_LOWER_READ_ACCURACY
-// possibly faster, at some cost in accuracy // FIX: TEST
-#define strtodX std::strtof
-#else
-#define strtodX std::strtod
-#endif
-
 
 parameters parameters::the;
 
@@ -197,11 +189,11 @@ spectrum::read_spectra_from_ms2(FILE *f, const int file_id) {
     while (true) {
       peak p;
       errno = 0;
-      p.mz = strtodX(buf, &endp);
+      p.mz = strtod(buf, &endp);
       if (errno or endp == buf)
 	io_error(f, "bad ms2 format: bad peak mz");
       const char *endp0 = endp;
-      p.intensity = strtodX(endp0, &endp);
+      p.intensity = strtod(endp0, &endp);
       if (errno or endp == endp0)
 	io_error(f, "bad ms2 format: bad peak intensity");
       peaks.push_back(p);
