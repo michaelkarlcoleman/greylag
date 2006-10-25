@@ -1530,6 +1530,8 @@ def main():
         if len(score_statistics.best_score) != len(spectra):
             error("error during part merge (expecting %s, got %s)",
                   len(spectra), len(score_statistics.best_score))
+        info('%s candidate spectra were examined',
+             score_statistics.candidate_spectrum_count)
 
     info('processing results')
 

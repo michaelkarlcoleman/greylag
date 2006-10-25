@@ -21,6 +21,10 @@ These features would be better than what we currently have
 - isotope differential delta
 
 
+- add ability to searcher higher-charge fragments: +2 for +2 parent, +3 for +3
+parent, etc.
+
+
 - built-in database shuffling
 
 
