@@ -200,6 +200,17 @@ public:
 				      int missed_cleavage_count,
 				      score_stats &stats);
 
+  // Search for matches of all modification variations of peptides in this
+  // sequence run against the spectra.  Updates score_stats and the number of
+  // candidate spectra found.
+  static void search_run_all_mods(const int maximum_missed_cleavage_sites,
+				  const int min_peptide_length,
+				  const bool no_N_term_mods,
+				  const int idno, const int offset,
+				  const std::string &run_sequence,
+				  const std::vector<int> cleavage_points,
+				  score_stats &stats);
+
   // exposed for tinkering
   static double score_similarity(const spectrum &x, const spectrum &y,
 				 int *peak_count);
@@ -282,9 +293,16 @@ public:
   std::vector< std::vector<match> > best_match;
   unsigned long long candidate_spectrum_count; // may be > 2^32
 
-  // This is a temp variable to implement xtandem's search limit (quirks mode
-  // only)
+  // scratch variables:
+  
+  // this tells us whether we should keep extending the current peptide, or
+  // choose a new start point
+  bool in_or_above_range_spectrum_seen;
+  bool in_range_spectrum_seen;
+  
+  // this is used to implement xtandem's search limit (quirks mode only)
   int combinations_searched;
+  
 };
 
 

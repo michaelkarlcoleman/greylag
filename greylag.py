@@ -293,7 +293,8 @@ def get_suffix_sequence(end_pos, run_offset, sequence):
     return s
 
 
-def generate_peptides(seq, cleavage_points, maximum_missed_cleavage_sites):
+def generate_peptides(seq, cleavage_points, min_length,
+                      maximum_missed_cleavage_sites):
     """Yield (begin, end, missed_cleavage_count) for each apt peptide in
     sequence.""" 
     len_cp = len(cleavage_points)
@@ -302,15 +303,18 @@ def generate_peptides(seq, cleavage_points, maximum_missed_cleavage_sites):
                             min(len_cp,
                                 begin_i+2+maximum_missed_cleavage_sites)):
             begin, end = cleavage_points[begin_i], cleavage_points[end_i]
-            if end - begin >= 5:        # XT says 4, but means 5
+            if end - begin >= min_length:        # XT says 4, but means 5
                 yield begin, end, end_i-begin_i-1
 
 
 def generate_cleavage_points(cleavage_re, cleavage_pos, sequence):
-    """Yields the offsets of the cleavages in sequence."""
+    """Yields the offsets of the cleavages in sequence.  The endpoints are
+    always included, by convention."""
     yield 0
-    for m in cleavage_re.finditer(sequence, 1, len(sequence)-2):
-        yield m.start() + cleavage_pos
+    for m in cleavage_re.finditer(sequence):
+        p = m.start() + cleavage_pos
+        if 0 < p < len(sequence):
+            yield p
     yield len(sequence)
 
 
@@ -1473,6 +1477,8 @@ def main():
               XTP["protein, cleavage site"])
     cleavage_pattern = re.compile(cleavage_pattern)
 
+    min_peptide_length = 5
+
     if not options.part_merge:
         cgreylag.spectrum.set_searchable_spectra(spectra)
         score_statistics = cgreylag.score_stats(len(spectra))
@@ -1480,6 +1486,7 @@ def main():
         if part:
             del spectra                 # try to release memory
 
+        info("assuming no N-term mods")
         for idno, offset, defline, seq, seq_filename in db:
             if options.show_progress:
                 sys.stderr.write("\r%s of %s sequences, %s candidates"
@@ -1487,15 +1494,17 @@ def main():
                                     score_statistics.candidate_spectrum_count))
             cleavage_points = list(generate_cleavage_points(cleavage_pattern,
                                                             cleavage_pos, seq))
-            for begin, end, missed_cleavage_count \
-                    in generate_peptides(seq, cleavage_points,
-                                         XTP["scoring, maximum missed cleavage sites"]):
-                peptide_seq = seq[begin:end]
-                #debug('generated peptide: %s', peptide_seq)
-                cgreylag.spectrum.search_peptide_all_mods(idno, offset, begin,
-                                                          peptide_seq,
-                                                          missed_cleavage_count,
-                                                          score_statistics)
+            #debug('cleavage_points: %s', cleavage_points)
+
+            no_N_term_mods = True       # FIX!!!
+            debug('seq: %s', seq)
+            cgreylag.spectrum.search_run_all_mods(XTP["scoring, maximum missed cleavage sites"],
+                                                  min_peptide_length,
+                                                  no_N_term_mods, idno,
+                                                  offset, seq,
+                                                  cleavage_points,
+                                                  score_statistics)
+
         if options.show_progress:
             sys.stderr.write("\r%60s\r" % ' ') 
 
