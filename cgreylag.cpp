@@ -862,18 +862,26 @@ evaluate_peptide_mod_variation(match &m, const mass_trace_list *mtlp,
 				    C_terminal_mass);
   double sp_mass_lb = m.peptide_mass + CP.parent_monoisotopic_mass_error_minus;
   double sp_mass_ub = m.peptide_mass + CP.parent_monoisotopic_mass_error_plus;
+
   const std::multimap<double, std::vector<spectrum>::size_type>::const_iterator
     candidate_spectra_info_begin
     = spectrum::spectrum_mass_index.lower_bound(sp_mass_lb);
-  if (candidate_spectra_info_begin == spectrum::spectrum_mass_index.end())
-    return;			// peptide mass too big to match any spectrum
-  stats.in_or_above_range_spectrum_seen = true;
+  if (candidate_spectra_info_begin == spectrum::spectrum_mass_index.end()) {
+    stats.all_spectra_masses_too_high = false;
+    return;			// spectrum masses all too low to match peptide
+  }
+  stats.all_spectra_masses_too_low = false;
+
   const std::multimap<double, std::vector<spectrum>::size_type>::const_iterator
     candidate_spectra_info_end
     = spectrum::spectrum_mass_index.upper_bound(sp_mass_ub);
+  if (candidate_spectra_info_end == spectrum::spectrum_mass_index.begin()) {
+    return;			// spectrum masses all too high to match peptide
+  }
+  stats.all_spectra_masses_too_high = false;
+
   if (candidate_spectra_info_begin == candidate_spectra_info_end)
     return;			// no spectrum with close-enough parent mass
-  stats.in_range_spectrum_seen = true;
 
   int max_candidate_charge = 0;
   for (std::multimap<double, std::vector<spectrum>::size_type>::const_iterator
@@ -1253,6 +1261,7 @@ spectrum::search_peptide_all_mods(int idno, int offset, int begin,
 // Search for matches of all modification variations of peptides in this
 // sequence run against the spectra.  Updates score_stats and the number of
 // candidate spectra found.
+// FIX: optimize the non-specific case?
 void
 spectrum::search_run_all_mods(const int maximum_missed_cleavage_sites,
 			      const int min_peptide_length,
@@ -1261,11 +1270,6 @@ spectrum::search_run_all_mods(const int maximum_missed_cleavage_sites,
 			      const std::string &run_sequence,
 			      const std::vector<int> cleavage_points,
 			      score_stats &stats) { 
-  // remember the first successful end for a begin, so that we can use it for
-  // the next begin
-
-  // FIX: optimize the non-specific case?
-
   double N_terminal_mass = 0.0;
   double C_terminal_mass = 0.0;
 
@@ -1276,18 +1280,18 @@ spectrum::search_run_all_mods(const int maximum_missed_cleavage_sites,
   m.sequence_index = idno;
   m.sequence_offset = offset;
 
-  unsigned int previous_smallest_successful_end = 0; // 0 means none encountered
+  // FIX: examine carefully for signed/unsigned problems
+
+  // The rightmost 'end' seen where 'all_spectra_masses_too_high' was true.
+  // (0 means none yet encountered.)
+  unsigned int next_end = 0;
 
   for (unsigned int begin=0; begin<cleavage_points.size()-1; begin++) {
-    const int begin_index = cleavage_points[begin];
-    m.peptide_begin = begin_index;
+    const int begin_index = m.peptide_begin = cleavage_points[begin];
     unsigned int end = begin + 1;
     if (no_N_term_mods)
-      if (previous_smallest_successful_end != 0) {
-	end = std::max<unsigned int>(end, previous_smallest_successful_end-1);
-	previous_smallest_successful_end = 0;
-      } else if (begin != 0) THIS ISN'T RIGHT!
-	continue;
+      if (next_end != 0)
+	end = std::max<unsigned int>(end, next_end);
     for (; end<cleavage_points.size(); end++) {
       m.missed_cleavage_count = end - begin - 1;
       if (m.missed_cleavage_count > maximum_missed_cleavage_sites)
@@ -1297,23 +1301,27 @@ spectrum::search_run_all_mods(const int maximum_missed_cleavage_sites,
       const int peptide_size = end_index - begin_index;
       if (peptide_size < min_peptide_length)
 	continue;
-      stats.in_or_above_range_spectrum_seen = false;
-      stats.in_range_spectrum_seen = false;
-      // FIX: is .assign standard?
+      // these start vacuously true, then to be falsified if possible
+      stats.all_spectra_masses_too_high = true;
+      stats.all_spectra_masses_too_low = true;
       m.peptide_sequence.assign(run_sequence, begin_index, peptide_size);
-      std::cerr << "peptide: " << m.peptide_sequence << std::endl;
+      //std::cerr << "peptide: " << m.peptide_sequence << std::endl;
       std::vector<double> mass_list(peptide_size);
-      choose_mass_regime(m, mass_list, N_terminal_mass, C_terminal_mass, stats);
+      choose_mass_regime(m, mass_list, N_terminal_mass, C_terminal_mass,
+			 stats);
 
-      // FIX: rearrange these?
-      if (not stats.in_or_above_range_spectrum_seen) {
-	if (previous_smallest_successful_end == 0)
-	  previous_smallest_successful_end = end;
+      assert(not (stats.all_spectra_masses_too_high
+		  and stats.all_spectra_masses_too_low));
+      if (stats.all_spectra_masses_too_high) {
+	//std::cerr << "all_spectra_masses_too_high" << std::endl;
+	if (end == cleavage_points.size() - 1)
+	  return;
+	next_end = end;
+      }
+      if (stats.all_spectra_masses_too_low) {
+	//std::cerr << "all_spectra_masses_too_low" << std::endl;
 	break;
       }
-      if (stats.in_range_spectrum_seen)
-	if (previous_smallest_successful_end == 0)
-	  previous_smallest_successful_end = end;
     }
   }
 }

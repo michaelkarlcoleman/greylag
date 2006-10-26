@@ -1486,7 +1486,7 @@ def main():
         if part:
             del spectra                 # try to release memory
 
-        info("assuming no N-term mods")
+        warning("assuming no N-term mods")
         for idno, offset, defline, seq, seq_filename in db:
             if options.show_progress:
                 sys.stderr.write("\r%s of %s sequences, %s candidates"
@@ -1497,7 +1497,7 @@ def main():
             #debug('cleavage_points: %s', cleavage_points)
 
             no_N_term_mods = True       # FIX!!!
-            debug('seq: %s', seq)
+            #debug('seq: %s', seq)
             cgreylag.spectrum.search_run_all_mods(XTP["scoring, maximum missed cleavage sites"],
                                                   min_peptide_length,
                                                   no_N_term_mods, idno,

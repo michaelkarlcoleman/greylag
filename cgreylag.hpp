@@ -295,10 +295,10 @@ public:
 
   // scratch variables:
   
-  // this tells us whether we should keep extending the current peptide, or
-  // choose a new start point
-  bool in_or_above_range_spectrum_seen;
-  bool in_range_spectrum_seen;
+  // These tell us whether we should keep extending the current peptide, and
+  // how to choose a new start point
+  bool all_spectra_masses_too_high;
+  bool all_spectra_masses_too_low;
   
   // this is used to implement xtandem's search limit (quirks mode only)
   int combinations_searched;
