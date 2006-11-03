@@ -1607,6 +1607,8 @@ if __name__ == '__main__':
         raise
     except:
         logging.exception("unhandled exception")
+        logging.shutdown()
+        sys.exit(1)
 
 
 # FIXES:
