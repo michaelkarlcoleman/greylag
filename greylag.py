@@ -4,6 +4,24 @@
    re-implementation of the X!Tandem algorithm, with many extra features.)
 '''
 
+__copyright__ = '''
+    greylag, Copyright (C) 2006, Stowers Institute for Medical Research
+
+    This program is free software; you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation; either version 2 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License along
+    with this program; if not, write to the Free Software Foundation, Inc.,
+    51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+'''
+
 
 ### "Simplicity is prerequisite for reliability" - Edsger W. Dijkstra ###
 
@@ -1318,12 +1336,18 @@ def main():
                       dest="show_progress", help="show running progress")
     parser.add_option("-v", "--verbose", action="store_true",
                       dest="verbose", help="be verbose")
+    parser.add_option("--copyright", action="store_true",
+                      dest="copyright", help="print copyright and exit")
     parser.add_option("--debug", action="store_true",
                       dest="debug", help="output debugging info")
     parser.add_option("--profile", action="store_true",
                       dest="profile",
                       help="dump Python profiling output to './greylag.prof'")
     (options, args) = parser.parse_args()
+
+    if options.copyright:
+        print __copyright__
+        sys.exit(0)
 
     if (len(args) < 1
         or not args[0].endswith('.xml')
