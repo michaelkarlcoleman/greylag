@@ -37,7 +37,7 @@ from logging import debug, info, warning
 import math
 import optparse
 import os
-from pprint import pprint
+from pprint import pprint, pformat
 import re
 import sys
 
@@ -202,12 +202,12 @@ def initialize_spectrum_parameters(quirks_mode):
     mono_regime.water_mass = formula_mass("H2O")
     mono_regime.ammonia_mass = formula_mass("NH3")
 
-    mono_regime.residue_mass.resize(128)
+    mono_regime.residue_mass.resize(RESIDUE_LIMIT)
     for residue in RESIDUE_FORMULA:
         mono_regime.residue_mass[ord(residue)] = STANDARD_RESIDUE_MASS[residue]
 
     # FIX: for the moment we don't differentiate the parent/fragment cases
-    mono_regime.modification_mass.resize(128)
+    mono_regime.modification_mass.resize(RESIDUE_LIMIT)
     for residue, modvalue in XTP["residue, modification mass"]:
         mono_regime.modification_mass[ord(residue)] = modvalue
 
@@ -220,7 +220,7 @@ def initialize_spectrum_parameters(quirks_mode):
     mono_regime.potential_modification_mass.resize(len(rpmm))
     info("searching %s potential mod alternative set(s)", len(rpmm))
     for altn, alternative in enumerate(rpmm):
-        v = [ [] for i in range(128) ]
+        v = [ [] for i in range(RESIDUE_LIMIT) ]
         for residue, modvalue in alternative:
             v[ord(residue)].append(modvalue)
         mono_regime.potential_modification_mass[altn] = v
@@ -311,18 +311,18 @@ def get_suffix_sequence(end_pos, run_offset, sequence):
     return s
 
 
-def generate_peptides(seq, cleavage_points, min_length,
-                      maximum_missed_cleavage_sites):
-    """Yield (begin, end, missed_cleavage_count) for each apt peptide in
-    sequence.""" 
-    len_cp = len(cleavage_points)
-    for begin_i in xrange(len_cp-1):
-        for end_i in xrange(begin_i+1,
-                            min(len_cp,
-                                begin_i+2+maximum_missed_cleavage_sites)):
-            begin, end = cleavage_points[begin_i], cleavage_points[end_i]
-            if end - begin >= min_length:        # XT says 4, but means 5
-                yield begin, end, end_i-begin_i-1
+# def generate_peptides(cleavage_points, min_length,
+#                       maximum_missed_cleavage_sites):
+#     """Yield (begin, end, missed_cleavage_count) for each apt peptide in
+#     sequence.""" 
+#     len_cp = len(cleavage_points)
+#     for begin_i in xrange(len_cp-1):
+#         for end_i in xrange(begin_i+1,
+#                             min(len_cp,
+#                                 begin_i+2+maximum_missed_cleavage_sites)):
+#             begin, end = cleavage_points[begin_i], cleavage_points[end_i]
+#             if end - begin >= min_length:        # XT says 4, but means 5
+#                 yield begin, end, end_i-begin_i-1
 
 
 def generate_cleavage_points(cleavage_re, cleavage_pos, sequence):
@@ -761,7 +761,6 @@ def filter_ms2_by_mass(f, lb, ub):
         if not line.startswith(':'):
             error("bad ms2 format: missing header lines?")
         zero_peaks = True
-        headers = []
         while line.startswith(':'):
             name = line
             mass_charge = f.readline()
@@ -931,6 +930,7 @@ def process_results(score_statistics, fasta_db, spectra, db_residue_count):
     valid_spectra_count = sum(1 for sp_n in passing_spectra
                               if (expect[sp_n]
                                   <= XTP["output, maximum valid expectation value"]))
+    info("%s spectra with valid models", valid_spectra_count)
     best_histogram_sum = sum(sum(h) for sp_n, h in best_histogram.iteritems()
                              if sp_n in passing_spectra)
     match_ratio = 0
@@ -1069,10 +1069,10 @@ def print_histogram_XML(hlabel, htype, histogram, a0a1=None):
     print '</GAML:trace>'
 
 
-def print_results_XML(options, XTP, db_info, spectrum_fns,
-                      spec_prot_info_items, spectra, expect, protein_expect,
-                      intensity, survival_curve, line_parameters,
-                      passing_spectra, score_statistics):
+def print_results_XML(options, db_info, spectrum_fns, spec_prot_info_items,
+                      spectra, expect, protein_expect, intensity,
+                      survival_curve, line_parameters, passing_spectra,
+                      score_statistics):
     """Output the XTandem-style XML results file, to stdout."""
 
     print '<?xml version="1.0"?>'
@@ -1586,10 +1586,10 @@ def main():
         if output_path:
             sys.stdout = zopen(output_path, 'w')
 
-    print_results_XML(options, XTP, db_info, spectrum_fns,
-                      spec_prot_info_items, spectra, expect, protein_expect,
-                      intensity, survival_curve, line_parameters,
-                      passing_spectra, score_statistics)
+    print_results_XML(options, db_info, spectrum_fns, spec_prot_info_items,
+                      spectra, expect, protein_expect, intensity,
+                      survival_curve, line_parameters, passing_spectra,
+                      score_statistics)
 
     # finish writing before saying 'finished' (this should be a flush(), but
     # BZFile doesn't have that method)

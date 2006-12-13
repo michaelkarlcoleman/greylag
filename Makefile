@@ -10,7 +10,7 @@
 # Developed (on devel01) with swig 1.3.28, g++ 4.1.2, libstdc++.so.6 (ld 2.16.91)
 
 
-.PHONY: all clean install
+.PHONY: all pycheck install clean
 .DELETE_ON_ERROR:
 
 
@@ -41,7 +41,7 @@ CXXFLAGS = -Wall -g3 -O3 -DNDEBUG -ffast-math -mfpmath=sse -march=$(MARCH)
 SWIGCXXFLAGS = $(CXXFLAGS) -fPIC -I$(PYTHON_I) -fno-strict-aliasing \
 		-Wno-unused-function -Wno-uninitialized
 
-
+PROGRAM = greylag
 MODULE = cgreylag
 
 all :: _$(MODULE).so
@@ -59,12 +59,16 @@ _$(MODULE).so : $(MODULE).o $(MODULE)_wrap.o
 	g++ $(CXXFLAGS) $(CXXFASTFLAGS) -shared $^ -o $@
 
 
+pycheck::
+	pychecker --limit 1000 $(PROGRAM).py
+
+
 # FIX: we could compile the .py files here
 install::
 	[ -d $(DEST) ] || install -d $(DEST)
 	install -p _$(MODULE).so $(DEST)
 	install -p --mode=444 $(MODULE).py $(DEST)
-	install -p greylag.py $(DEST)
+	install -p $(PROGRAM).py $(DEST)
 
 clean::
 	@rm -f $(MODULE).py $(MODULE)_wrap.cpp $(MODULE).o $(MODULE)_wrap.o \
