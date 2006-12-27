@@ -5,8 +5,6 @@ What doesn't greylag do that SIMR cares about?
 
 - differential modification of residues, w/alternation
 
-- cluster implementation
-
 - cyclic "permutations" (for scoring accuracy)
 
 
@@ -19,10 +17,6 @@ These features would be better than what we currently have
 - multiple deltas for a residue (e.g. M+42, M+14)
 
 - isotope differential delta
-
-
-- add ability to searcher higher-charge fragments: +2 for +2 parent, +3 for +3
-parent, etc.
 
 
 - built-in database shuffling
@@ -47,10 +41,6 @@ omssa: cpp: 7583 (plus an unknown, possibly large number from the NCBI toolkits 
 		(the toolkits are 1000000 sloc, 65% cpp, 34% c)
 XXX: cpp: 6534 (not counting expat code)
 
-
-valgrind it
-
-pychecker
 
 double-check handling of FP arithmetic using epsilons (no ==, no strict <)
 test spectrum synthesis

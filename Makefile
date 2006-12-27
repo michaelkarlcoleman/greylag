@@ -16,9 +16,9 @@
 
 # MARCH = pentium3
 # MARCH = pentium4
-# MARCH = prescott
+MARCH = prescott
 # MARCH = opteron
-MARCH = nocona
+# MARCH = nocona
 
 
 DEST = /n/site/inst/Linux-i686/bioinfo/greylag/
@@ -32,11 +32,11 @@ PYTHON_I = /usr/include/python2.4
 #CXXFLAGS = -Wall -g3 -O0 -D_GLIBCXX_DEBUG -march=$(MARCH)
 
 # for speed (fastest?, fewest checks)
-CXXFLAGS = -Wall -g3 -O3 -DNDEBUG -ffast-math -mfpmath=sse -march=$(MARCH)
+#CXXFLAGS = -Wall -g3 -O3 -DNDEBUG -ffast-math -mfpmath=sse -march=$(MARCH)
 #CXXFASTFLAGS = -finline-limit=20000 --param inline-unit-growth=1000 --param large-function-growth=1000
 
 # reasonably fast
-#CXXFLAGS = -Wall -g3 -O2 -ffast-math -mfpmath=sse -march=$(MARCH)
+CXXFLAGS = -Wall -g3 -O2 -ffast-math -mfpmath=sse -march=$(MARCH)
 
 SWIGCXXFLAGS = $(CXXFLAGS) -fPIC -I$(PYTHON_I) -fno-strict-aliasing \
 		-Wno-unused-function -Wno-uninitialized
@@ -71,5 +71,5 @@ install::
 	install -p $(PROGRAM).py $(DEST)
 
 clean::
-	@rm -f $(MODULE).py $(MODULE)_wrap.cpp $(MODULE).o $(MODULE)_wrap.o \
+	-rm -f $(MODULE).py $(MODULE)_wrap.cpp $(MODULE).o $(MODULE)_wrap.o \
 		_$(MODULE).so *.py[co]

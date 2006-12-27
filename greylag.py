@@ -59,6 +59,8 @@ except:
 def error(s, *args):
     logging.error(s, *args)
     sys.exit(1)
+
+
 def fileerror(s, *args):
     error(s + (", at line %s of file '%s'"
                % (fileinput.filelineno(), fileinput.filename())),
@@ -167,7 +169,7 @@ STANDARD_XT_AVG_RESIDUE_MASS = {
     'S' :  87.0782,
     'T' : 101.1051,
     'V' :  99.1326,
-    'W' : 186.2132, 
+    'W' : 186.2132,
     'Y' : 163.1760,
     }
 
@@ -227,7 +229,9 @@ def initialize_spectrum_parameters(quirks_mode):
 
     #for residue, modvalue in XTP["refine, potential modification mass"]:
     #    mono_regime.potential_modification_mass_refine[0][ord(residue)] \
-    #        = mono_regime.potential_modification_mass_refine[0][ord(residue)] + (modvalue,)
+    #        = mono_regime \
+    #              .potential_modification_mass_refine[0][ord(residue)] \
+    #          + (modvalue,)
 
     # regime 0 is mono/mono
     CP.parent_mass_regime.append(mono_regime);
@@ -247,6 +251,11 @@ def initialize_spectrum_parameters(quirks_mode):
     CP.minimum_ion_count = XTP["scoring, minimum ion count"]
     CP.spectrum_synthesis = XTP["refine, spectrum synthesis"]
 
+    CP.maximum_modification_combinations_searched \
+        = XTP["scoring, maximum modification combinations searched"]
+    CP.maximum_simultaneous_modifications_searched \
+        = XTP["scoring, maximum simultaneous modifications searched"]
+
     # CP.factorial[n] == (double) n!
     CP.factorial.resize(100, 1.0)
     for n in range(2, len(CP.factorial)):
@@ -255,8 +264,13 @@ def initialize_spectrum_parameters(quirks_mode):
     CP.quirks_mode = bool(quirks_mode)
     CP.hyper_score_epsilon_ratio = 0.999 # must be <1
 
+    CP.check_all_fragment_charges = XTP["spectrum, check all fragment charges"]
+
+    if CP.quirks_mode and CP.maximum_modification_combinations_searched == 0:
+        CP.maximum_modification_combinations_searched = 1 << 12
+
     #debug("CP: %s", pythonize_swig_object(CP, ['the']))
-    
+
 
 def cleavage_motif_re(motif):
     """Return (regexp, pos), where regexp is a regular expression that will
@@ -275,7 +289,8 @@ def cleavage_motif_re(motif):
     for part in parts:
         if part == '|':
             if cleavage_pos != None:
-                raise ValueError("invalid cleavage motif pattern (multiple '|'s)")
+                raise ValueError("invalid cleavage motif pattern"
+                                 " (multiple '|'s)")
             cleavage_pos = i
             continue
         if part == '[X]':
@@ -314,7 +329,7 @@ def get_suffix_sequence(end_pos, run_offset, sequence):
 # def generate_peptides(cleavage_points, min_length,
 #                       maximum_missed_cleavage_sites):
 #     """Yield (begin, end, missed_cleavage_count) for each apt peptide in
-#     sequence.""" 
+#     sequence."""
 #     len_cp = len(cleavage_points)
 #     for begin_i in xrange(len_cp-1):
 #         for end_i in xrange(begin_i+1,
@@ -359,7 +374,7 @@ def abbrev_defline(s):
     if len(ab) < len(s):
         ab += '...'
     return ab
-    
+
 
 def read_fasta_files(filenames):
     """Yield (defline, sequence, filename) tuples as read from FASTA files
@@ -392,6 +407,20 @@ def read_taxonomy(filename):
 def read_xml_parameters(filename):
     """Return a map of parameters to values, per parameter file fn."""
     root = elementtree.ElementTree.ElementTree(file=filename).getroot()
+    # try to catch misspellings/etc in the config file
+    bad_nodes = [ e for e in root.findall('*')
+                  if (e.tag != 'note'
+                      or set(e.keys()) not in [ set(), set(['type']),
+                                                set(['type', 'label']) ]
+                      or e.get("type") not in [ None, "input", "description" ]
+                      or e.get("type") == "input" and e.get("label") == None
+                      or (e.get("type") == "description"
+                          and e.get("label") != None)) ]
+    if bad_nodes:
+        for bn in bad_nodes:
+            warning("%s: invalid '%s' element (type=%s, label=%s)"
+                    % (filename, bn.tag, bn.get('type'), bn.get('label')))
+    # return just the good nodes
     return dict((e.get("label"), e.text)
                 for e in root.findall('note')
                 if e.get("type") == "input")
@@ -413,6 +442,9 @@ def mod_list(modification_list_specification, unique_mods=True):
             raise ValueError("invalid modification list specification"
                              " (missing or extra '@'?)")
         value = float(parts[0])
+        if abs(value) < 0.000001:
+            raise ValueError("invalid modification list specification"
+                             " (delta '%s' is too small)" % value)
         residue = parts[1]
         if len(residue) != 1:
             raise ValueError("invalid modification list specification"
@@ -440,7 +472,7 @@ def alternative_mod_list(modification_list_specification):
               for alternative_specification
               in modification_list_specification.split(';') ]
     return [ a for a in alist if a ]    # omit empty alternatives
-        
+
 
 # "ni" means check verifies that "not implemented" functionality is not
 # specified
@@ -511,12 +543,15 @@ XML_PARAMETER_INFO = {
     "scoring, cyclic permutation" : (bool, "no", p_ni_equal(False)),
     "scoring, include reverse" : (bool, "no", p_ni_equal(False)),
     "scoring, maximum missed cleavage sites" : (int, None, p_nonnegative),
+    "scoring, maximum modification combinations searched" : (int, 0, p_nonnegative), # 0 -> no limit
+    "scoring, maximum simultaneous modifications searched" : (int, 0, p_nonnegative), # 0 -> no limit
     "scoring, minimum ion count" : (int, None, p_positive),
     "scoring, pluggable scoring" : (bool, "no"), # ignored
     "scoring, x ions" : (bool, "no", p_ni_equal(False)),
     "scoring, y ions" : (bool, "yes", p_ni_equal(True)),
     "scoring, z ions" : (bool, "no", p_ni_equal(False)),
     "spectrum, check all charges" : (bool, "no", p_ni_equal(False)),
+    "spectrum, check all fragment charges" : (bool, "no"),
     "spectrum, dynamic range" : (float, "100", p_positive),
     "spectrum, fragment mass error units" : (("Daltons", "ppm"), "Daltons", p_ni_equal("Daltons")),
     "spectrum, fragment mass error" : (float, "0.45", p_positive),
@@ -532,7 +567,7 @@ XML_PARAMETER_INFO = {
     "spectrum, parent monoisotopic mass error plus" : (float, None, p_positive), # *1
     "spectrum, parent monoisotopic mass error units" : (("Daltons", "ppm"), "Daltons", p_ni_equal("Daltons")),
     "spectrum, parent monoisotopic mass isotope error" : (bool, "no", p_ni_equal(False)), # parent error should be <0.5Da
-    "spectrum, path" : (str, None),
+    "spectrum, path" : (str, ""),
     "spectrum, sequence batch size" : (int, 1000), # ignored
     "spectrum, threads" : (int, 1),     # ignored
     "spectrum, total peaks" : (int, "50", p_positive),
@@ -653,7 +688,7 @@ def get_spectrum_expectation(hyper_score, histogram):
         # use default line
         a0, a1 = 3.5, -0.18
         return 10.0 ** (a0 + a1 * scaled_hyper_score), survival, (a0, a1)
-    
+
     survival += [0]                     # FIX
     min_limit = 10
     max_limit = int(round(survival[0]/2.0))
@@ -668,7 +703,7 @@ def get_spectrum_expectation(hyper_score, histogram):
         warning('bad survival curve? %s', survival)
         a0, a1 = 3.5, -0.18
         return 10.0 ** (a0 + a1 * scaled_hyper_score), survival, (a0, a1)
-        
+
     data_X = range(max_i, min_i)
     data_Y = [ math.log10(survival[x]) for x in data_X ]
     # FIX!
@@ -727,7 +762,7 @@ def get_final_protein_expect(sp_count, valid_spectra, match_ratio, raw_expect,
 #             elif header_line:
 #                 masses.append(float(line.split(None, 1)[0]))
 #     return masses
-    
+
 
 def generate_mass_bands(band_count, mass_list):
     """Yield (n, mass_lb, mass_ub) for each mass band, where n ranges from 1
@@ -784,10 +819,11 @@ def filter_ms2_by_mass(f, lb, ub):
             yield '0 0\n'
             while line and not line.startswith(':'):
                 line = f.readline()
-    
+
 
 class struct:
     "generic struct class used by pythonize_swig_object"
+
     def __repr__(self):
         return 'struct(%s)' % self.__dict__
 
@@ -987,7 +1023,7 @@ def process_results(score_statistics, fasta_db, spectra, db_residue_count):
 
     #debug("raw_protein_expect: %s", raw_protein_expect)
     #debug("raw_protein_expect_spectra: %s", raw_protein_expect_spectra)
-    
+
     bias = float(score_statistics.candidate_spectrum_count) / db_residue_count
 
     # protein id -> protein expectation value (log10 of expectation)
@@ -1076,7 +1112,7 @@ def print_results_XML(options, db_info, spectrum_fns, spec_prot_info_items,
     """Output the XTandem-style XML results file, to stdout."""
 
     print '<?xml version="1.0"?>'
-    xslpath = XTP.get("output, xsl path") 
+    xslpath = XTP.get("output, xsl path")
     if xslpath:
         print '<?xml-stylesheet type="text/xsl" href="%s"?>' % xslpath
     print '<bioml xmlns:GAML="http://www.bioml.com/gaml/"',
@@ -1121,7 +1157,7 @@ def print_results_XML(options, db_info, spectrum_fns, spec_prot_info_items,
                 if protein_id not in intensity:
                     warning("protein id '%s' not in intensity", protein_id)
                     continue
-                            
+
                 print ('<protein expect="%.1f" id="%s.%s" uid="%s" label="%s"'
                        ' sumI="%.2f" >'
                        % (protein_expect[protein_id], sp.id, pn+1,
@@ -1309,18 +1345,18 @@ def main():
                       dest="quirks_mode",
                       help="try to generate results as close as possible to"
                       " those of X!Tandem (possibly at the expense of"
-                      " accuracy)") 
+                      " accuracy)")
     parser.add_option("--part-split", dest="part_split", type="int",
                       help="split input into M parts, to prepare for"
                       " --part runs [NOTE: the same parameter file and same"
                       " spectrum files (in the same order) must be specified"
-                      " for all --part* steps]", metavar="M")  
+                      " for all --part* steps]", metavar="M")
     parser.add_option("--part", dest="part",
                       help="search one part, previously created with"
                       " --part-split; e.g. '1of2' and '2of2'", metavar="NofM")
     parser.add_option("--part-merge", dest="part_merge", type="int",
                       help="merge the previously searched M results and"
-                      " continue", metavar="M")  
+                      " continue", metavar="M")
     default_prefix = 'greylag'
     parser.add_option("--part-prefix", dest="part_prefix",
                       default=default_prefix,
@@ -1413,6 +1449,8 @@ def main():
         spectrum_fns = args[1:]
     else:
         spectrum_fns = [XTP["spectrum, path"]]
+        if not spectrum_fns:
+            error("input spectrum files not specified")
 
     taxonomy = read_taxonomy(XTP["list path, taxonomy information"])
 
@@ -1530,7 +1568,7 @@ def main():
                                                   score_statistics)
 
         if options.show_progress:
-            sys.stderr.write("\r%60s\r" % ' ') 
+            sys.stderr.write("\r%60s\r" % ' ')
 
         info('%s candidate spectra examined',
              score_statistics.candidate_spectrum_count)

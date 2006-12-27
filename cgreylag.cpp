@@ -885,6 +885,7 @@ evaluate_peptide_mod_variation(match &m, const mass_trace_list *mtlp,
     = spectrum::spectrum_mass_index.lower_bound(sp_mass_lb);
   if (candidate_spectra_info_begin == spectrum::spectrum_mass_index.end()) {
     stats.all_spectra_masses_too_high = false;
+    std::cerr << 'l';
     return;			// spectrum masses all too low to match peptide
   }
   stats.all_spectra_masses_too_low = false;
@@ -893,12 +894,17 @@ evaluate_peptide_mod_variation(match &m, const mass_trace_list *mtlp,
     candidate_spectra_info_end
     = spectrum::spectrum_mass_index.upper_bound(sp_mass_ub);
   if (candidate_spectra_info_end == spectrum::spectrum_mass_index.begin()) {
+    std::cerr << 'h';
     return;			// spectrum masses all too high to match peptide
   }
   stats.all_spectra_masses_too_high = false;
 
-  if (candidate_spectra_info_begin == candidate_spectra_info_end)
+  if (candidate_spectra_info_begin == candidate_spectra_info_end) {
+    std::cerr << '-';
     return;			// no spectrum with close-enough parent mass
+  }
+
+  std::cerr << '+';
 
   int max_candidate_charge = 0;
   for (std::multimap<double, std::vector<spectrum>::size_type>::const_iterator
@@ -909,7 +915,9 @@ evaluate_peptide_mod_variation(match &m, const mass_trace_list *mtlp,
 		      spectrum::searchable_spectra[it->second].charge);
   assert(max_candidate_charge >= 1);
 
-  const int max_fragment_charge = std::max<int>(1, max_candidate_charge-1);
+  int max_fragment_charge = max_candidate_charge;
+  if (not CP.check_all_fragment_charges)
+    max_fragment_charge = std::max<int>(1, max_candidate_charge-1);
   assert(max_fragment_charge <= spectrum::max_supported_charge);
   // e.g. +2 -> 'B' -> spectrum
   // FIX: should this be a std::vector??
@@ -1020,13 +1028,13 @@ choose_residue_mod(match &m,
   const parameters &CP = parameters::the;
   assert(remaining_residues_to_choose <= number_of_positions_to_consider);
 
-  if (CP.quirks_mode and stats.combinations_searched >= (1 << 12))
+  if (CP.maximum_modification_combinations_searched
+      and (stats.combinations_searched
+	   >= CP.maximum_modification_combinations_searched))
     return;
 
   if (remaining_residues_to_choose == 0) {
-    if (CP.quirks_mode)
-      stats.combinations_searched++;
-
+    stats.combinations_searched++;
     evaluate_peptide_mod_variation(m, mtlp, mass_list, N_terminal_mass,
 				   C_terminal_mass, stats);
   } else {
@@ -1072,18 +1080,21 @@ choose_residue_mod_count(match &m,
 			 score_stats &stats) NOTHROW {
   const parameters &CP = parameters::the;
   int mod_positions[m.peptide_sequence.size()+1];
-  unsigned max_count=0;
+  unsigned int max_count=0;
   for (unsigned i=0; i<m.peptide_sequence.size(); i++)
     if (not pmm[m.peptide_sequence[i]].empty())
       mod_positions[max_count++] = i;
   mod_positions[max_count] = -1;
+  stats.combinations_searched = 0;
 
-  if (CP.quirks_mode)
-    stats.combinations_searched = 0;
+  unsigned count_limit = max_count;
+  if (CP.maximum_simultaneous_modifications_searched > 0)
+    count_limit = std::min<unsigned int>(count_limit,
+					 CP.maximum_simultaneous_modifications_searched);
 
   // start at one because the zero case is handled by
   // choose_potential_mod_alternative below (!)
-  for (unsigned count=1; count <= max_count; count++)
+  for (unsigned count=1; count <= count_limit; count++)
     choose_residue_mod(m, pmm, mtlp, mass_list, N_terminal_mass,
 		       C_terminal_mass, stats, count, max_count, 
 		       mod_positions); 
@@ -1279,6 +1290,7 @@ spectrum::search_peptide_all_mods(int idno, int offset, int begin,
 // sequence run against the spectra.  Updates score_stats and the number of
 // candidate spectra found.
 // FIX: optimize the non-specific case?
+
 void
 spectrum::search_run_all_mods(const int maximum_missed_cleavage_sites,
 			      const int min_peptide_length,
@@ -1327,6 +1339,8 @@ spectrum::search_run_all_mods(const int maximum_missed_cleavage_sites,
       choose_mass_regime(m, mass_list, N_terminal_mass, C_terminal_mass,
 			 stats);
 
+      // FIX: double-check that these work right even with negative potential
+      // mod deltas!
       assert(not (stats.all_spectra_masses_too_high
 		  and stats.all_spectra_masses_too_low));
       if (stats.all_spectra_masses_too_high) {

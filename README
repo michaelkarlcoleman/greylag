@@ -14,8 +14,8 @@ USA.  (mkc ...at... stowers-institute ...dot... org)
 Features:
 
 - Can simultaneously search multiple potential modifications on the same
-residue (e.g., K+14, K+16, K+28).  [X!Tandem cannot do this.  Nor SEQUEST.
-OMSSA?]
+residue (e.g., K+14, K+16, K+28).  [Both X!Tandem and SEQUEST silently fail to
+do this.  OMSSA?]
 
 - No limit on the number of simultaneous modifications searched (aside from
 user patience).  [SEQUEST limited to three deltas.  OMSSA limited to 32 sites
@@ -36,8 +36,10 @@ separate search with a subsequent merge.  It also should be at least a little
 faster.
 
 - Modification limit can be specified as a limit on modifications per peptide
-(as with SEQUEST) and/or as a limit on the combinations searched per peptide
-(similar to X!Tandem and OMSSA).  XXX
+(similar to SEQUEST) and/or as a limit on the combinations searched per
+peptide (similar to X!Tandem and OMSSA).  (The first limit differs from
+SEQUEST in that a SEQUEST limit of N would allow N modifications for each
+delta in a peptide, whereas greylag allows N modifications total per peptide.)
 
 - Modifications can be specified by formula (e.g., +CH2 instead of +14 for
 methylation).  This allows the mass delta to be calculated more accurately,

@@ -50,7 +50,8 @@ public:
   std::vector< std::vector< std::vector<double> > > potential_modification_mass_refine;
 };
 
-// FIX: want these class members to all be static, but had SWIG trouble
+// FIX: want these class members to all be static, but had SWIG trouble.  The
+// member 'the' is a handle to the singleton instance, for now.
 class parameters {
 public:
   bool quirks_mode;		// try to produce results closer to xtandem's
@@ -75,6 +76,10 @@ public:
   double fragment_mass_error;
   int minimum_ion_count;
   bool spectrum_synthesis;
+
+  long maximum_modification_combinations_searched;
+  unsigned int maximum_simultaneous_modifications_searched;
+  bool check_all_fragment_charges;
 
   static parameters the;
 };
