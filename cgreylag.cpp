@@ -2,7 +2,7 @@
 
 // $Id$
 
-//     Copyright (C) 2006, Stowers Institute for Medical Research
+//     Copyright (C) 2006-2007, Stowers Institute for Medical Research
 //
 //     This program is free software; you can redistribute it and/or modify
 //     it under the terms of the GNU General Public License as published by
@@ -84,7 +84,7 @@ spectrum::__repr__() const {
 
 
 // This is an error exit for read_spectra and filter_ms2_by_mass.
-static void
+static inline void
 io_error(FILE *f, const char *message="") {
   if (ferrorX(f))
     message = "I/O error while reading (or writing) spectrum file";
@@ -252,79 +252,6 @@ spectrum::read_spectra_from_ms2(FILE *f, const int file_id) {
 }
 
 
-// Copy spectra from inf (an open ms2 file) to outf, zeroing out any spectra
-// with mass outside [lb, ub).  Specifically, a zeroed spectrum will have an
-// empty name and a mass and charge of zero.  If all charges for a physical
-// spectrum are zeroed, its peaklist will be replaced with a single peak
-// having mass and intensity zero.  Thus the zeroed spectra are validly
-// formatted placeholders.
-
-// The logic of this function is similar to read_spectra_from_ms2 above.  Can
-// they be unified?
-
-void
-spectrum::filter_ms2_by_mass(FILE *outf, FILE *inf, double lb, double ub) {
-  const int bufsiz = 1024;
-  char buf0[bufsiz], buf1[bufsiz];
-  char *endp;
-
-  char *result = fgetsX(buf0, bufsiz, inf);
-  while (true) {
-    bool zero_peaks = true;
-    double mass;
-    
-    // copy headers
-    while (true) {
-      if (ferrorX(inf))
-	io_error(inf);
-      if (not result or buf0[0] != ':')
-	break;
-      if (not fgetsX(buf1, bufsiz, inf))
-	io_error(inf, "bad ms2 format: mass/charge line expected");
-      errno = 0;
-      mass = std::strtod(buf1, &endp); // need double accuracy here
-      if (errno or endp == buf1)
-	io_error(inf, "bad ms2 format: bad mass");
-      errno = 0;
-      if (lb <= mass and mass < ub) {
-	zero_peaks = false;
-	fputsX(buf0, outf);
-	fputsX(buf1, outf);
-      } else {
-	fputsX(":\n", outf);
-	fputsX("0 0\n", outf);
-      }
-      if (errno)
-	io_error(outf, "error writing ms2 file");
-      result = fgetsX(buf0, bufsiz, inf);
-    }
-    if (not result)
-      break;
-    // copy peaks
-    while (true) {
-      peak p;
-      errno = 0;
-      if (not zero_peaks) {
-	fputsX(buf0, outf);
-	if (errno)
-	  io_error(outf, "error writing ms2 file");
-      }
-      result = fgetsX(buf0, bufsiz, inf);
-      if (ferrorX(inf))
-	io_error(inf);
-      if (not result or buf0[0] == ':')
-	break;
-    }
-    if (zero_peaks) {
-      errno = 0;
-      fputsX("0 0\n", outf);
-      if (errno)
-	io_error(outf, "error writing ms2 file");
-    }
-  }
-}
-
-
 // Copy spectra from an ms2 file to a set of output ms2 files, one for each
 // band in the set of mass bands described by their upper bounds.  Extra
 // information is written in the first header line of each spectra so that
@@ -438,18 +365,6 @@ remove_close_peaks(std::vector<peak> &peaks, double limit) {
 		     ? i : i+1));
   }
 }
-
-// static inline void
-// remove_close_peaks(std::vector<peak> &peaks, double limit) {
-//   for (std::vector<peak>::size_type i=0; i+1<peaks.size();)
-//     if (peaks[i+1].mz - peaks[i].mz < limit)
-//       if (peaks[i+1].intensity > peaks[i].intensity)
-// 	peaks.erase(peaks.begin() + i);
-//       else
-// 	peaks.erase(peaks.begin() + i+1);
-//     else
-//       i++;
-// }
 
 
 // Examine this spectrum to see if it should be kept.  If so, return true and
@@ -785,42 +700,6 @@ score_spectrum(double &hyper_score, double &convolution_score,
   }
   hyper_score *= convolution_score;
 }
-
-
-// #if 0
-
-// struct generator;
-
-
-// struct generator {
-//   // fx = &generator::generate_static_aa_mod;
-
-//   typedef void generator::generator_fx(score_stats &stats, const match &m,
-// 				       std::vector<double> position_mass,
-// 				       const std::vector<double> &terminal_mass,
-// 				       const std::vector<generator>::iterator g_it);
-
-//   generator() : fx(0) { }
-
-//   generator_fx generate_static_aa_mod;
-
-//   generator_fx generator::*fx;
-//   std::vector<double> args;
-// };
-
-
-// void
-// generator::generate_static_aa_mod(score_stats &stats, const match &m,
-// 				  std::vector<double> position_mass,
-// 				  const std::vector<double> &terminal_mass,
-// 				  const std::vector<generator>::iterator g_it) {
-//   for (unsigned int i=0; i<m.peptide_sequence.size(); i++)
-//     position_mass[i] += args[m.peptide_sequence[i]];
-
-//   ((*g_it).*(g_it->fx))(stats, m, position_mass, terminal_mass, g_it+1);
-// }
-
-// #endif
 
 
 // FIX: does this actually help inlining?

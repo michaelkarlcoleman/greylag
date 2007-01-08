@@ -49,3 +49,10 @@ test semi-tryptic cleavage
 
 More reference info here
 http://www.expasy.org/tools/findmod/findmod_masses.html
+
+
+
+
+my source print command:
+
+   enscript -E -B -3 -r -s 0 --borders -fCourier4.8 --mark-wrapped-lines=arrow --margins=:30::

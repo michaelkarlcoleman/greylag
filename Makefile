@@ -7,16 +7,16 @@
 # A reasonably recent g++/libstdc++ may also be required.  Python 2.4 or
 # better is assumed.
 
-# Developed (on devel01) with swig 1.3.28, g++ 4.1.2, libstdc++.so.6 (ld 2.16.91)
+# Developed with swig 1.3.28, g++ 4.1.2, libstdc++.so.6 (ld 2.16.91)
 
 
-.PHONY: all pycheck install clean
+.PHONY: all pycheck modsyms install clean
 .DELETE_ON_ERROR:
 
 
-# MARCH = pentium3
+MARCH = pentium3
 # MARCH = pentium4
-MARCH = prescott
+# MARCH = prescott
 # MARCH = opteron
 # MARCH = nocona
 
@@ -29,14 +29,14 @@ PYTHON_I = /usr/include/python2.4
 
 
 # for debugging (extra checking, slow)
-#CXXFLAGS = -Wall -g3 -O0 -D_GLIBCXX_DEBUG -march=$(MARCH)
+CXXFLAGS = -Wall -g3 -O0 -D_GLIBCXX_DEBUG -march=$(MARCH)
 
 # for speed (fastest?, fewest checks)
 #CXXFLAGS = -Wall -g3 -O3 -DNDEBUG -ffast-math -mfpmath=sse -march=$(MARCH)
 #CXXFASTFLAGS = -finline-limit=20000 --param inline-unit-growth=1000 --param large-function-growth=1000
 
 # reasonably fast
-CXXFLAGS = -Wall -g3 -O2 -ffast-math -mfpmath=sse -march=$(MARCH)
+#CXXFLAGS = -Wall -g3 -O2 -ffast-math -mfpmath=sse -march=$(MARCH)
 
 SWIGCXXFLAGS = $(CXXFLAGS) -fPIC -I$(PYTHON_I) -fno-strict-aliasing \
 		-Wno-unused-function -Wno-uninitialized
@@ -61,6 +61,11 @@ _$(MODULE).so : $(MODULE).o $(MODULE)_wrap.o
 
 pycheck::
 	pychecker --limit 1000 $(PROGRAM).py
+
+# summary C++ modules symbols used by main script
+modsyms::
+	@sed -n -e 's/^.*\(cgreylag\.[a-zA-Z0-9_.]*\).*$$/\1/p' $(PROGRAM).py \
+		| sort | uniq -c
 
 
 # FIX: we could compile the .py files here

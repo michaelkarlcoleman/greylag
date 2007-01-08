@@ -5,7 +5,7 @@
 '''
 
 __copyright__ = '''
-    greylag, Copyright (C) 2006, Stowers Institute for Medical Research
+    greylag, Copyright (C) 2006-2007, Stowers Institute for Medical Research
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -22,8 +22,9 @@ __copyright__ = '''
     51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 '''
 
-
-### "Simplicity is prerequisite for reliability" - Edsger W. Dijkstra ###
+##############################################################################
+##    "Simplicity is prerequisite for reliability" - Edsger W. Dijkstra     ##
+##############################################################################
 
 
 __version__ = "$Id$"
@@ -311,35 +312,6 @@ def cleavage_motif_re(motif):
     return (re_pattern, cleavage_pos)
 
 
-def get_prefix_sequence(begin_pos, run_offset, sequence):
-    prefix_start = run_offset + begin_pos - 4
-    s = sequence[max(0, prefix_start):prefix_start+4]
-    if len(s) < 4:
-        s = '[' + s
-    return s
-
-def get_suffix_sequence(end_pos, run_offset, sequence):
-    suffix_start = run_offset + end_pos
-    s = sequence[suffix_start:suffix_start+4]
-    if len(s) < 4:
-        s = s + ']'
-    return s
-
-
-# def generate_peptides(cleavage_points, min_length,
-#                       maximum_missed_cleavage_sites):
-#     """Yield (begin, end, missed_cleavage_count) for each apt peptide in
-#     sequence."""
-#     len_cp = len(cleavage_points)
-#     for begin_i in xrange(len_cp-1):
-#         for end_i in xrange(begin_i+1,
-#                             min(len_cp,
-#                                 begin_i+2+maximum_missed_cleavage_sites)):
-#             begin, end = cleavage_points[begin_i], cleavage_points[end_i]
-#             if end - begin >= min_length:        # XT says 4, but means 5
-#                 yield begin, end, end_i-begin_i-1
-
-
 def generate_cleavage_points(cleavage_re, cleavage_pos, sequence):
     """Yields the offsets of the cleavages in sequence.  The endpoints are
     always included, by convention."""
@@ -360,20 +332,6 @@ def split_sequence_into_aa_runs(idno, defline, sequence, filename):
     matches = list(aa_sequence.finditer(sequence))
     return [ (idno, m.start(), defline, m.group(), filename)
              for n, m in enumerate(matches) ]
-
-
-def clean_defline(s):
-    """Return the given string with tags replaced by spaces and control
-    characters removed, then stripped."""
-    return re.sub(r'[^ -~]', '', s.replace('\t', ' ')).strip()
-
-
-def abbrev_defline(s):
-    """Return an abbreviated version of the defline--about 80 characters."""
-    ab = re.match(r'.{,80}\S{,170}', s).group(0)
-    if len(ab) < len(s):
-        ab += '...'
-    return ab
 
 
 def read_fasta_files(filenames):
@@ -634,6 +592,125 @@ def validate_parameters(parameters):
     return pmap
 
 
+def generate_mass_bands(band_count, mass_list):
+    """Yield (n, mass_lb, mass_ub) for each mass band, where n ranges from 1
+    to band_count.  To generate the bands, the mass list (which is assumed
+    already sorted by mass) is evenly partitioned into bands with masses in
+    the range [mass_lb, mass_ub).
+    """
+    assert mass_list and band_count > 0
+    band_size = len(mass_list) / band_count + 1
+    lb = mass_list[0]
+    for bn in range(1, band_count):
+        i = min(bn*band_size, len(mass_list)-1)
+        ub = mass_list[i]
+        yield bn, lb, ub
+        lb = ub
+    # Since the upper bound is exclusive, we add a little slop to make sure
+    # the last spectrum is included.
+    yield band_count, lb, round(mass_list[-1]+1)
+
+
+class struct:
+    "generic struct class used by pythonize_swig_object"
+
+    def __repr__(self):
+        return 'struct(%s)' % self.__dict__
+
+
+def pythonize_swig_object(o, skip_methods=[]):
+    """Creates a pure Python copy of a SWIG object, so that it can be
+    easily pickled, or printed (for debugging purposes).  If provided,
+    'skip_methods' is a list of methods not to include--this is a hack to
+    avoid infinite recursion.
+    """
+
+    if isinstance(o, str):
+        return o
+    try:
+        len(o)
+    except TypeError:
+        pass
+    else:
+        return list(pythonize_swig_object(x) for x in o)
+    if hasattr(o, '__swig_getmethods__'):
+        s = struct()
+        for a in o.__swig_getmethods__:
+            if a not in skip_methods:
+                setattr(s, a, pythonize_swig_object(getattr(o, a)))
+        return s
+    return o
+
+
+def search_all(options, fasta_db, db, cleavage_pattern, cleavage_pos,
+               score_statistics):
+    """Search sequence database against searchable spectra."""
+    warning("assuming no N-term mods")
+    min_peptide_length = 5
+    for idno, offset, defline, seq, seq_filename in db:
+        if options.show_progress:
+            sys.stderr.write("\r%s of %s sequences, %s candidates"
+                             % (idno, len(fasta_db),
+                                score_statistics.candidate_spectrum_count))
+        cleavage_points = list(generate_cleavage_points(cleavage_pattern,
+                                                        cleavage_pos, seq))
+
+
+        # input: regime index (or masses?), PCA?, N base mass, C base mass,
+        #        delta bag, mod descriptor index
+        #   XTP["scoring, maximum missed cleavage sites"],
+        #   min_peptide_length, no_N_term_mods, idno,
+        #   offset, seq, cleavage_points, score_statistics
+
+        no_N_term_mods = True       # FIX!!!
+#         cgreylag.spectrum.search_run(XTP["scoring, maximum missed cleavage sites"],
+#                                      min_peptide_length, no_N_term_mods, idno,
+#                                      offset, seq, cleavage_points,
+#                                      score_statistics)
+
+        cgreylag.spectrum.search_run_all_mods(XTP["scoring, maximum missed cleavage sites"],
+                                              min_peptide_length,
+                                              no_N_term_mods, idno,
+                                              offset, seq,
+                                              cleavage_points,
+                                              score_statistics)
+
+
+
+
+    if options.show_progress:
+        sys.stderr.write("\r%60s\r" % ' ')
+
+    info('%s candidate spectra examined',
+         score_statistics.candidate_spectrum_count)
+
+
+def filter_matches(score_statistics):
+    """Filter out any close-but-not-quite matches."""
+    if not CP.quirks_mode:
+        for sp_n in xrange(len(score_statistics.best_match)):
+            bs = score_statistics.best_score[sp_n]
+            score_statistics.best_match[sp_n] \
+                = [ m for m in score_statistics.best_match[sp_n]
+                    if m.hyper_score/bs > CP.hyper_score_epsilon_ratio ]
+    # else there shouldn't be anything to filter
+
+
+def merge_score_statistics(ss0, ss1, offset):
+    """Merge ss1 into ss0, keeping the best of both.  (Currently this is
+    trivial since the statistics are for distinct (adjacent) sets of spectra.)
+    Also, offset is added to the spectrum_index member of all matches.
+    """
+    for sp_n in xrange(len(ss1.best_match)):
+        for m in ss1.best_match[sp_n]:
+            m.spectrum_index += offset
+    ss0.candidate_spectrum_count += ss1.candidate_spectrum_count
+    ss0.hyperscore_histogram.extend(ss1.hyperscore_histogram)
+    ss0.second_best_score.extend(ss1.second_best_score)
+    ss0.best_score.extend(ss1.best_score)
+    ss0.best_match.extend(ss1.best_match)
+
+
 # FIX: This code really seems iffy.  It may diverge from xtandem and/or
 # xtandem's implementation may simply be buggy or ill-conceived.
 def get_spectrum_expectation(hyper_score, histogram):
@@ -749,133 +826,6 @@ def get_final_protein_expect(sp_count, valid_spectra, match_ratio, raw_expect,
     r += (sp_count * math.log10(p)
           + (valid_spectra - sp_count) * math.log10(1 - p))
     return r
-
-
-# def read_ms2_spectrum_masses(spectrum_fns):
-#     """Return a list of all parent masses present in the given ms2 files."""
-#     masses = []
-#     for fn in spectrum_fns:
-#         header_line = False
-#         for line in open(fn):
-#             if line.startswith(':'):
-#                 header_line = True
-#             elif header_line:
-#                 masses.append(float(line.split(None, 1)[0]))
-#     return masses
-
-
-def generate_mass_bands(band_count, mass_list):
-    """Yield (n, mass_lb, mass_ub) for each mass band, where n ranges from 1
-    to band_count.  To generate the bands, the mass list (which is assumed
-    already sorted by mass) is evenly partitioned into bands with masses in
-    the range [mass_lb, mass_ub).
-    """
-    assert mass_list and band_count > 0
-    band_size = len(mass_list) / band_count + 1
-    lb = mass_list[0]
-    for bn in range(1, band_count):
-        i = min(bn*band_size, len(mass_list)-1)
-        ub = mass_list[i]
-        yield bn, lb, ub
-        lb = ub
-    # Since the upper bound is exclusive, we add a little slop to make sure
-    # the last spectrum is included.
-    yield band_count, lb, round(mass_list[-1]+1)
-
-
-def filter_ms2_by_mass(f, lb, ub):
-    """Yield lines from f (an open ms2 file), zeroing out any spectra with
-    mass outside [lb, ub).  Specifically, a zeroed spectrum will have an empty
-    name and a mass and charge of zero.  If all charges for a physical
-    spectrum are zeroed, its peaklist will be replaced with a single peak
-    having mass and intensity zero.  Thus the zeroed spectra are validly
-    formatted placeholders.
-    """
-    line = f.readline()
-    while line:
-        if not line.startswith(':'):
-            error("bad ms2 format: missing header lines?")
-        zero_peaks = True
-        while line.startswith(':'):
-            name = line
-            mass_charge = f.readline()
-            try:
-                mass = float(mass_charge.split()[0])
-            except:
-                error("bad ms2 format: bad mass")
-            if lb <= mass < ub:
-                zero_peaks = False
-                yield name
-                yield mass_charge
-            else:
-                yield ':\n'
-                yield '0 0\n'
-            line = f.readline()
-        if not zero_peaks:
-            while line and not line.startswith(':'):
-                yield line
-                line = f.readline()
-        else:
-            yield '0 0\n'
-            while line and not line.startswith(':'):
-                line = f.readline()
-
-
-class struct:
-    "generic struct class used by pythonize_swig_object"
-
-    def __repr__(self):
-        return 'struct(%s)' % self.__dict__
-
-
-def pythonize_swig_object(o, skip_methods=[]):
-    """Creates a pure Python copy of a SWIG object, so that it can be
-    easily pickled, or printed (for debugging purposes).  If provided,
-    'skip_methods' is a list of methods not to include--this is a hack to
-    avoid infinite recursion.
-    """
-
-    if isinstance(o, str):
-        return o
-    try:
-        len(o)
-    except TypeError:
-        pass
-    else:
-        return list(pythonize_swig_object(x) for x in o)
-    if hasattr(o, '__swig_getmethods__'):
-        s = struct()
-        for a in o.__swig_getmethods__:
-            if a not in skip_methods:
-                setattr(s, a, pythonize_swig_object(getattr(o, a)))
-        return s
-    return o
-
-
-def filter_matches(score_statistics):
-    """Filter out any close-but-not-quite matches."""
-    if not CP.quirks_mode:
-        for sp_n in xrange(len(score_statistics.best_match)):
-            bs = score_statistics.best_score[sp_n]
-            score_statistics.best_match[sp_n] \
-                = [ m for m in score_statistics.best_match[sp_n]
-                    if m.hyper_score/bs > CP.hyper_score_epsilon_ratio ]
-    # else there shouldn't be anything to filter
-
-
-def merge_score_statistics(ss0, ss1, offset):
-    """Merge ss1 into ss0, keeping the best of both.  (Currently this is
-    trivial since the statistics are for distinct (adjacent) sets of spectra.)
-    Also, offset is added to the spectrum_index member of all matches.
-    """
-    for sp_n in xrange(len(ss1.best_match)):
-        for m in ss1.best_match[sp_n]:
-            m.spectrum_index += offset
-    ss0.candidate_spectrum_count += ss1.candidate_spectrum_count
-    ss0.hyperscore_histogram.extend(ss1.hyperscore_histogram)
-    ss0.second_best_score.extend(ss1.second_best_score)
-    ss0.best_score.extend(ss1.best_score)
-    ss0.best_match.extend(ss1.best_match)
 
 
 def find_repeats(best_protein_matches, passing_spectra, expect):
@@ -1078,6 +1028,35 @@ def process_results(score_statistics, fasta_db, spectra, db_residue_count):
 
     return (spec_prot_info_items, expect, protein_expect, intensity,
             survival_curve, line_parameters, passing_spectra)
+
+
+def get_prefix_sequence(begin_pos, run_offset, sequence):
+    prefix_start = run_offset + begin_pos - 4
+    s = sequence[max(0, prefix_start):prefix_start+4]
+    if len(s) < 4:
+        s = '[' + s
+    return s
+
+def get_suffix_sequence(end_pos, run_offset, sequence):
+    suffix_start = run_offset + end_pos
+    s = sequence[suffix_start:suffix_start+4]
+    if len(s) < 4:
+        s = s + ']'
+    return s
+
+
+def clean_defline(s):
+    """Return the given string with tags replaced by spaces and control
+    characters removed, then stripped."""
+    return re.sub(r'[^ -~]', '', s.replace('\t', ' ')).strip()
+
+
+def abbrev_defline(s):
+    """Return an abbreviated version of the defline--about 80 characters."""
+    ab = re.match(r'.{,80}\S{,170}', s).group(0)
+    if len(ab) < len(s):
+        ab += '...'
+    return ab
 
 
 def print_histogram_XML(hlabel, htype, histogram, a0a1=None):
@@ -1338,47 +1317,38 @@ def main():
                                    "usage: %prog [options] <parameter-file>"
                                    " [<ms2-file>...]",
                                    description=__doc__)
-    parser.add_option("-o", "--output", dest="output",
-                      help="destination file [default as given in parameter"
-                      " file, '-' for stdout]", metavar="FILE")
-    parser.add_option("--quirks-mode", action="store_true",
-                      dest="quirks_mode",
-                      help="try to generate results as close as possible to"
-                      " those of X!Tandem (possibly at the expense of"
-                      " accuracy)")
-    parser.add_option("--part-split", dest="part_split", type="int",
-                      help="split input into M parts, to prepare for"
-                      " --part runs [NOTE: the same parameter file and same"
-                      " spectrum files (in the same order) must be specified"
-                      " for all --part* steps]", metavar="M")
-    parser.add_option("--part", dest="part",
-                      help="search one part, previously created with"
-                      " --part-split; e.g. '1of2' and '2of2'", metavar="NofM")
-    parser.add_option("--part-merge", dest="part_merge", type="int",
-                      help="merge the previously searched M results and"
-                      " continue", metavar="M")
+    pa = parser.add_option
+    pa("-o", "--output", dest="output", help="destination file [default as"
+       " given in parameter file, '-' for stdout]", metavar="FILE")
+    pa("--quirks-mode", action="store_true", dest="quirks_mode",
+       help="try to generate results as close as possible to those of X!Tandem"
+       " (possibly at the expense of accuracy)")
+    pa("--part-split", dest="part_split", type="int", help="split input into M"
+       " parts, to prepare for --part runs [NOTE: the same parameter file and"
+       " same spectrum files (in the same order) must be specified for all"
+       " --part* steps]", metavar="M") 
+    pa("--part", dest="part", help="search one part, previously created with"
+       " --part-split; e.g. '1of2' and '2of2'", metavar="NofM")
+    pa("--part-merge", dest="part_merge", type="int", help="merge the"
+       " previously searched M results and continue", metavar="M")
     default_prefix = 'greylag'
-    parser.add_option("--part-prefix", dest="part_prefix",
-                      default=default_prefix,
-                      help="prefix to use for temporary part files"
-                      " [default='%s']" % default_prefix, metavar="PREFIX")
-    parser.add_option("--compress-level", dest="compress_level", type="int",
-                      help="compression level to use for compressed files"
-                      " created [default=1 for *.gz, 9 for *.bz2]",
-                      metavar="N")
-    parser.add_option("-q", "--quiet", action="store_true",
-                      dest="quiet", help="no warnings")
-    parser.add_option("-p", "--show-progress", action="store_true",
-                      dest="show_progress", help="show running progress")
-    parser.add_option("-v", "--verbose", action="store_true",
-                      dest="verbose", help="be verbose")
-    parser.add_option("--copyright", action="store_true",
-                      dest="copyright", help="print copyright and exit")
-    parser.add_option("--debug", action="store_true",
-                      dest="debug", help="output debugging info")
-    parser.add_option("--profile", action="store_true",
-                      dest="profile",
-                      help="dump Python profiling output to './greylag.prof'")
+    pa("--part-prefix", dest="part_prefix", default=default_prefix,
+       help="prefix to use for temporary part files [default='%s']"
+       % default_prefix, metavar="PREFIX") 
+    pa("--compress-level", dest="compress_level", type="int",
+       help="compression level to use for compressed files created [default=1"
+       " for *.gz, 9 for *.bz2]", metavar="N")
+    pa("-q", "--quiet", action="store_true", dest="quiet", help="no warnings")
+    pa("-p", "--show-progress", action="store_true", dest="show_progress",
+    help="show running progress")
+    pa("-v", "--verbose", action="store_true", dest="verbose",
+       help="be verbose") 
+    pa("--copyright", action="store_true", dest="copyright",
+       help="print copyright and exit")
+    pa("--debug", action="store_true", dest="debug",
+       help="output debugging info")
+    pa("--profile", action="store_true", dest="profile",
+       help="dump Python profiling output to './greylag.prof'") 
     (options, args) = parser.parse_args()
 
     if options.copyright:
@@ -1487,13 +1457,14 @@ def main():
     # read spectra
     if options.part:
         # read from a --part-split file
-        spectra = list(cgreylag.spectrum.read_spectra_from_ms2(open(part_infn_pattern
-                                                                    % part[0]),
-                                                               -1))
+        spectra = cgreylag.spectrum.read_spectra_from_ms2(open(part_infn_pattern
+                                                               % part[0]),
+                                                          -1)
     else:
-        spectra = list(itertools.chain(
+        spectra = itertools.chain(
             *[ cgreylag.spectrum.read_spectra_from_ms2(open(fn), n)
-               for n, fn in enumerate(spectrum_fns) ]))
+               for n, fn in enumerate(spectrum_fns) ])
+    spectra = list(spectra)
     spectra.sort(key=lambda x: x.mass)
 
     if not spectra:
@@ -1539,8 +1510,6 @@ def main():
               XTP["protein, cleavage site"])
     cleavage_pattern = re.compile(cleavage_pattern)
 
-    min_peptide_length = 5
-
     if not options.part_merge:
         cgreylag.spectrum.set_searchable_spectra(spectra)
         score_statistics = cgreylag.score_stats(len(spectra))
@@ -1548,30 +1517,9 @@ def main():
         if part:
             del spectra                 # try to release memory
 
-        warning("assuming no N-term mods")
-        for idno, offset, defline, seq, seq_filename in db:
-            if options.show_progress:
-                sys.stderr.write("\r%s of %s sequences, %s candidates"
-                                 % (idno, len(fasta_db),
-                                    score_statistics.candidate_spectrum_count))
-            cleavage_points = list(generate_cleavage_points(cleavage_pattern,
-                                                            cleavage_pos, seq))
-            #debug('cleavage_points: %s', cleavage_points)
+        search_all(options, fasta_db, db, cleavage_pattern, cleavage_pos,
+                   score_statistics)
 
-            no_N_term_mods = True       # FIX!!!
-            #debug('seq: %s', seq)
-            cgreylag.spectrum.search_run_all_mods(XTP["scoring, maximum missed cleavage sites"],
-                                                  min_peptide_length,
-                                                  no_N_term_mods, idno,
-                                                  offset, seq,
-                                                  cleavage_points,
-                                                  score_statistics)
-
-        if options.show_progress:
-            sys.stderr.write("\r%60s\r" % ' ')
-
-        info('%s candidate spectra examined',
-             score_statistics.candidate_spectrum_count)
         filter_matches(score_statistics)
 
         if part:

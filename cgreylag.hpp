@@ -2,7 +2,7 @@
 
 // $Id$
 
-//     Copyright (C) 2006, Stowers Institute for Medical Research
+//     Copyright (C) 2006-2007, Stowers Institute for Medical Research
 //
 //     This program is free software; you can redistribute it and/or modify
 //     it under the terms of the GNU General Public License as published by
@@ -170,15 +170,6 @@ public:
 
   // Return sorted list of parent masses present in the given ms2 files.
   static std::vector<double> read_ms2_spectrum_masses(std::vector<int> fds);
-
-  // Copy spectra from inf (an open ms2 file) to outf, zeroing out any spectra
-  // with mass outside [lb, ub).  Specifically, a zeroed spectrum will have an
-  // empty name and a mass and charge of zero.  If all charges for a physical
-  // spectrum are zeroed, its peaklist will be replaced with a single peak
-  // having mass and intensity zero.  Thus the zeroed spectra are validly
-  // formatted placeholders.
-  static void filter_ms2_by_mass(FILE *outf, FILE *inf, double lb, double ub);
-
 
   // Copy spectra from an ms2 file to a set of output ms2 files, one for each
   // band in the set of mass bands described by their upper bounds.  Extra
