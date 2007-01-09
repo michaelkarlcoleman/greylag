@@ -386,50 +386,160 @@ def read_xml_parameters(filename):
 
 # XML parameter file processing
 
-def mod_list(modification_list_specification, unique_mods=True):
-    """Check and return a sorted list of (residue, modification) tuples.  If
-    unique_mods is True, also check that each residue is specified only once.
+# FIX: This parsing is way too complex.  How to simplify?
+
+def mass_regime_part(part_specification):
+    """Parse a single mass regime specification."""
+    ps = [ x.strip() for x in part_specification.split('(', 1) ]
+    if ps[0] not in ('MONO', 'AVG'):
+        raise ValueError("invalid mass regime list specification"
+                         " (regime id must be 'MONO' or 'AVG')")
+    if len(ps) == 1:
+        return (ps[0], [])
+    if ps[1][-1] != ')':
+        raise ValueError("invalid mass regime list specification"
+                         " (expected ')')")
+    pps = [ x.strip() for x in ps[1][:-1].split(',') ]
+    if len(pps) > 1:
+        raise ValueError("invalid mass regime list specification"
+                         " (multiple isotopes not yet implemented)")
+    ppps = [ x.strip() for x in pps[0].split('@', 1) ]
+    if len(ppps) != 2:
+        raise ValueError("invalid mass regime list specification"
+                         " (expected '@')")
+    if ppps[0] not in ('N15',):
+        raise ValueError("invalid mass regime list specification"
+                         " (isotope id must currently be 'N15')")
+    if ppps[1][-1] != '%':
+        raise ValueError("invalid mass regime list specification"
+                         " (expected '%')")
+    prevalence = float(ppps[1][:-1]) / 100
+    if not (0 <= prevalence <= 1):
+        raise ValueError("invalid mass regime list specification"
+                         " (prevalence must be in range 0-100%)")
+    return (ps[0], [(ppps[0], prevalence)])
+
+def mass_regime_list(mass_regime_list_specification):
+    """Check and return a list of regime tuples (parent_regime,
+    fragment_regime), where each regime is a tuple (id, [(isotope_id,
+    prevalence), ...]).  So, for example, 'AVG/MONO;MONO(N15@90%)' would
+    return [(('AVG', []), ('MONO', [])), (('MONO', [('N15', 0.9)]),
+    ('MONO', [('N15', 0.9)]))].  Multiple isotopes are comma-separated.
     """
-    modification_list_specification = modification_list_specification.strip()
-    if not modification_list_specification:
+    result = []
+    for regspec in mass_regime_list_specification.split(';'):
+        halves = [ x.strip() for x in regspec.split('/') ]
+        if len(halves) > 2:
+            raise ValueError("invalid mass regime list specification"
+                             " (too many '/'?)")
+        pr = [ mass_regime_part(h) for h in halves ]
+        if len(pr) == 1:
+            pr = pr, pr
+        result.append(pr)
+    debug("mass regime list: %s", result)
+    return result
+
+
+def parse_mod_term(s, is_potential=False):
+    """Parse a modification term, returning a tuple (sign, mod, fixed_regime,
+    residues, description).  For example:
+    
+    '-C2H3ON!@C' --> (-1, 'C2H3ON', True, 'C', None)
+    '42@STY phosphorylation' --> (1, 42.0, False, 'STY', 'phosphorylation')
+
+    """
+    
+    m = re.match(r'^\s*(-|\+)?(([1-9][0-9.]*)|([A-Z][A-Z0-9]*))(!?)'
+                 r'@([A-Z]+|\[|\])(\s+([A-Za-z0-9_]+))?\s*$', s)
+    if not m:
+        raise ValueError("invalid modification term specification"
+                         " '%s'" % s)
+    mg = m.groups()
+    invalid_residues = set(mg[5]) - set(RESIDUE_FORMULA.keys()) - set('[]')
+    if invalid_residues:
+        raise ValueError("invalid modification list specification"
+                         " (invalid residues %s)" % list(invalid_residues))
+    delta = mg[1]
+    if mg[2]:
+        delta = float(mg[1])
+        if is_potential and abs(delta) < 0.0001:
+            raise ValueError("invalid modification list specification"
+                             " (delta '%s' is too small)" % delta)
+    residues = mg[5]
+    if not is_potential and len(residues) != 1:
+        raise ValueError("invalid modification list specification '%s' (only"
+                         " potential modifications may have multiple residues)"
+                         % residues)
+    if len(residues) != len(set(residues)):
+        raise ValueError("invalid modification list specification"
+                         " '%s' (duplicate residues prohibited)"
+                         % residues)
+    return (mg[0] == '-' and -1 or 1, delta, mg[4] == '!', residues, mg[7])
+
+
+def fixed_mod_list(specification):
+    """Check and return a list of modification tuples."""
+    if not specification.strip():
         return []
-    speclist = []
-    for modspec in modification_list_specification.split(','):
-        parts = modspec.strip().split('@')
-        if len(parts) != 2:
-            raise ValueError("invalid modification list specification"
-                             " (missing or extra '@'?)")
-        value = float(parts[0])
-        if abs(value) < 0.000001:
-            raise ValueError("invalid modification list specification"
-                             " (delta '%s' is too small)" % value)
-        residue = parts[1]
-        if len(residue) != 1:
-            raise ValueError("invalid modification list specification"
-                             " (single-letter residue expected, got '%s')"
-                             % residue)
-        if residue not in RESIDUE_FORMULA and residue not in '[]':
-            raise ValueError("invalid modification list specification"
-                             " (invalid residue '%s')" % residue)
-        speclist.append((residue, value))
-    if unique_mods:
-        if len(set(residue for residue, value in speclist)) != len(speclist):
-            raise ValueError("invalid modification list specification"
-                             " (residue specified multiple times)")
-    return sorted(speclist)
+    result = [ parse_mod_term(s) for s in specification.split(',') ]
+    residues = [ x[3] for x in result ]
+    debug("fixed_mod_list:\n%s", pformat(result))
+    return result
 
-def potential_mod_list(modification_list_specification):
-    """Check and return a list of (residue, modification) tuples."""
-    return mod_list(modification_list_specification, unique_mods=False)
 
-def alternative_mod_list(modification_list_specification):
-    """Check and return a list of lists of (residue, modification) tuples.
-    The top-level list corresponds to the ';'-separated alternatives.
+def parse_mod_basic_expression(s):
+    s = s.strip()
+    if s[0] == '(':
+        tree, rest =  parse_mod_disjunction(s[1:])
+        rest = rest.lstrip()
+        if rest[:1] != ')':
+            raise ValueError("invalid modification list specification"
+                             " (expected matching ')')")
+        return tree, rest[1:]
+    parts = re.split(r'([;,()])', s, 1)
+    if len(parts) == 1:
+        term, rest = s, ''
+    else:
+        assert len(parts) == 3
+        term, rest = parts[0], parts[1]+parts[2]
+    return parse_mod_term(term, is_potential=True), rest
+
+def parse_mod_conjunction(s):
+    result = []
+    while s:
+        tree, s = parse_mod_basic_expression(s)
+        result.append(tree)
+        s = s.lstrip()
+        if s[:1] != ',':
+            break
+        s = s[1:]
+    return result, s
+
+def parse_mod_disjunction(s):
+    result = []
+    while s:
+        tree, s = parse_mod_conjunction(s)
+        result.append(tree)
+        s = s.lstrip()
+        if s[:1] != ';':
+            break
+        s = s[1:]
+    return result, s
+
+def potential_mod_list(specification):
+    """Check and return a tree of potential modification tuples.  Nodes at
+    even (odd) levels are disjunctions (conjunctions).  (The top list is a
+    disjunction.)
     """
-    alist = [ mod_list(alternative_specification, unique_mods=False)
-              for alternative_specification
-              in modification_list_specification.split(';') ]
-    return [ a for a in alist if a ]    # omit empty alternatives
+    specification = specification.strip()
+    if not specification:
+        return []
+    tree, remainder = parse_mod_disjunction(specification)
+    if remainder:
+        raise ValueError("invalid modification list specification"
+                         " (unexpected '%s')" % remainder)
+    debug("potential_mod_list:\n%s", pformat(tree))
+    return tree
 
 
 # "ni" means check verifies that "not implemented" functionality is not
@@ -480,20 +590,21 @@ XML_PARAMETER_INFO = {
     "refine" : (bool, "no", p_ni_equal(False)),
     "refine, cleavage semi" : (bool, "no", p_ni_equal(False)),
     "refine, maximum valid expectation value" : (float, None),
-    "refine, modification mass" : (mod_list, "", p_ni_empty),
+    "refine, modification mass" : (fixed_mod_list, "", p_ni_empty),
     "refine, point mutations" : (bool, "no", p_ni_equal(False)),
     "refine, potential C-terminus modifications": (potential_mod_list, "", p_ni_empty),
     "refine, potential N-terminus modifications": (potential_mod_list, "", p_ni_empty),
     "refine, potential N-terminus modification position limit" : (int, 50), # nyi
-    "refine, potential modification mass" : (alternative_mod_list, "", p_ni_empty),
+    "refine, potential modification mass" : (potential_mod_list, "", p_ni_empty),
     "refine, potential modification motif" : (str, "", p_ni_empty),
     "refine, sequence path" : (str, "", p_ni_empty),
     "refine, spectrum synthesis" : (bool, "no"),
     "refine, tic percent" : (float, 20.0, p_nonnegative), # ignored
     "refine, unanticipated cleavage" : (bool, p_ni_equal(False)),
     "refine, use potential modifications for full refinement" : (bool, "no", p_ni_equal(False)),
-    "residue, modification mass" : (mod_list, ""),
-    "residue, potential modification mass" : (alternative_mod_list, ""),
+    "residue, mass regimes" : (mass_regime_list, "MONO"),
+    "residue, modification mass" : (fixed_mod_list, ""),
+    "residue, potential modification mass" : (potential_mod_list, ""),
     "residue, potential modification motif" : (str, "", p_ni_empty),
     "scoring, a ions" : (bool, "no", p_ni_equal(False)),
     "scoring, b ions" : (bool, "yes", p_ni_equal(True)),
@@ -557,8 +668,8 @@ def validate_parameters(parameters):
                 error("missing required parameter '%s'" % p_name)
         if isinstance(type_, tuple):
             if not v in type_:
-                error("parameter '%s' value '%s' not in %s (feature not implemented?)"
-                      % (p_name, v, type_))
+                error("parameter '%s' value '%s' not in %s (feature not"
+                      " implemented?)" % (p_name, v, type_))
         elif type_ == bool:
             v = { 'yes' : True, 'no' : False }.get(v)
             if v == None:
@@ -570,19 +681,20 @@ def validate_parameters(parameters):
                 error("parameter '%s' has value '%s' with invalid format [%s]"
                       % (p_name, v, e))
         if check_fn and not check_fn(v):
-            error("parameter '%s' has invalid value '%s' (or feature not implemented)"
-                  % (p_name, v))
+            error("parameter '%s' has invalid value '%s' (or feature not"
+                  " implemented)" % (p_name, v))
         pmap[p_name] = v
 
     unknown_parameters = set(parameters) - set(XML_PARAMETER_INFO)
     if unknown_parameters:
         warning("%s unknown parameters:\n %s"
-             % (len(unknown_parameters), pformat(sorted(list(unknown_parameters)))))
+                % (len(unknown_parameters),
+                   pformat(sorted(list(unknown_parameters)))))
 
     # FIX: this would trip the "cyclic" param (assume Daltons)
     assert (abs(pmap["spectrum, parent monoisotopic mass error plus"]) > 0.095
-            and abs(pmap["spectrum, parent monoisotopic mass error minus"]) > 0.095), \
-            "feature not implemented (cyclic param)"
+            and (abs(pmap["spectrum, parent monoisotopic mass error minus"])
+                 > 0.095)), "feature not implemented (cyclic param)"
 
     # FIX: where should this go?
     if pmap["spectrum, fragment mass error"] > 0.5:
@@ -645,7 +757,7 @@ def pythonize_swig_object(o, skip_methods=[]):
 def search_all(options, fasta_db, db, cleavage_pattern, cleavage_pos,
                score_statistics):
     """Search sequence database against searchable spectra."""
-    warning("assuming no N-term mods")
+    warning("assuming no N-term mods (???)")
     min_peptide_length = 5
     for idno, offset, defline, seq, seq_filename in db:
         if options.show_progress:
@@ -655,6 +767,25 @@ def search_all(options, fasta_db, db, cleavage_pattern, cleavage_pos,
         cleavage_points = list(generate_cleavage_points(cleavage_pattern,
                                                         cleavage_pos, seq))
 
+        for mass_regime in mass_regimes:
+            score_stats.combinations_searched = 0
+            for mod_count in range(mod_limit + 1):
+                for has_pca in (False, True):
+                    for mod_conjunct, has_N_mod in mod_conjunct_info:
+                        if has_pca and has_N_mod:
+                            continue    # mutually exclusive, for now
+                        for delta_bag in generate_delta_bags(mod_count,
+                                                             mod_conjunct):
+                            base_N_mass = 0
+                            base_C_mass = 0
+                            delta_mass = 0
+                            cgreylag.spectrum.search_run(XTP["scoring, maximum missed cleavage sites"],
+                                                         min_peptide_length,
+                                                         idno, offset, seq,
+                                                         cleavage_points,
+                                                         score_statistics)
+
+
 
         # input: regime index (or masses?), PCA?, N base mass, C base mass,
         #        delta bag, mod descriptor index
@@ -662,18 +793,18 @@ def search_all(options, fasta_db, db, cleavage_pattern, cleavage_pos,
         #   min_peptide_length, no_N_term_mods, idno,
         #   offset, seq, cleavage_points, score_statistics
 
-        no_N_term_mods = True       # FIX!!!
-#         cgreylag.spectrum.search_run(XTP["scoring, maximum missed cleavage sites"],
-#                                      min_peptide_length, no_N_term_mods, idno,
-#                                      offset, seq, cleavage_points,
-#                                      score_statistics)
+#         no_N_term_mods = True       # FIX!!!
+# #         cgreylag.spectrum.search_run(XTP["scoring, maximum missed cleavage sites"],
+# #                                      min_peptide_length, no_N_term_mods, idno,
+# #                                      offset, seq, cleavage_points,
+# #                                      score_statistics)
 
-        cgreylag.spectrum.search_run_all_mods(XTP["scoring, maximum missed cleavage sites"],
-                                              min_peptide_length,
-                                              no_N_term_mods, idno,
-                                              offset, seq,
-                                              cleavage_points,
-                                              score_statistics)
+#         cgreylag.spectrum.search_run_all_mods(XTP["scoring, maximum missed cleavage sites"],
+#                                               min_peptide_length,
+#                                               no_N_term_mods, idno,
+#                                               offset, seq,
+#                                               cleavage_points,
+#                                               score_statistics)
 
 
 
@@ -1019,7 +1150,8 @@ def process_results(score_statistics, fasta_db, spectra, db_residue_count):
         def protein_order_less_than(item):
             return (min(protein_expect.get(protein_id, 1000)
                         for protein_id, domains in item[1]),
-                    item[1][0][1][0].peptide_begin, # domain 0 starting position (ouch)
+                    item[1][0][1][0].peptide_begin, # domain 0 starting
+                                                    # position (ouch)
                     expect[item[0]])    # spectrum expect
         spec_prot_info_items.sort(key=protein_order_less_than)
     else:
@@ -1113,7 +1245,8 @@ def print_results_XML(options, db_info, spectrum_fns, spec_prot_info_items,
         sp = spectra[spectrum_id]
         assert spectrum_info, "only 'valid' implemented"
         si0 = spectrum_info[0][1][0]
-        defline, run_seq, seq_filename = db_info[(si0.sequence_index, si0.sequence_offset)]
+        defline, run_seq, seq_filename = db_info[(si0.sequence_index,
+                                                  si0.sequence_offset)]
 
         if (XTP["output, proteins"] or XTP["output, histograms"]
             or XTP["output, spectra"]):
@@ -1127,8 +1260,9 @@ def print_results_XML(options, db_info, spectrum_fns, spec_prot_info_items,
 
         if XTP["output, proteins"]:
             for pn, (protein_id, domains) in enumerate(spectrum_info):
-                d0_defline, d0_run_seq, d0_seq_filename = db_info[(domains[0].sequence_index,
-                                                                   domains[0].sequence_offset)]
+                d0_defline, d0_run_seq, d0_seq_filename \
+                            = db_info[(domains[0].sequence_index,
+                                       domains[0].sequence_offset)]
                 if protein_id not in protein_expect:
                     warning("protein id '%s' not in protein_expect",
                             protein_id)
@@ -1160,7 +1294,8 @@ def print_results_XML(options, db_info, spectrum_fns, spec_prot_info_items,
                         print
                 for dn, dom in enumerate(domains):
                     dom_defline, dom_run_seq, dom_seq_filename \
-                                 = db_info[(dom.sequence_index, dom.sequence_offset)]
+                                 = db_info[(dom.sequence_index,
+                                            dom.sequence_offset)]
 
                     delta_precision = 4
                     delta = sp.mass - dom.peptide_mass
@@ -1172,17 +1307,21 @@ def print_results_XML(options, db_info, spectrum_fns, spec_prot_info_items,
                            ' y_ions="%s" b_score="%.1f" b_ions="%s" pre="%s"'
                            ' post="%s" seq="%s" missed_cleavages="%s">'
                            % (sp.id, pn+1, dn+1, dom.peptide_begin+1,
-                              dom.peptide_begin+len(dom.peptide_sequence), expect[spectrum_id],
-                              delta_precision, dom.peptide_mass,
-                              delta_precision, delta,
+                              dom.peptide_begin+len(dom.peptide_sequence),
+                              expect[spectrum_id], delta_precision,
+                              dom.peptide_mass, delta_precision, delta,
                               cgreylag.scale_hyperscore(score_statistics.best_score[spectrum_id]),
                               cgreylag.scale_hyperscore(score_statistics.second_best_score[spectrum_id]),
                               cgreylag.scale_hyperscore(dom.ion_scores[cgreylag.ION_Y]),
                               dom.ion_peaks[cgreylag.ION_Y],
                               cgreylag.scale_hyperscore(dom.ion_scores[cgreylag.ION_B]),
                               dom.ion_peaks[cgreylag.ION_B],
-                              get_prefix_sequence(dom.peptide_begin, dom.sequence_offset, dom_run_seq),
-                              get_suffix_sequence(dom.peptide_begin+len(dom.peptide_sequence), dom.sequence_offset,
+                              get_prefix_sequence(dom.peptide_begin,
+                                                  dom.sequence_offset,
+                                                  dom_run_seq),
+                              get_suffix_sequence((dom.peptide_begin
+                                                   + len(dom.peptide_sequence)),
+                                                  dom.sequence_offset,
                                                   dom_run_seq),
                               dom.peptide_sequence, dom.missed_cleavage_count))
                     # print static mods
@@ -1243,11 +1382,12 @@ def print_results_XML(options, db_info, spectrum_fns, spec_prot_info_items,
                    ' type="tandem mass spectrum">'
                    % (sp.id, sp.id))
             print '<GAML:attribute type="M+H">%s</GAML:attribute>' % sp.mass
-            print '<GAML:attribute type="charge">%s</GAML:attribute>' % sp.charge
+            print ('<GAML:attribute type="charge">%s</GAML:attribute>'
+                   % sp.charge)
             print ('<GAML:Xdata label="%s.spectrum" units="MASSTOCHARGERATIO">'
                    % (sp.id))
-            print ('<GAML:values byteorder="INTEL" format="ASCII" numvalues="%s">'
-                   % len(sp.peaks))
+            print ('<GAML:values byteorder="INTEL" format="ASCII"'
+                   ' numvalues="%s">' % len(sp.peaks))
             #def rstrip_zeros(s):
             #    if '.' in s:
             #        return s.rstrip('0').rstrip('.')
@@ -1261,8 +1401,8 @@ def print_results_XML(options, db_info, spectrum_fns, spec_prot_info_items,
             print '</GAML:Xdata>'
             print ('<GAML:Ydata label="%s.spectrum" units="UNKNOWN">'
                    % (sp.id))
-            print ('<GAML:values byteorder="INTEL" format="ASCII" numvalues="%s">'
-                   % len(sp.peaks))
+            print ('<GAML:values byteorder="INTEL" format="ASCII"'
+                   ' numvalues="%s">' % len(sp.peaks))
             for p in sp.peaks:
                 print str(int(round(p.intensity))),
             print ''
@@ -1286,7 +1426,8 @@ def print_results_XML(options, db_info, spectrum_fns, spec_prot_info_items,
                 v = { True : 'yes', False : 'no' }[v]
             print '	<note type="input" label="%s">%s</note>' % (k, v)
         if options.quirks_mode:
-            print '	<note type="input" label="xtandem quirks mode">yes</note>'
+            print '	<note type="input"' \
+                  ' label="xtandem quirks mode">yes</note>'
         print '</group>'
 
     # performance not implemented
@@ -1432,7 +1573,8 @@ def main():
         info("reading spectrum masses")
         sp_files = [ open(fn) for fn in spectrum_fns ]
         masses = cgreylag.spectrum.read_ms2_spectrum_masses([ f.fileno()
-                                                              for f in sp_files ])
+                                                              for f
+                                                              in sp_files ])
         for f in sp_files:
             f.close()
         info("writing %s sets of input files", options.part_split)

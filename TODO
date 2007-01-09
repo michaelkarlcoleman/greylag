@@ -1,5 +1,20 @@
 
 
+Carboxyamidomethyl Cystenyl
+C5H8O2N2S1
+Cysteine
+C3H5ONS
+delta
++C2H3ON (~57)
+PROBLEM: This 'N' will usually be N14, even in an N15 sample.
+partial solution: allow deltas to be specified w override regime
+"+C2H3ON(AVG/MONO)"
+better: "+C2H3ON!" meaning "always use the first regime for this delta"
+
+
+disallow (or warn) on setting same label twice in same file?
+
+
 What doesn't greylag do that SIMR cares about?
 
 
@@ -7,7 +22,8 @@ What doesn't greylag do that SIMR cares about?
 
 - cyclic "permutations" (for scoring accuracy)
 
-
+- need to support multiple parent mass isotopes (shifts by +1/-1? to support
+bad Orbitrap calls???)
 
 
 ------------------------------------------------------------------------------
