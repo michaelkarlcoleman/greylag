@@ -24,7 +24,7 @@
 
 #include <cassert>
 #include <cstdio>
-#include <list>
+//#include <list>
 #include <map>
 #include <vector>
 #include <stdexcept>
@@ -41,13 +41,8 @@ public:
   double water_mass;
   double ammonia_mass;
 
-  // these are indexed by residue char (plus '[' and ']' for N and C termini)
-  // residue char -> delta
-  std::vector<double> residue_mass;
-  std::vector<double> modification_mass;
-  // alternative -> residue char -> vector of deltas
-  std::vector< std::vector< std::vector<double> > > potential_modification_mass;
-  std::vector< std::vector< std::vector<double> > > potential_modification_mass_refine;
+  // residue char (incl '['/']') -> mass (per regime) with any fixed mod
+  std::vector<double> fixed_residue_mass;
 };
 
 // FIX: want these class members to all be static, but had SWIG trouble.  The
@@ -61,7 +56,7 @@ public:
 
   std::vector<double> factorial; // factorial[n] == n!
 
-  // deuterium not yet implemented
+  // deuterium not (yet) implemented
   double proton_mass;
   double hydrogen_mass;
   std::vector<mass_regime_parameters> parent_mass_regime;
@@ -208,6 +203,7 @@ public:
   // also build spectrum_mass_index.
   static void set_searchable_spectra(const std::vector<spectrum> &spectra);
 
+#if NOT_WORKING
   static void search_peptide_all_mods(int idno, int offset, int begin,
 				      const std::string &peptide_seq,
 				      int missed_cleavage_count,
@@ -223,6 +219,7 @@ public:
 				  const std::string &run_sequence,
 				  const std::vector<int> cleavage_points,
 				  score_stats &stats);
+#endif
 
   // exposed for tinkering
   static double score_similarity(const spectrum &x, const spectrum &y,

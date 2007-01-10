@@ -57,6 +57,11 @@
 // %include std_list.i
 %include std_vector.i
 
+// Note: SWIG currently only exposes the outermost vector (in a vector of
+// vector of X) as a modifiable object.  Inner vectors appear as tuples, and
+// are thus unmodifiable.  They must therefore be assigned all at once.  This
+// shortcoming will probably be fixed in a future version of SWIG.
+
 %template(vector_int) std::vector<int>;
 %template(vector_double) std::vector<double>;
 %template(vector_peak) std::vector<peak>;

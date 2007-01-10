@@ -74,51 +74,46 @@ XTP = {}
 # handle to the singleton parameter object shared with the C++ module
 CP = cgreylag.cvar.parameters_the
 
-# FIX: is this from H1 or H-avg??  (possible error here is ~0.0007 amu)
+# FIX: is this mono or avg?  (possible error here is ~0.0007 amu)
 PROTON_MASS =   1.007276
 ELECTRON_MASS = 0.000549                # ?
 
 # Reference values from NIST (http://physics.nist.gov/PhysRefData/)
-ATOMIC_MASS = {
-    'H'     :  1.00782503214,
-    'H-avg' :  1.007947,
-    'C'     : 12.00000000,
-    'C-avg' : 12.01078,
-    'N'     : 14.00307400529,
-    'N-avg' : 14.00672,
-    'N15'   : 15.00010889849,
-    'O'     : 15.994914622115,
-    'O-avg' : 15.99943,
-    'P'     : 30.9737615120,
-    'P-avg' : 30.9737612,
-    'S'     : 31.9720706912,
-    'S-avg' : 32.0655,
+MONOISOTOPIC_ATOMIC_MASS = {
+    'H' :  1.00782503214,
+    'C' : 12.00000000,
+    'N' : 14.00307400529,
+    'O' : 15.994914622115,
+    'P' : 30.9737615120,
+    'S' : 31.9720706912,
     }
 
-ATOMIC_MASS_XT = {
-    'H'     :  1.007825035,
-    'H-avg' :  1.00794,
-    'C'     : 12.0,
-    'C-avg' : 12.0107,
-    'N'     : 14.003074,
-    'N-avg' : 14.0067,
-    'O'     : 15.99491463,
-    'O-avg' : 15.9994,
-    'P'     : 30.973762,
-    'P-avg' : 30.973761,
-    'S'     : 31.9720707,
-    'S-avg' : 32.065,
+ISOTOPIC_ATOMIC_MASS = {
+    'N15' : 15.00010889849,
     }
 
-# FIX!
-ATOMIC_MASS = ATOMIC_MASS_XT
+AVERAGE_ATOMIC_MASS = {
+    'H' :  1.007947,
+    'C' : 12.01078,
+    'N' : 14.00672,
+    'O' : 15.99943,
+    'P' : 30.9737612,
+    'S' : 32.0655,
+    }
+
+# The xtandem average residue masses are about 0.002 amu higher than those
+# calculated directly from the above average atomic masses.  None of the
+# chemists consulted knew of any reason why, aside from lack of precision in
+# the average atomic mass estimates.  This shouldn't matter very much, as
+# fragmentation calculations should all be monoisotopic, and we can always
+# widen the parent tolerance window a bit.
 
 
-def formula_mass(formula, atomic_mass=ATOMIC_MASS):
+def formula_mass(formula, atomic_mass=MONOISOTOPIC_ATOMIC_MASS):
     """Return the mass of formula, using the given mass regime (monoisotopic
     by default)."""
     parts = [ p or '1' for p in re.split(r'([A-Z][a-z]*)', formula)[1:] ]
-    # parts for alanine is ('C', '3', 'H', '5', 'O', '1', 'N', '1')
+    # e.g., parts for alanine is ('C', '3', 'H', '5', 'O', '1', 'N', '1')
     return sum(atomic_mass[parts[i]] * int(parts[i+1])
                for i in range(0, len(parts), 2))
 
@@ -147,97 +142,82 @@ RESIDUE_FORMULA = {
     'Y' : "C9H9O2N",
     }
 
-STANDARD_RESIDUE_MASS = dict((residue, formula_mass(RESIDUE_FORMULA[residue]))
-                             for residue in RESIDUE_FORMULA)
-
-# Why aren'te these two sets of average masses equal?
-STANDARD_XT_AVG_RESIDUE_MASS = {
-    'A' :  71.0788,
-    'C' : 103.1388,
-    'D' : 115.0886,
-    'E' : 129.1155,
-    'F' : 147.1766,
-    'G' :  57.0519,
-    'H' : 137.1411,
-    'I' : 113.1594,
-    'K' : 128.1741,
-    'L' : 113.1594,
-    'M' : 131.1926,
-    'N' : 114.1038,
-    'P' :  97.1167,
-    'Q' : 128.1307,
-    'R' : 156.1875,
-    'S' :  87.0782,
-    'T' : 101.1051,
-    'V' :  99.1326,
-    'W' : 186.2132,
-    'Y' : 163.1760,
-    }
-
-STANDARD_AVG_RESIDUE_MASS = dict((residue,
-                                  formula_mass(RESIDUE_FORMULA[residue],
-                                               { 'H' : ATOMIC_MASS['H-avg'],
-                                                 'C' : ATOMIC_MASS['C-avg'],
-                                                 'N' : ATOMIC_MASS['N-avg'],
-                                                 'O' : ATOMIC_MASS['O-avg'],
-                                                 'P' : ATOMIC_MASS['P-avg'],
-                                                 'S' : ATOMIC_MASS['S-avg'],
-                                                 }))
-                                 for residue in RESIDUE_FORMULA)
+RESIDUES = sorted(RESIDUE_FORMULA.keys())
+RESIDUES_W_BRACKETS = RESIDUES + ['[', ']']
 
 
-def initialize_spectrum_parameters(quirks_mode):
-    """Initialize parameters known to the spectrum module."""
+def mass_regime_atomic_masses(spec):
+    """Given a regime spec like ('MONO', [('N15', 0.9)]), return a map of atom
+    names to masses.
+    """
+    name, isotopes = spec
+    assert name in ['MONO', 'AVG'] and len(isotopes) <= 1
+    if name == 'MONO':
+        r = MONOISOTOPIC_ATOMIC_MASS.copy()
+    else:
+        r = AVERAGE_ATOMIC_MASS.copy()
+    if isotopes:
+        iname, prevalence = isotopes[0]
+        assert iname == 'N15' and 0 <= prevalence <= 1
+        # this is a simplification, but additional accuracy pointless?
+        if name == 'MONO':
+            r['N'] = ISOTOPIC_ATOMIC_MASS['N15']
+        else:
+            r['N'] += (ISOTOPIC_ATOMIC_MASS['N15'] - r['N']) * prevalence
+    return r
 
+
+def initialize_spectrum_parameters(mass_regimes, fixed_mod_map, quirks_mode):
+    """Initialize parameters known to the spectrum module.
+    fixed_mod_map maps, for example, 'M' to (1, 'O', False, 'M', 'oxidation').
+    """
+
+    debug('fixed_mod_map: %s', fixed_mod_map)
     # This is the size of vectors that are indexed by residues (A-Z) or
     # special characters ('[]').
     RESIDUE_LIMIT = max(ord(c) for c in 'Z[]') + 1
 
-    # These two aren't currently part of the regime, so we're not handling
-    # deuterium yet (pointless?)
+    # These are currently monoisotopic.  (deuterium pointless?)
     CP.proton_mass = PROTON_MASS
     CP.hydrogen_mass = formula_mass("H")
 
-    # FIX: only a mono/mono regime 0 implemented for now
-    mono_regime = cgreylag.mass_regime_parameters()
+    for regime_pair in mass_regimes:
+        assert len(regime_pair) == 2    # parent and fragment
+        debug('rp: %s', regime_pair)
+        for n, regime in enumerate(regime_pair):
+            atmass = mass_regime_atomic_masses(regime)
+            creg = cgreylag.mass_regime_parameters()
 
-    mono_regime.hydroxyl_mass = formula_mass("OH")
-    mono_regime.water_mass = formula_mass("H2O")
-    mono_regime.ammonia_mass = formula_mass("NH3")
+            creg.hydroxyl_mass = formula_mass("OH", atmass)
+            creg.water_mass = formula_mass("H2O", atmass)
+            creg.ammonia_mass = formula_mass("NH3", atmass)
 
-    mono_regime.residue_mass.resize(RESIDUE_LIMIT)
-    for residue in RESIDUE_FORMULA:
-        mono_regime.residue_mass[ord(residue)] = STANDARD_RESIDUE_MASS[residue]
-
-    # FIX: for the moment we don't differentiate the parent/fragment cases
-    mono_regime.modification_mass.resize(RESIDUE_LIMIT)
-    for residue, modvalue in XTP["residue, modification mass"]:
-        mono_regime.modification_mass[ord(residue)] = modvalue
-
-    # SWIG currently only exposes the outermost vector as a modifiable object.
-    # Inner vectors appear as tuples, and are thus unmodifiable.  They must
-    # therefore be assigned all at once.  This shortcoming will probably be
-    # fixed in a future version of SWIG.
-
-    rpmm = XTP["residue, potential modification mass"]
-    mono_regime.potential_modification_mass.resize(len(rpmm))
-    info("searching %s potential mod alternative set(s)", len(rpmm))
-    for altn, alternative in enumerate(rpmm):
-        v = [ [] for i in range(RESIDUE_LIMIT) ]
-        for residue, modvalue in alternative:
-            v[ord(residue)].append(modvalue)
-        mono_regime.potential_modification_mass[altn] = v
-
-    #for residue, modvalue in XTP["refine, potential modification mass"]:
-    #    mono_regime.potential_modification_mass_refine[0][ord(residue)] \
-    #        = mono_regime \
-    #              .potential_modification_mass_refine[0][ord(residue)] \
-    #          + (modvalue,)
-
-    # regime 0 is mono/mono
-    CP.parent_mass_regime.append(mono_regime);
-    CP.fragment_mass_regime.append(mono_regime);
-
+            creg.fixed_residue_mass.resize(RESIDUE_LIMIT)
+            for r in RESIDUES_W_BRACKETS:
+                m = 0
+                if r in RESIDUES:
+                    m = formula_mass(RESIDUE_FORMULA[r], atmass)
+                rmod = fixed_mod_map.get(r)
+                if rmod:
+                    if isinstance(rmod[1], str):
+                        if rmod[2]:
+                            m += rmod[0] * formula_mass(rmod[1])
+                        else:
+                            m += rmod[0] * formula_mass(rmod[1], atmass)
+                    else:
+                        m += rmod[0] * rmod[1]
+                creg.fixed_residue_mass[ord(r)] = m
+            if not n:
+                CP.parent_mass_regime.append(creg);
+            else:
+                CP.fragment_mass_regime.append(creg);
+    for r in RESIDUES_W_BRACKETS:
+        debug('fixed_mass %s: %s', r,
+              [ "%.6f/%.6f"
+                % (CP.parent_mass_regime[rn].fixed_residue_mass[ord(r)],
+                   CP.fragment_mass_regime[rn].fixed_residue_mass[ord(r)])
+                for rn in range(len(mass_regimes)) ])
+    
     CP.cleavage_N_terminal_mass_change \
         = XTP["protein, cleavage N-terminal mass change"]
     CP.cleavage_C_terminal_mass_change \
@@ -263,12 +243,12 @@ def initialize_spectrum_parameters(quirks_mode):
         CP.factorial[n] = CP.factorial[n-1] * n
 
     CP.quirks_mode = bool(quirks_mode)
-    CP.hyper_score_epsilon_ratio = 0.999 # must be <1
+    CP.hyper_score_epsilon_ratio = 0.999 # must be slightly less than 1
 
     CP.check_all_fragment_charges = XTP["spectrum, check all fragment charges"]
 
     if CP.quirks_mode and CP.maximum_modification_combinations_searched == 0:
-        CP.maximum_modification_combinations_searched = 1 << 12
+        CP.maximum_modification_combinations_searched = 1 << 12 # FIX?
 
     #debug("CP: %s", pythonize_swig_object(CP, ['the']))
 
@@ -389,7 +369,8 @@ def read_xml_parameters(filename):
 # FIX: This parsing is way too complex.  How to simplify?
 
 def mass_regime_part(part_specification):
-    """Parse a single mass regime specification."""
+    """Parse a single mass regime specification part (e.g., 'MONO(N15@90%)').
+    """
     ps = [ x.strip() for x in part_specification.split('(', 1) ]
     if ps[0] not in ('MONO', 'AVG'):
         raise ValueError("invalid mass regime list specification"
@@ -422,9 +403,15 @@ def mass_regime_part(part_specification):
 def mass_regime_list(mass_regime_list_specification):
     """Check and return a list of regime tuples (parent_regime,
     fragment_regime), where each regime is a tuple (id, [(isotope_id,
-    prevalence), ...]).  So, for example, 'AVG/MONO;MONO(N15@90%)' would
-    return [(('AVG', []), ('MONO', [])), (('MONO', [('N15', 0.9)]),
-    ('MONO', [('N15', 0.9)]))].  Multiple isotopes are comma-separated.
+    prevalence), ...]).  So, for example, 'AVG/MONO;MONO;MONO(N15@90%)' would
+    return
+
+    [[('AVG', []), ('MONO', [])],
+     [('MONO', []), ('MONO', [])],
+     [('MONO', [('N15', 0.90000000000000002)]),
+      ('MONO', [('N15', 0.90000000000000002)])]]
+
+    Multiple isotopes (when implemented) would be comma-separated.
     """
     result = []
     for regspec in mass_regime_list_specification.split(';'):
@@ -434,9 +421,9 @@ def mass_regime_list(mass_regime_list_specification):
                              " (too many '/'?)")
         pr = [ mass_regime_part(h) for h in halves ]
         if len(pr) == 1:
-            pr = pr, pr
+            pr = [ pr[0], pr[0] ]
         result.append(pr)
-    debug("mass regime list: %s", result)
+    debug("mass regime list:\n%s", pformat(result))
     return result
 
 
@@ -455,7 +442,7 @@ def parse_mod_term(s, is_potential=False):
         raise ValueError("invalid modification term specification"
                          " '%s'" % s)
     mg = m.groups()
-    invalid_residues = set(mg[5]) - set(RESIDUE_FORMULA.keys()) - set('[]')
+    invalid_residues = set(mg[5]) - set(RESIDUES_W_BRACKETS)
     if invalid_residues:
         raise ValueError("invalid modification list specification"
                          " (invalid residues %s)" % list(invalid_residues))
@@ -483,6 +470,11 @@ def fixed_mod_list(specification):
         return []
     result = [ parse_mod_term(s) for s in specification.split(',') ]
     residues = [ x[3] for x in result ]
+    # this check is across terms; the one above is within terms
+    if len(residues) != len(set(residues)):
+        raise ValueError("invalid modification list specification"
+                         " '%s' (duplicate residues prohibited)"
+                         % residues)
     debug("fixed_mod_list:\n%s", pformat(result))
     return result
 
@@ -612,8 +604,8 @@ XML_PARAMETER_INFO = {
     "scoring, cyclic permutation" : (bool, "no", p_ni_equal(False)),
     "scoring, include reverse" : (bool, "no", p_ni_equal(False)),
     "scoring, maximum missed cleavage sites" : (int, None, p_nonnegative),
-    "scoring, maximum modification combinations searched" : (int, 0, p_nonnegative), # 0 -> no limit
-    "scoring, maximum simultaneous modifications searched" : (int, 0, p_nonnegative), # 0 -> no limit
+    "scoring, maximum modification combinations searched" : (int, 0, p_nonnegative), # 0 -> no limit # FIX
+    "scoring, maximum simultaneous modifications searched" : (int, None, p_nonnegative),
     "scoring, minimum ion count" : (int, None, p_positive),
     "scoring, pluggable scoring" : (bool, "no"), # ignored
     "scoring, x ions" : (bool, "no", p_ni_equal(False)),
@@ -754,10 +746,56 @@ def pythonize_swig_object(o, skip_methods=[]):
     return o
 
 
+def enumerate_conjunction(mod_tree, limit, conjuncts=[], empty=True):
+    if not mod_tree:
+        if not empty and len(conjuncts) <= limit:
+            yield conjuncts
+        return
+    first, rest = mod_tree[0], mod_tree[1:]
+    if isinstance(first, list):
+        for x in enumerate_disjunction(first, limit):
+            if x:
+                empty = False
+            for y in enumerate_conjunction(rest, limit, conjuncts + x, empty):
+                yield y
+    else:
+        for y in enumerate_conjunction(rest, limit, conjuncts, empty):
+            yield y
+        for y in enumerate_conjunction(rest, limit, conjuncts + [first],
+                                       False):
+            yield y
+
+def enumerate_disjunction(mod_tree, limit):
+    """Generates the conjuncts for mod_tree that are no longer than limit."""
+    assert isinstance(mod_tree, list)
+    yield []
+    for b in mod_tree:
+        for s in enumerate_conjunction(b, limit):
+            yield s
+
+def get_mod_conjunct_info(mod_tree, limit):
+    def has_N_mod(c):
+        return bool(sum(1 for t in c if t[3] == '['))
+    
+    return [ (conjunct, has_N_mod(conjunct))
+             for conjunct in enumerate_disjunction(mod_tree, limit) ]
+
+
 def search_all(options, fasta_db, db, cleavage_pattern, cleavage_pos,
                score_statistics):
     """Search sequence database against searchable spectra."""
     warning("assuming no N-term mods (???)")
+
+    mod_limit = XTP["scoring, maximum simultaneous modifications searched"]
+    combination_limit \
+        = XTP["scoring, maximum modification combinations searched"]
+
+    mod_conjunct_info = get_mod_conjunct_info(
+        XTP["residue, potential modification mass"], mod_limit)
+    info("%s potential modification conjuncts to search",
+         len(mod_conjunct_info))
+    debug("mod_conjunct_info:\n%s", pformat(mod_conjunct_info))
+
     min_peptide_length = 5
     for idno, offset, defline, seq, seq_filename in db:
         if options.show_progress:
@@ -767,8 +805,8 @@ def search_all(options, fasta_db, db, cleavage_pattern, cleavage_pos,
         cleavage_points = list(generate_cleavage_points(cleavage_pattern,
                                                         cleavage_pos, seq))
 
-        for mass_regime in mass_regimes:
-            score_stats.combinations_searched = 0
+        for mr_index, mass_regime in enumerate(XTP["residue, mass regimes"]):
+            score_statistics.combinations_searched = 0
             for mod_count in range(mod_limit + 1):
                 for has_pca in (False, True):
                     for mod_conjunct, has_N_mod in mod_conjunct_info:
@@ -776,35 +814,17 @@ def search_all(options, fasta_db, db, cleavage_pattern, cleavage_pos,
                             continue    # mutually exclusive, for now
                         for delta_bag in generate_delta_bags(mod_count,
                                                              mod_conjunct):
+                            if (combination_limit
+                                and (combination_limit
+                                     < score_statistics.combinations_searched)):
+                                break
                             base_N_mass = 0
                             base_C_mass = 0
                             delta_mass = 0
-                            cgreylag.spectrum.search_run(XTP["scoring, maximum missed cleavage sites"],
-                                                         min_peptide_length,
-                                                         idno, offset, seq,
-                                                         cleavage_points,
-                                                         score_statistics)
-
-
-
-        # input: regime index (or masses?), PCA?, N base mass, C base mass,
-        #        delta bag, mod descriptor index
-        #   XTP["scoring, maximum missed cleavage sites"],
-        #   min_peptide_length, no_N_term_mods, idno,
-        #   offset, seq, cleavage_points, score_statistics
-
-#         no_N_term_mods = True       # FIX!!!
-# #         cgreylag.spectrum.search_run(XTP["scoring, maximum missed cleavage sites"],
-# #                                      min_peptide_length, no_N_term_mods, idno,
-# #                                      offset, seq, cleavage_points,
-# #                                      score_statistics)
-
-#         cgreylag.spectrum.search_run_all_mods(XTP["scoring, maximum missed cleavage sites"],
-#                                               min_peptide_length,
-#                                               no_N_term_mods, idno,
-#                                               offset, seq,
-#                                               cleavage_points,
-#                                               score_statistics)
+                            cgreylag.spectrum.search_run(
+                                XTP["scoring, maximum missed cleavage sites"],
+                                min_peptide_length, idno, offset, seq,
+                                cleavage_points, mr_index, score_statistics)
 
 
 
@@ -1565,8 +1585,9 @@ def main():
 
     taxonomy = read_taxonomy(XTP["list path, taxonomy information"])
 
-    initialize_spectrum_parameters(options.quirks_mode)
-    #greylag_search.CP = CP
+    fixed_mod_map = dict((r[3], r) for r in XTP["residue, modification mass"])
+    initialize_spectrum_parameters(XTP["residue, mass regimes"], fixed_mod_map,
+                                   options.quirks_mode)
 
     if options.part_split:
         # FIX: clean this up

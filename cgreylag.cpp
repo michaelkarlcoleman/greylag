@@ -1038,6 +1038,7 @@ choose_N_terminal_mod(match &m, chosen ch,
   }
 }
 
+#if NOT_WORKING
 
 // Choose none or one of the (';'-separated) potential modification
 // alternative sets.  In the 'none' case, no explicitly requested potential
@@ -1235,3 +1236,6 @@ spectrum::search_run_all_mods(const int maximum_missed_cleavage_sites,
     }
   }
 }
+
+#endif
+
