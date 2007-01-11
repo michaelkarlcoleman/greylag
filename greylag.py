@@ -781,6 +781,29 @@ def get_mod_conjunct_info(mod_tree, limit):
              for conjunct in enumerate_disjunction(mod_tree, limit) ]
 
 
+def gen_delta_bag(i, remainder, bag):
+    if i < 1:
+        assert i == 0
+        bag[0] = remainder
+        yield tuple(bag)
+        return
+    for delta in range(1, remainder-i+1):
+        bag[i] = delta
+        for x in gen_delta_bag(i-1, remainder-delta, bag):
+            yield x
+
+def generate_delta_bags(mod_count, conjunct_length):
+    """Generate all tuples of positive integers having length conjunct_length
+    and sum mod_count.  As a special case, () is such a tuple having length 0
+    and sum 0.
+    """
+    if conjunct_length == 0:
+        return mod_count == 0 and [()] or []
+    if mod_count < conjunct_length:
+        return []
+    return gen_delta_bag(conjunct_length - 1, mod_count, [0] * conjunct_length)
+
+
 def search_all(options, fasta_db, db, cleavage_pattern, cleavage_pos,
                score_statistics):
     """Search sequence database against searchable spectra."""
@@ -812,19 +835,23 @@ def search_all(options, fasta_db, db, cleavage_pattern, cleavage_pos,
                     for mod_conjunct, has_N_mod in mod_conjunct_info:
                         if has_pca and has_N_mod:
                             continue    # mutually exclusive, for now
+                        debug("mod_count: %s", mod_count)
+                        debug("mod_conjunct: %s", mod_conjunct)
                         for delta_bag in generate_delta_bags(mod_count,
-                                                             mod_conjunct):
+                                                             len(mod_conjunct)):
+                            debug("delta_bag: %s", delta_bag)
                             if (combination_limit
                                 and (combination_limit
                                      < score_statistics.combinations_searched)):
                                 break
+
                             base_N_mass = 0
                             base_C_mass = 0
                             delta_mass = 0
-                            cgreylag.spectrum.search_run(
-                                XTP["scoring, maximum missed cleavage sites"],
-                                min_peptide_length, idno, offset, seq,
-                                cleavage_points, mr_index, score_statistics)
+#                             cgreylag.spectrum.search_run(
+#                                 XTP["scoring, maximum missed cleavage sites"],
+#                                 min_peptide_length, idno, offset, seq,
+#                                 cleavage_points, mr_index, score_statistics)
 
 
 
