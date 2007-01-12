@@ -146,6 +146,11 @@ RESIDUES = sorted(RESIDUE_FORMULA.keys())
 RESIDUES_W_BRACKETS = RESIDUES + ['[', ']']
 
 
+# accessed as a global variable (FIX?)
+# [0][1] -> 'H' -> fragment mass of H for regime 0
+MASS_REGIME_ATOMIC_MASSES = []
+
+
 def mass_regime_atomic_masses(spec):
     """Given a regime spec like ('MONO', [('N15', 0.9)]), return a map of atom
     names to masses.
@@ -181,11 +186,14 @@ def initialize_spectrum_parameters(mass_regimes, fixed_mod_map, quirks_mode):
     CP.proton_mass = PROTON_MASS
     CP.hydrogen_mass = formula_mass("H")
 
+    global MASS_REGIME_ATOMIC_MASSES
     for regime_pair in mass_regimes:
         assert len(regime_pair) == 2    # parent and fragment
         debug('rp: %s', regime_pair)
+        MASS_REGIME_ATOMIC_MASSES.append([])
         for n, regime in enumerate(regime_pair):
             atmass = mass_regime_atomic_masses(regime)
+            MASS_REGIME_ATOMIC_MASSES[-1].append(atmass)
             creg = cgreylag.mass_regime_parameters()
 
             creg.hydroxyl_mass = formula_mass("OH", atmass)
@@ -193,6 +201,7 @@ def initialize_spectrum_parameters(mass_regimes, fixed_mod_map, quirks_mode):
             creg.ammonia_mass = formula_mass("NH3", atmass)
 
             creg.fixed_residue_mass.resize(RESIDUE_LIMIT)
+            
             for r in RESIDUES_W_BRACKETS:
                 m = 0
                 if r in RESIDUES:
@@ -207,6 +216,13 @@ def initialize_spectrum_parameters(mass_regimes, fixed_mod_map, quirks_mode):
                     else:
                         m += rmod[0] * rmod[1]
                 creg.fixed_residue_mass[ord(r)] = m
+            # assuming these are monoisotopic (not regime)
+            creg.fixed_residue_mass[ord('[')] \
+                += (XTP["protein, cleavage N-terminal mass change"]
+                    - CP.hydrogen_mass)
+            creg.fixed_residue_mass[ord(']')] \
+                += (XTP["protein, cleavage C-terminal mass change"]
+                    - creg.hydroxyl_mass)
             if not n:
                 CP.parent_mass_regime.append(creg);
             else:
@@ -358,8 +374,14 @@ def read_xml_parameters(filename):
         for bn in bad_nodes:
             warning("%s: invalid '%s' element (type=%s, label=%s)"
                     % (filename, bn.tag, bn.get('type'), bn.get('label')))
+
+    def clean_value(v):
+        "strip and collapse internal whitespace"
+        if not v:
+            return v
+        return re.sub(r'[\s]+', ' ', v.strip())
     # return just the good nodes
-    return dict((e.get("label"), e.text)
+    return dict((e.get("label"), clean_value(e.text))
                 for e in root.findall('note')
                 if e.get("type") == "input")
 
@@ -424,6 +446,13 @@ def mass_regime_list(mass_regime_list_specification):
             pr = [ pr[0], pr[0] ]
         result.append(pr)
     debug("mass regime list:\n%s", pformat(result))
+
+    # The first fragmentation regime should generally be MONO, so that
+    # formulaic deltas with '!' do the expected thing.
+    if result[0][1] != ('MONO', []):
+        raise ValueError("first fragmentation regime was something other than"
+                         " 'MONO' with no isotopes--this is almost certainly"
+                         " not what was intended")
     return result
 
 
@@ -466,7 +495,7 @@ def parse_mod_term(s, is_potential=False):
 
 def fixed_mod_list(specification):
     """Check and return a list of modification tuples."""
-    if not specification.strip():
+    if not specification:
         return []
     result = [ parse_mod_term(s) for s in specification.split(',') ]
     residues = [ x[3] for x in result ]
@@ -523,7 +552,6 @@ def potential_mod_list(specification):
     even (odd) levels are disjunctions (conjunctions).  (The top list is a
     disjunction.)
     """
-    specification = specification.strip()
     if not specification:
         return []
     tree, remainder = parse_mod_disjunction(specification)
@@ -650,8 +678,6 @@ def validate_parameters(parameters):
         check_fn = len(p_info) > 2 and p_info[2] or None
 
         v = parameters.get(p_name)
-        if isinstance(v, str):
-            v = v.strip()
         if v == None:
             if default != None:
                 debug("parameter '%s' defaulting to '%s'", p_name, default)
@@ -746,6 +772,21 @@ def pythonize_swig_object(o, skip_methods=[]):
     return o
 
 
+def get_pca_table(mass_regimes):
+    """Return a list of tuples (residues, parent delta, fragment delta)
+    describing the PCA possibilities for each mass regime. Residues is a
+    string specifying the residues this PCA delta applies to.
+    """
+    # FIX: According to Xtandem, C is only a candidate for PCA if
+    # carboxyamidomethylated (C+57).  Currently we always search it.
+    return [ [('', 0, 0),
+              ('E', -1 * CP.parent_mass_regime[r].water_mass,
+               -1 * CP.fragment_mass_regime[r].water_mass),
+              ('QC', -1 * CP.parent_mass_regime[r].ammonia_mass,
+               -1 * CP.fragment_mass_regime[r].ammonia_mass)]
+             for r in range(len(mass_regimes)) ]
+
+
 def enumerate_conjunction(mod_tree, limit, conjuncts=[], empty=True):
     if not mod_tree:
         if not empty and len(conjuncts) <= limit:
@@ -773,12 +814,41 @@ def enumerate_disjunction(mod_tree, limit):
         for s in enumerate_conjunction(b, limit):
             yield s
 
-def get_mod_conjunct_info(mod_tree, limit):
-    def has_N_mod(c):
-        return bool(sum(1 for t in c if t[3] == '['))
-    
-    return [ (conjunct, has_N_mod(conjunct))
-             for conjunct in enumerate_disjunction(mod_tree, limit) ]
+def get_mod_conjunct_triples(mod_tree, limit):
+    """Return a triple (N, C, rest), where N (C) is a tuple of at most one N
+    (C) conjunct, and rest is a tuple of conjuncts in a canonical order,
+    ordered by increasing number of conjuncts, and with duplicates within and
+    across removed.  A mass table is also appended to each conjunct.
+    """
+    # FIX: is there a more elegant way or place for all this?
+    def enmass(t):
+        def rmass(regime_index, par_frag, sign, delta, is_mono):
+            global MASS_REGIME_ATOMIC_MASSES
+            if isinstance(delta, str):
+                if is_mono:
+                    regime_index = 0
+                return (sign * formula_mass(delta,
+                            MASS_REGIME_ATOMIC_MASSES[regime_index][par_frag]))
+            else:
+                return sign * delta
+        
+        sign, delta, is_mono = t[:3]
+        return t + (tuple((rmass(r, 0, sign, delta, is_mono),
+                           rmass(r, 1, sign, delta, is_mono))
+                          for r in range(len(XTP["residue, mass regimes"]))),)
+
+    def triple(c):
+        Ns = tuple(frozenset(enmass(x) for x in c if x[3] == '['))
+        Cs = tuple(frozenset(enmass(x) for x in c if x[3] == ']'))
+        assert len(Ns) <= 1 and len(Cs) <= 1
+        rest = [ enmass(x) for x in c if x[3] not in '[]' ]
+        rest = tuple(sorted(list(frozenset(rest))))
+        return (Ns, Cs, rest)
+        
+    return sorted(list(frozenset(triple(conjunct)
+                                 for conjunct
+                                 in enumerate_disjunction(mod_tree, limit))),
+                  key=lambda x: (sum(len(y) for y in x), x))
 
 
 def gen_delta_bag(i, remainder, bag):
@@ -813,11 +883,15 @@ def search_all(options, fasta_db, db, cleavage_pattern, cleavage_pos,
     combination_limit \
         = XTP["scoring, maximum modification combinations searched"]
 
-    mod_conjunct_info = get_mod_conjunct_info(
+    mod_conjunct_triples = get_mod_conjunct_triples(
         XTP["residue, potential modification mass"], mod_limit)
-    info("%s potential modification conjuncts to search",
-         len(mod_conjunct_info))
-    debug("mod_conjunct_info:\n%s", pformat(mod_conjunct_info))
+    info("%s unique potential modification conjuncts",
+         len(mod_conjunct_triples))
+    debug("mod_conjunct_triples (unique):\n%s", pformat(mod_conjunct_triples))
+
+    mass_regimes = XTP["residue, mass regimes"]
+    pca_table = get_pca_table(mass_regimes)
+    debug("pca_table: %s", pca_table)
 
     min_peptide_length = 5
     for idno, offset, defline, seq, seq_filename in db:
@@ -828,26 +902,39 @@ def search_all(options, fasta_db, db, cleavage_pattern, cleavage_pos,
         cleavage_points = list(generate_cleavage_points(cleavage_pattern,
                                                         cleavage_pos, seq))
 
-        for mr_index, mass_regime in enumerate(XTP["residue, mass regimes"]):
+        for mr_index, (mass_regime, pca_entry) in enumerate(zip(mass_regimes,
+                                                                pca_table)):
             score_statistics.combinations_searched = 0
             for mod_count in range(mod_limit + 1):
-                for has_pca in (False, True):
-                    for mod_conjunct, has_N_mod in mod_conjunct_info:
-                        if has_pca and has_N_mod:
+                for pca_res, pca_parent_delta, pca_frag_delta in pca_entry:
+                    for N_cj, C_cj, R_cj in mod_conjunct_triples:
+                        if pca_res and N_cj:
                             continue    # mutually exclusive, for now
                         debug("mod_count: %s", mod_count)
-                        debug("mod_conjunct: %s", mod_conjunct)
+                        debug("cj_triple: N=%s C=%s R=%s", N_cj, C_cj, R_cj)
                         for delta_bag in generate_delta_bags(mod_count,
-                                                             len(mod_conjunct)):
+                                                             len(R_cj)):
                             debug("delta_bag: %s", delta_bag)
                             if (combination_limit
                                 and (combination_limit
                                      < score_statistics.combinations_searched)):
                                 break
+                            
+                            pmrf = CP.parent_mass_regime[mr_index].fixed_residue_mass
+                            fmrf = CP.fragment_mass_regime[mr_index].fixed_residue_mass
+                            p_fx = (pmrf[ord('[')]
+                                    + (N_cj and N_cj[0][5][mr_index][0] or 0)
+                                    + pmrf[ord(']')]
+                                    + (C_cj and C_cj[0][5][mr_index][0] or 0)
+                                    + pca_parent_delta + PROTON_MASS)
+                            f_N_fx = (fmrf[ord('[')]
+                                      + (N_cj and N_cj[0][5][mr_index][1] or 0)
+                                      + pca_frag_delta)
+                            f_C_fx = (fmrf[ord(']')]
+                                      + (C_cj and C_cj[0][5][mr_index][1] or 0)
+                                      + CP.fragment_mass_regime[mr_index].water_mass)
 
-                            base_N_mass = 0
-                            base_C_mass = 0
-                            delta_mass = 0
+
 #                             cgreylag.spectrum.search_run(
 #                                 XTP["scoring, maximum missed cleavage sites"],
 #                                 min_peptide_length, idno, offset, seq,
