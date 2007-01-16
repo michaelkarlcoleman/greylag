@@ -246,7 +246,9 @@ def initialize_spectrum_parameters(mass_regimes, fixed_mod_map, quirks_mode):
     CP.fragment_mass_error = XTP["spectrum, fragment mass error"]
 
     CP.minimum_ion_count = XTP["scoring, minimum ion count"]
+    CP.minimum_peptide_length = 5       # FIX: make XTP param?
     CP.spectrum_synthesis = XTP["refine, spectrum synthesis"]
+    CP.check_all_fragment_charges = XTP["spectrum, check all fragment charges"]
 
     CP.maximum_modification_combinations_searched \
         = XTP["scoring, maximum modification combinations searched"]
@@ -260,8 +262,6 @@ def initialize_spectrum_parameters(mass_regimes, fixed_mod_map, quirks_mode):
 
     CP.quirks_mode = bool(quirks_mode)
     CP.hyper_score_epsilon_ratio = 0.999 # must be slightly less than 1
-
-    CP.check_all_fragment_charges = XTP["spectrum, check all fragment charges"]
 
     if CP.quirks_mode and CP.maximum_modification_combinations_searched == 0:
         CP.maximum_modification_combinations_searched = 1 << 12 # FIX?
@@ -787,23 +787,20 @@ def get_pca_table(mass_regimes):
              for r in range(len(mass_regimes)) ]
 
 
-def enumerate_conjunction(mod_tree, limit, conjuncts=[], empty=True):
+def enumerate_conjunction(mod_tree, limit, conjuncts=[]):
     if not mod_tree:
-        if not empty and len(conjuncts) <= limit:
+        if 0 < len(conjuncts) <= limit:
             yield conjuncts
         return
     first, rest = mod_tree[0], mod_tree[1:]
     if isinstance(first, list):
         for x in enumerate_disjunction(first, limit):
-            if x:
-                empty = False
-            for y in enumerate_conjunction(rest, limit, conjuncts + x, empty):
+            for y in enumerate_conjunction(rest, limit, conjuncts + x):
                 yield y
     else:
-        for y in enumerate_conjunction(rest, limit, conjuncts, empty):
+        for y in enumerate_conjunction(rest, limit, conjuncts):
             yield y
-        for y in enumerate_conjunction(rest, limit, conjuncts + [first],
-                                       False):
+        for y in enumerate_conjunction(rest, limit, conjuncts + [first]):
             yield y
 
 def enumerate_disjunction(mod_tree, limit):
@@ -874,6 +871,24 @@ def generate_delta_bags(mod_count, conjunct_length):
     return gen_delta_bag(conjunct_length - 1, mod_count, [0] * conjunct_length)
 
 
+def set_context_conjuncts(context, mass_regime_index, N_cj, C_cj, R_cj):
+    assert len(N_cj) < 1 and len(C_cj) < 1
+    context.N_delta = 0
+    if N_cj:
+        context.N_delta = N_cj[0][5][mass_regime_index][1]
+    context.C_delta = 0
+    if C_cj:
+        context.C_delta = C_cj[0][5][mass_regime_index][1]
+    context.delta_bag_lookup.clear()
+    context.delta_bag_lookup.resize(ord('Z')+1)
+    context.delta_bag_delta.clear()
+    for n, cj in enumerate(R_cj):
+        context.delta_bag_delta.append(cj[5][mass_regime_index][1])
+        for r in cj[3]:
+            context.delta_bag_lookup[ord(r)] \
+                = context.delta_bag_lookup[ord(r)] + (n,)
+
+
 def search_all(options, fasta_db, db, cleavage_pattern, cleavage_pos,
                score_statistics):
     """Search sequence database against searchable spectra."""
@@ -893,58 +908,69 @@ def search_all(options, fasta_db, db, cleavage_pattern, cleavage_pos,
     pca_table = get_pca_table(mass_regimes)
     debug("pca_table: %s", pca_table)
 
-    min_peptide_length = 5
-    for idno, offset, defline, seq, seq_filename in db:
-        if options.show_progress:
-            sys.stderr.write("\r%s of %s sequences, %s candidates"
-                             % (idno, len(fasta_db),
-                                score_statistics.candidate_spectrum_count))
-        cleavage_points = list(generate_cleavage_points(cleavage_pattern,
-                                                        cleavage_pos, seq))
+    context = cgreylag.search_context()
+    context.maximum_missed_cleavage_sites \
+        = XTP["scoring, maximum missed cleavage sites"]
+    total_combinations_searched = 0
 
+    for mod_count in range(mod_limit + 1):
+        context.mod_count = mod_count
         for mr_index, (mass_regime, pca_entry) in enumerate(zip(mass_regimes,
                                                                 pca_table)):
-            score_statistics.combinations_searched = 0
-            for mod_count in range(mod_limit + 1):
-                for pca_res, pca_parent_delta, pca_frag_delta in pca_entry:
-                    for N_cj, C_cj, R_cj in mod_conjunct_triples:
-                        if pca_res and N_cj:
-                            continue    # mutually exclusive, for now
-                        debug("mod_count: %s", mod_count)
-                        debug("cj_triple: N=%s C=%s R=%s", N_cj, C_cj, R_cj)
-                        for delta_bag in generate_delta_bags(mod_count,
-                                                             len(R_cj)):
-                            debug("delta_bag: %s", delta_bag)
-                            if (combination_limit
-                                and (combination_limit
-                                     < score_statistics.combinations_searched)):
-                                break
-                            
-                            pmrf = CP.parent_mass_regime[mr_index].fixed_residue_mass
-                            fmrf = CP.fragment_mass_regime[mr_index].fixed_residue_mass
-                            p_fx = (pmrf[ord('[')]
-                                    + (N_cj and N_cj[0][5][mr_index][0] or 0)
-                                    + pmrf[ord(']')]
-                                    + (C_cj and C_cj[0][5][mr_index][0] or 0)
-                                    + pca_parent_delta + PROTON_MASS)
-                            f_N_fx = (fmrf[ord('[')]
-                                      + (N_cj and N_cj[0][5][mr_index][1] or 0)
-                                      + pca_frag_delta)
-                            f_C_fx = (fmrf[ord(']')]
-                                      + (C_cj and C_cj[0][5][mr_index][1] or 0)
-                                      + CP.fragment_mass_regime[mr_index].water_mass)
+            context.mass_regime_index = mr_index
+            for pca_res, pca_parent_delta, pca_frag_delta in pca_entry:
+                context.pca_residues = pca_res
+                context.pca_delta = pca_frag_delta
+                for cji, (N_cj, C_cj, R_cj) in enumerate(mod_conjunct_triples):
+                    if pca_res and N_cj:
+                        continue    # mutually exclusive, for now
+                    set_context_conjuncts(context, mr_index, N_cj, C_cj, R_cj)
+                    debug("mod_count: %s", mod_count)
+                    debug("cj_triple: N=%s C=%s R=%s", N_cj, C_cj, R_cj)
+                    for delta_bag in generate_delta_bags(mod_count,
+                                                         len(R_cj)):
+                        debug("delta_bag: %s", delta_bag)
 
+                        # this clear() avoids an SWIG/STL bug!?
+                        context.delta_bag_count.clear()
+                        context.delta_bag_count[:] = delta_bag
 
-#                             cgreylag.spectrum.search_run(
-#                                 XTP["scoring, maximum missed cleavage sites"],
-#                                 min_peptide_length, idno, offset, seq,
-#                                 cleavage_points, mr_index, score_statistics)
+                        pmrf = CP.parent_mass_regime[mr_index].fixed_residue_mass
+                        fmrf = CP.fragment_mass_regime[mr_index].fixed_residue_mass
+                        p_fx = (pmrf[ord('[')]
+                                + (N_cj and N_cj[0][5][mr_index][0] or 0)
+                                + pmrf[ord(']')]
+                                + (C_cj and C_cj[0][5][mr_index][0] or 0)
+                                + pca_parent_delta + PROTON_MASS)
+                        f_N_fx = (fmrf[ord('[')]
+                                  + (N_cj and N_cj[0][5][mr_index][1] or 0)
+                                  + pca_frag_delta)
+                        f_C_fx = (fmrf[ord(']')]
+                                  + (C_cj and C_cj[0][5][mr_index][1] or 0)
+                                  + CP.fragment_mass_regime[mr_index].water_mass)
 
+                        info("MC=%s MR=%s PCA=%s CJ=%s DB=%s"
+                             % (mod_count, mr_index, pca_res, cji, delta_bag))
+                        debug("p_fx %s f_N_fx %s f_C_fx %s"
+                              % (p_fx, f_N_fx, f_C_fx))
+                        for idno, offset, defline, seq, seq_filename in db:
+                            if options.show_progress:
+                                sys.stderr.write("\r%s of %s sequences, %s"
+                                                 " candidates          "
+                                                 % (idno, len(fasta_db),
+                                                    score_statistics.candidate_spectrum_count))
+                            cleavage_points = list(generate_cleavage_points(cleavage_pattern, cleavage_pos, seq))
 
+                            score_statistics.combinations_searched = 0
+                            cgreylag.spectrum.search_run(context, p_fx,
+                                                         f_N_fx, f_C_fx, idno,
+                                                         offset, seq,
+                                                         cleavage_points,
+                                                         score_statistics) 
+                            total_combinations_searched += score_statistics.combinations_searched
 
-
-    if options.show_progress:
-        sys.stderr.write("\r%60s\r" % ' ')
+                        if options.show_progress:
+                            sys.stderr.write("\r%60s\r" % ' ')
 
     info('%s candidate spectra examined',
          score_statistics.candidate_spectrum_count)

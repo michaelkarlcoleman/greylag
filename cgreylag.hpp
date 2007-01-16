@@ -63,6 +63,7 @@ public:
   std::vector<mass_regime_parameters> fragment_mass_regime;
 
   // from XTP
+  // FIX: kill these
   double cleavage_N_terminal_mass_change;
   double cleavage_C_terminal_mass_change;
 
@@ -70,13 +71,35 @@ public:
   double parent_monoisotopic_mass_error_minus;
   double fragment_mass_error;
   int minimum_ion_count;
+  int minimum_peptide_length;
+
   bool spectrum_synthesis;
+  bool check_all_fragment_charges;
 
   long maximum_modification_combinations_searched;
   unsigned int maximum_simultaneous_modifications_searched;
-  bool check_all_fragment_charges;
 
   static parameters the;
+};
+
+
+class search_context {
+public:
+  int mod_count;
+  int mass_regime_index;
+  std::string pca_residues;
+  double pca_delta;
+
+  double N_delta;		// 0 if none
+  double C_delta;		// 0 if none
+  
+  // maps residue char to list of indices for _count/_delta
+  std::vector< std::vector<int> > delta_bag_lookup;
+  std::vector<double> delta_bag_delta;
+  std::vector<double> delta_bag_count;
+
+  // general search parameters
+  int maximum_missed_cleavage_sites;
 };
 
 
@@ -221,6 +244,18 @@ public:
 				  score_stats &stats);
 #endif
 
+  // Search a run for matches according to the context against the spectra.
+  // Updates score_stats and the number of candidate spectra found.
+  static void search_run(const search_context context,
+			 const double parent_fixed_mass,
+			 const double fragment_N_fixed_mass,
+			 const double fragment_C_fixed_mass,
+			 const int idno,
+			 const int offset, const std::string &run_sequence,
+			 const std::vector<int> cleavage_points,
+			 score_stats &stats);
+
+
   // exposed for tinkering
   static double score_similarity(const spectrum &x, const spectrum &y,
 				 int *peak_count);
@@ -310,9 +345,8 @@ public:
   bool all_spectra_masses_too_high;
   bool all_spectra_masses_too_low;
   
-  // this is used to implement xtandem's search limit (quirks mode only)
+  // for reporting, and to implement something like xtandem's search limit
   int combinations_searched;
-  
 };
 
 

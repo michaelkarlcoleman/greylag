@@ -887,6 +887,7 @@ evaluate_peptide_mod_variation(match &m, const mass_trace_list *mtlp,
 
 // IDEA FIX: Use a cost parameter to define the iterative search front.
 
+#if NOT_WORKING
 
 // These values are used to keep track of the choices made so far (because
 // later choices may depend on earlier ones).
@@ -1038,7 +1039,6 @@ choose_N_terminal_mod(match &m, chosen ch,
   }
 }
 
-#if NOT_WORKING
 
 // Choose none or one of the (';'-separated) potential modification
 // alternative sets.  In the 'none' case, no explicitly requested potential
@@ -1239,3 +1239,40 @@ spectrum::search_run_all_mods(const int maximum_missed_cleavage_sites,
 
 #endif
 
+
+
+// Search a run for matches according to the context against the spectra.
+// Updates score_stats and the number of candidate spectra found.
+
+void
+spectrum::search_run(const search_context context,
+		     const double parent_fixed_mass,
+		     const double fragment_N_fixed_mass,
+		     const double fragment_C_fixed_mass,
+		     const int idno, const int offset,
+		     const std::string &run_sequence,
+		     const std::vector<int> cleavage_points,
+		     score_stats &stats) {
+
+  // This match will be passed inward and used to record information that we
+  // need to remember about a match when we finally see one.  At that point, a
+  // copy of this match will be saved.
+  match m;			// FIX: move inward?
+  m.sequence_index = idno;
+  m.sequence_offset = offset;
+
+  // FIX: examine carefully for signed/unsigned problems
+
+  // The rightmost 'end' seen where 'all_spectra_masses_too_high' was true.
+  // (0 means none yet encountered.)
+  unsigned int next_end = 0;
+
+  // FIX: optimize the non-specific cleavage case?
+  for (unsigned int begin=0; begin<cleavage_points.size()-1; begin++) {
+    const int begin_index = m.peptide_begin = cleavage_points[begin];
+    unsigned int end = begin + 1;
+    if (no_N_term_mods)
+      if (next_end != 0)
+	end = std::max<unsigned int>(end, next_end);
+
+}
