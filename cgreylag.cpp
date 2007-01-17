@@ -69,6 +69,10 @@ std::vector<spectrum> spectrum::searchable_spectra;
 std::multimap<double,
 	      std::vector<spectrum>::size_type> spectrum::spectrum_mass_index;
 
+typedef
+  std::multimap<double, std::vector<spectrum>::size_type>::const_iterator
+  spmi_c_it;			// ugh
+
 
 char *
 spectrum::__repr__() const {
@@ -524,14 +528,9 @@ static inline void
 get_synthetic_Y_mass_ladder(std::vector<peak> &mass_ladder,
 			    const std::string &peptide_seq,
 			    const std::vector<double> &mass_list,
-			    const double C_terminal_mass,
-			    const unsigned mass_regime=0) NOTHROW {
-  const parameters &CP = parameters::the;
+			    const double fragment_C_fixed_mass) NOTHROW {
   assert(peptide_seq.size() == mass_list.size());
-  double m = (CP.fragment_mass_regime[mass_regime].water_mass
-	      + (CP.cleavage_C_terminal_mass_change
-		 - CP.fragment_mass_regime[mass_regime].hydroxyl_mass)
-	      + C_terminal_mass);
+  double m = fragment_C_fixed_mass;
 
   const int ladder_size = mass_ladder.size();
   for (int i=ladder_size-1; i>=0; i--) {
@@ -548,11 +547,8 @@ static inline void
 get_synthetic_B_mass_ladder(std::vector<peak> &mass_ladder,
 			    const std::string &peptide_seq,
 			    const std::vector<double> &mass_list,
-			    const double N_terminal_mass,
-			    const unsigned mass_regime=0) NOTHROW {
-  const parameters &CP = parameters::the;
-  double m = (0.0 + (CP.cleavage_N_terminal_mass_change - CP.hydrogen_mass)
-	      + N_terminal_mass);
+			    const double fragment_N_fixed_mass) NOTHROW {
+  double m = fragment_N_fixed_mass;
 
   const int ladder_size = mass_ladder.size();
   for (int i=0; i<=ladder_size-1; i++) {
@@ -566,9 +562,10 @@ get_synthetic_B_mass_ladder(std::vector<peak> &mass_ladder,
 
 static inline void
 synthetic_spectra(spectrum synth_sp[/* max_fragment_charge+1 */][ION_MAX],
-		  const std::string &peptide_seq, const double peptide_mass,
+		  const std::string &peptide_seq,
 		  const std::vector<double> &mass_list,
-		  const double N_terminal_mass, const double C_terminal_mass,
+		  const double fragment_N_fixed_mass,
+		  const double fragment_C_fixed_mass,
 		  const double max_fragment_charge) NOTHROW {
   std::vector<peak> mass_ladder(mass_list.size()-1);
 
@@ -576,11 +573,11 @@ synthetic_spectra(spectrum synth_sp[/* max_fragment_charge+1 */][ION_MAX],
     switch (ion_type) {
     case ION_Y:
       get_synthetic_Y_mass_ladder(mass_ladder, peptide_seq, mass_list,
-				  C_terminal_mass);
+				  fragment_C_fixed_mass);
       break;
     case ION_B:
       get_synthetic_B_mass_ladder(mass_ladder, peptide_seq, mass_list,
-				  N_terminal_mass);
+				  fragment_N_fixed_mass);
       break;
     default:
       assert(false);
@@ -591,7 +588,7 @@ synthetic_spectra(spectrum synth_sp[/* max_fragment_charge+1 */][ION_MAX],
 
     for (int charge=1; charge<=max_fragment_charge; charge++) {
       spectrum &sp = synth_sp[charge][ion_type];
-      sp.mass = peptide_mass;
+      //sp.mass = fragment_peptide_mass;
       sp.charge = charge;
       sp.peaks.resize(mass_ladder.size());
       for (std::vector<peak>::size_type i=0; i<mass_ladder.size(); i++) {
@@ -636,14 +633,8 @@ score_similarity_(const spectrum &x, const spectrum &y,
       *peak_count += 1;
       score += (x_it->intensity * y_it->intensity);
       //std::cerr << "hit " << x_mz << " vs " << y_mz << ", i = " << x_it->intensity * y_it->intensity << std::endl;
-#if 0
-      // assume peaks aren't "close" together
-      x_it++;
-      y_it++;
-      continue;
-#endif
     }
-    if (delta > 0)		// y_mz > x_mz
+    if (delta > 0)
       x_it++;
     else
       y_it++;
@@ -727,19 +718,19 @@ struct mass_trace_list {
 // against the spectra.  Updates score_stats and returns the number of
 // candidate spectra found.
 static inline void
-evaluate_peptide_mod_variation(match &m, const mass_trace_list *mtlp,
-			       const std::vector<double> &mass_list,
-			       const double N_terminal_mass,
-			       const double C_terminal_mass,
-			       score_stats &stats) NOTHROW {
+evaluate_peptide(const search_context &context, match &m,
+		 const mass_trace_list *mtlp,
+		 const std::vector<double> &mass_list,
+		 const double fragment_N_fixed_mass,
+		 const double fragment_C_fixed_mass,
+		 const spmi_c_it &candidate_spectra_info_begin,
+		 const spmi_c_it &candidate_spectra_info_end,
+		 score_stats &stats) NOTHROW {
   const parameters &CP = parameters::the;
   assert(m.peptide_sequence.size() == mass_list.size());
 
-  ### deletion ###
-
   int max_candidate_charge = 0;
-  for (std::multimap<double, std::vector<spectrum>::size_type>::const_iterator
-	 it=candidate_spectra_info_begin;
+  for (spmi_c_it it=candidate_spectra_info_begin;
        it != candidate_spectra_info_end; it++)
     max_candidate_charge
       = std::max<int>(max_candidate_charge,
@@ -753,11 +744,11 @@ evaluate_peptide_mod_variation(match &m, const mass_trace_list *mtlp,
   // e.g. +2 -> 'B' -> spectrum
   // FIX: should this be a std::vector??
   static spectrum synth_sp[spectrum::max_supported_charge+1][ION_MAX];
-  synthetic_spectra(synth_sp, m.peptide_sequence, m.peptide_mass, mass_list,
-		    N_terminal_mass, C_terminal_mass, max_fragment_charge);
+  synthetic_spectra(synth_sp, m.peptide_sequence, mass_list,
+		    fragment_N_fixed_mass, fragment_C_fixed_mass,
+		    max_fragment_charge);
 
-  for (std::multimap<double, std::vector<spectrum>::size_type>::const_iterator
-	 candidate_it = candidate_spectra_info_begin;
+  for (spmi_c_it candidate_it = candidate_spectra_info_begin;
        candidate_it != candidate_spectra_info_end; candidate_it++) {
     m.spectrum_index = candidate_it->second;
     stats.candidate_spectrum_count++;
@@ -837,13 +828,7 @@ evaluate_peptide_mod_variation(match &m, const mass_trace_list *mtlp,
 
 // IDEA FIX: Use a cost parameter to define the iterative search front.
 
-#if NOT_WORKING
-
-// These values are used to keep track of the choices made so far (because
-// later choices may depend on earlier ones).
-enum chosen { CHOSEN_NONE, CHOSEN_PCA };
-
-
+#if 0
 // Choose a possible residue modification.
 static inline void
 choose_residue_mod(match &m,
@@ -895,12 +880,36 @@ choose_residue_mod(match &m,
     }
   }
 }
-
 #endif
+
+// p_begin (p_end) to begin_index (end_index), updating p_mass in the process.
+// The sign determines whether mass increases or decreases as p_begin (p_end)
+// is moved forward--so it should be -1 for the begin case and +1 for the end
+// case.
+// FIX: is this worth its complexity?
+static inline void
+update_p_mass(double &p_mass, unsigned int &p_begin, int begin_index, int sign,
+	      const std::string &run_sequence,
+	      const std::vector<double> &fixed_residue_mass) {
+  assert(sign == +1 or sign == -1);
+  assert(begin_index >= 0);
+  const bool moving_forward = begin_index - p_begin > 0;
+  int p0=p_begin, p1=begin_index;
+  if (not moving_forward) {
+    std::swap<int>(p0, p1);
+    sign = -sign;
+  }
+  for (int i=p0; i<p1; i++)
+    p_mass += sign * fixed_residue_mass[run_sequence[i]];
+  p_begin = begin_index;
+}
+
 
 
 // Search a run for matches according to the context against the spectra.
 // Updates score_stats and the number of candidate spectra found.
+
+// FIX: examine carefully for signed/unsigned problems
 
 void
 spectrum::search_run(const search_context context,
@@ -911,6 +920,11 @@ spectrum::search_run(const search_context context,
 		     const std::string &run_sequence,
 		     const std::vector<int> cleavage_points,
 		     score_stats &stats) {
+  const parameters &CP = parameters::the;
+  const int min_peptide_length = std::max<int>(CP.minimum_peptide_length,
+					       context.mod_count);
+  const std::vector<double> &fixed_parent_mass \
+    = CP.parent_mass_regime[context.mass_regime_index].fixed_residue_mass;
 
   // This match will be passed inward and used to record information that we
   // need to remember about a match when we finally see one.  At that point, a
@@ -919,83 +933,86 @@ spectrum::search_run(const search_context context,
   m.sequence_index = idno;
   m.sequence_offset = offset;
 
-  // FIX: examine carefully for signed/unsigned problems
-
-  // The rightmost 'end' seen where 'all_spectra_masses_too_high' was true.
+  // the rightmost 'end' seen when all spectra masses were too high
   // (0 means none yet encountered.)
   unsigned int next_end = 0;
 
   // p_mass is the parent mass of the peptide run_sequence[p_begin:p_end]
   double p_mass = parent_fixed_mass;
-  unsigned p_begin=0, p_end=0;
+  unsigned int p_begin=0, p_end=0;
 
   // FIX: optimize the non-specific cleavage case?
   for (unsigned int begin=0; begin<cleavage_points.size()-1; begin++) {
     const int begin_index = m.peptide_begin = cleavage_points[begin];
-    unsigned int end = begin + 1;
-    if (next_end != 0)
-      end = std::max<unsigned int>(end, next_end);
+    if (not context.pca_residues.empty())
+      if (context.pca_residues.find(run_sequence[begin_index])
+	  == std::string::npos)
+	continue;
+    update_p_mass(p_mass, p_begin, begin_index, -1, run_sequence,
+		  fixed_parent_mass);
+    unsigned int end = std::max<unsigned int>(begin + 1, next_end);
     for (; end<cleavage_points.size(); end++) {
       m.missed_cleavage_count = end - begin - 1;
-      if (m.missed_cleavage_count > maximum_missed_cleavage_sites)
+      if (m.missed_cleavage_count > context.maximum_missed_cleavage_sites)
 	break;
 
       const int end_index = cleavage_points[end];
       const int peptide_size = end_index - begin_index;
+      assert(peptide_size > 0);
       if (peptide_size < min_peptide_length)
 	continue;
+      update_p_mass(p_mass, p_end, end_index, +1, run_sequence,
+		    fixed_parent_mass);
 
+      double sp_mass_lb = p_mass + CP.parent_monoisotopic_mass_error_minus;
+      double sp_mass_ub = p_mass + CP.parent_monoisotopic_mass_error_plus;
 
-      // FIX: from eval
-      m.peptide_mass = get_peptide_mass(mass_list, N_terminal_mass,
-					C_terminal_mass);
-      double sp_mass_lb = m.peptide_mass + CP.parent_monoisotopic_mass_error_minus;
-      double sp_mass_ub = m.peptide_mass + CP.parent_monoisotopic_mass_error_plus;
-
-      const std::multimap<double, std::vector<spectrum>::size_type>::const_iterator
-	candidate_spectra_info_begin
+      const spmi_c_it candidate_spectra_info_begin
 	= spectrum::spectrum_mass_index.lower_bound(sp_mass_lb);
       if (candidate_spectra_info_begin == spectrum::spectrum_mass_index.end()) {
-	all_spectra_masses_too_high = false;
-	continue;			// spectrum masses all too low to match peptide
+	// spectrum masses all too low to match peptide (peptide too long)
+	break;
       }
-      all_spectra_masses_too_low = false;
 
-      const std::multimap<double, std::vector<spectrum>::size_type>::const_iterator
-	candidate_spectra_info_end
+      const spmi_c_it candidate_spectra_info_end
 	= spectrum::spectrum_mass_index.upper_bound(sp_mass_ub);
       if (candidate_spectra_info_end == spectrum::spectrum_mass_index.begin()) {
-	continue;			// spectrum masses all too high to match peptide
+	// spectrum masses all too high to match peptide
+	// (peptide is too short, so increase end, if possible, else return)
+	if (end == cleavage_points.size() - 1)
+	  return;
+	next_end = end;
+	continue;
       }
-      all_spectra_masses_too_high = false;
-
       if (candidate_spectra_info_begin == candidate_spectra_info_end) {
-	continue;			// no spectrum with close-enough parent mass
+	// no spectrum with close-enough parent mass
+	continue;
       }
 
+      m.parent_peptide_mass = p_mass;
+      //m.fragment_peptide_mass = ???;  unneeded???
   
-      // these tell us whether we should keep extending the current peptide,
-      // and how to choose a new start point
-      bool all_spectra_masses_too_high = true;
-      bool all_spectra_masses_too_low = true;
       m.peptide_sequence.assign(run_sequence, begin_index, peptide_size);
       //std::cerr << "peptide: " << m.peptide_sequence << std::endl;
       std::vector<double> mass_list(peptide_size);
 
-      choose_mass_regime(m, mass_list, N_terminal_mass, C_terminal_mass,
-			 stats);
-
-      // FIX: double-check that these work right even with negative potential
-      // mod deltas!
-      assert(not (all_spectra_masses_too_high
-		  and all_spectra_masses_too_low));
-      if (all_spectra_masses_too_high) {
-	if (end == cleavage_points.size() - 1)
-	  return;
-	next_end = end;
-      } else if (all_spectra_masses_too_low) {
-	break;
-      }
+      if (context.mod_count == 0)
+	evaluate_peptide(context, m, NULL, mass_list, fragment_N_fixed_mass,
+			 fragment_C_fixed_mass, candidate_spectra_info_begin,
+			 candidate_spectra_info_end, stats);
+      else
+	assert(0);
+#if 0
+      // FIX: just run both cases through this?
+	choose_residue_mod(context, m,
+		   const std::vector< std::vector<double> > &pmm,
+		   &mtlp, mass_list,
+			   fragment_N_fixed_mass, fragment_C_fixed_mass,
+			   stats,
+		   const unsigned remaining_residues_to_choose,
+		   const unsigned number_of_positions_to_consider,
+		   const int *const mod_positions_to_consider);
+#endif
     }
   }
 }

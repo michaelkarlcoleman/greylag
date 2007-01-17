@@ -24,7 +24,6 @@
 
 #include <cassert>
 #include <cstdio>
-//#include <list>
 #include <map>
 #include <vector>
 #include <stdexcept>
@@ -226,24 +225,6 @@ public:
   // also build spectrum_mass_index.
   static void set_searchable_spectra(const std::vector<spectrum> &spectra);
 
-#if NOT_WORKING
-  static void search_peptide_all_mods(int idno, int offset, int begin,
-				      const std::string &peptide_seq,
-				      int missed_cleavage_count,
-				      score_stats &stats);
-
-  // Search for matches of all modification variations of peptides in this
-  // sequence run against the spectra.  Updates score_stats and the number of
-  // candidate spectra found.
-  static void search_run_all_mods(const int maximum_missed_cleavage_sites,
-				  const int min_peptide_length,
-				  const bool no_N_term_mods,
-				  const int idno, const int offset,
-				  const std::string &run_sequence,
-				  const std::vector<int> cleavage_points,
-				  score_stats &stats);
-#endif
-
   // Search a run for matches according to the context against the spectra.
   // Updates score_stats and the number of candidate spectra found.
   static void search_run(const search_context context,
@@ -277,13 +258,10 @@ public:
 };
 
 
-enum position { POSITION_NTERM=-3, POSITION_CTERM=-2, POSITION_WHOLE=-1 };
-
 struct mass_trace_item {
-  int position;			// enum position or 0..N
-  double delta;			// 0 means delta is implied (i.e., for the
-				// mass regime)
-  const char *description;
+  int position;
+  double delta;
+  int id;			// FIX
 };
 
 
@@ -301,14 +279,14 @@ public:
   int spectrum_index;
   int peptide_begin;
   std::string peptide_sequence;
-  double peptide_mass;
+  double parent_peptide_mass;
+  //double fragment_peptide_mass;
   int sequence_index;
   int sequence_offset;
-  int mass_regime;
   std::vector<mass_trace_item> mass_trace;
 
   match() : hyper_score(-1), convolution_score(-1), missed_cleavage_count(-1),
-	    spectrum_index(-1), peptide_begin(-1), peptide_mass(-1),
+	    spectrum_index(-1), peptide_begin(-1), parent_peptide_mass(-1),
 	    sequence_index(-1), sequence_offset(-1) {
     ion_scores.resize(ION_MAX);
     ion_peaks.resize(ION_MAX);
@@ -338,8 +316,6 @@ public:
   std::vector< std::vector<match> > best_match;
   unsigned long long candidate_spectrum_count; // may be > 2^32
 
-  // scratch variables:
-  
   // for reporting, and to implement something like xtandem's search limit
   int combinations_searched;
 };

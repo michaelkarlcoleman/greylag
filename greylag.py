@@ -228,11 +228,18 @@ def initialize_spectrum_parameters(mass_regimes, fixed_mod_map, quirks_mode):
             else:
                 CP.fragment_mass_regime.append(creg);
     for r in RESIDUES_W_BRACKETS:
-        debug('fixed_mass %s: %s', r,
-              [ "%.6f/%.6f"
-                % (CP.parent_mass_regime[rn].fixed_residue_mass[ord(r)],
-                   CP.fragment_mass_regime[rn].fixed_residue_mass[ord(r)])
-                for rn in range(len(mass_regimes)) ])
+        info('fixed_mass %s: %s', r,
+             [ "%.6f/%.6f"
+               % (CP.parent_mass_regime[rn].fixed_residue_mass[ord(r)],
+                  CP.fragment_mass_regime[rn].fixed_residue_mass[ord(r)])
+               for rn in range(len(mass_regimes)) ])
+    for r in RESIDUES:
+        for rn in range(len(mass_regimes)):
+            # physically impossible (and results would be garbage)
+            if CP.parent_mass_regime[rn].fixed_residue_mass[ord(r)] < 1.0:
+                raise ValueError('bogus parent mass specification for %s' % r)
+            if CP.fragment_mass_regime[rn].fixed_residue_mass[ord(r)] < 1.0:
+                raise ValueError('bogus parent mass specification for %s' % r)
     
     CP.cleavage_N_terminal_mass_change \
         = XTP["protein, cleavage N-terminal mass change"]
@@ -897,7 +904,6 @@ def set_context_conjuncts(context, mass_regime_index, N_cj, C_cj, R_cj):
 def search_all(options, fasta_db, db, cleavage_pattern, cleavage_pos,
                score_statistics):
     """Search sequence database against searchable spectra."""
-    warning("assuming no N-term mods (???)")
 
     mod_limit = XTP["scoring, maximum simultaneous modifications searched"]
     combination_limit \
