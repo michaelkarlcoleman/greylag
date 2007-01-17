@@ -340,11 +340,6 @@ public:
 
   // scratch variables:
   
-  // These tell us whether we should keep extending the current peptide, and
-  // how to choose a new start point
-  bool all_spectra_masses_too_high;
-  bool all_spectra_masses_too_low;
-  
   // for reporting, and to implement something like xtandem's search limit
   int combinations_searched;
 };

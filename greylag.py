@@ -771,6 +771,11 @@ def pythonize_swig_object(o, skip_methods=[]):
         return s
     return o
 
+# A possible PCA (pyrrolidone carboxyl acid) modification accounts for
+# circularization of the peptide N-terminal.  PCA mods are excluded if a
+# static N-terminal mod has been specified.  Likewise, choosing a PCA mod will
+# exclude choosing a potential N-terminal mod.  (The PCA mod for 'C' is
+# dependent on a static mod of C+57 being in effect.)
 
 def get_pca_table(mass_regimes):
     """Return a list of tuples (residues, parent delta, fragment delta)

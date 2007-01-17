@@ -715,20 +715,6 @@ double
 scale_hyperscore(double hyper_score) { return scale_hyperscore_(hyper_score); }
 
 
-static inline double
-get_peptide_mass(const std::vector<double> &mass_list,
-		 const double N_terminal_mass,
-		 const double C_terminal_mass) NOTHROW {
-  const parameters &CP = parameters::the;
-
-  double m = (N_terminal_mass + C_terminal_mass
-	      + CP.cleavage_N_terminal_mass_change
-	      + CP.cleavage_C_terminal_mass_change
-	      + CP.proton_mass);
-  return std::accumulate(mass_list.begin(), mass_list.end(), m);
-}
-
-
 struct mass_trace_list {
   mass_trace_item item;
   const mass_trace_list *next;
@@ -736,11 +722,6 @@ struct mass_trace_list {
   mass_trace_list(const mass_trace_list *p=0) : next(p) { }
 };
 
-
-// FIX: currently only one mass_list is implemented, meaning that parent and
-// fragment masses must be the same (e.g., mono/mono).  A workaround is to
-// just increase the parent error plus a bit (the xtandem default seems to
-// already do this).
 
 // Search for matches of this particular peptide modification variation
 // against the spectra.  Updates score_stats and returns the number of
@@ -754,36 +735,7 @@ evaluate_peptide_mod_variation(match &m, const mass_trace_list *mtlp,
   const parameters &CP = parameters::the;
   assert(m.peptide_sequence.size() == mass_list.size());
 
-  m.peptide_mass = get_peptide_mass(mass_list, N_terminal_mass,
-				    C_terminal_mass);
-  double sp_mass_lb = m.peptide_mass + CP.parent_monoisotopic_mass_error_minus;
-  double sp_mass_ub = m.peptide_mass + CP.parent_monoisotopic_mass_error_plus;
-
-  const std::multimap<double, std::vector<spectrum>::size_type>::const_iterator
-    candidate_spectra_info_begin
-    = spectrum::spectrum_mass_index.lower_bound(sp_mass_lb);
-  if (candidate_spectra_info_begin == spectrum::spectrum_mass_index.end()) {
-    stats.all_spectra_masses_too_high = false;
-    std::cerr << 'l';
-    return;			// spectrum masses all too low to match peptide
-  }
-  stats.all_spectra_masses_too_low = false;
-
-  const std::multimap<double, std::vector<spectrum>::size_type>::const_iterator
-    candidate_spectra_info_end
-    = spectrum::spectrum_mass_index.upper_bound(sp_mass_ub);
-  if (candidate_spectra_info_end == spectrum::spectrum_mass_index.begin()) {
-    std::cerr << 'h';
-    return;			// spectrum masses all too high to match peptide
-  }
-  stats.all_spectra_masses_too_high = false;
-
-  if (candidate_spectra_info_begin == candidate_spectra_info_end) {
-    std::cerr << '-';
-    return;			// no spectrum with close-enough parent mass
-  }
-
-  std::cerr << '+';
+  ### deletion ###
 
   int max_candidate_charge = 0;
   for (std::multimap<double, std::vector<spectrum>::size_type>::const_iterator
@@ -849,11 +801,11 @@ evaluate_peptide_mod_variation(match &m, const mass_trace_list *mtlp,
     // multiple proteins.
 
     // To avoid the problems that xtandem has with inexact float-point
-    // calculations, we consider hyperscores within the "epsilon ratio" to
-    // be "equal".  The best_match vector will need to be re-screened
-    // against this ratio, because it may finally contain entries which
-    // don't meet our criterion.  (We don't take the time to get it exactly
-    // right here, because we will often end up discarding it all anyway.)
+    // calculations, we consider hyperscores within the "epsilon ratio" to be
+    // "equal".  The best_match vector will need to be re-screened against
+    // this ratio, because it may finally contain entries which don't meet our
+    // criterion.  (We don't take the time to get it exactly right here,
+    // because we will often end up discarding these later anyway.)
 
     const double current_ratio = (m.hyper_score
 				  / stats.best_score[m.spectrum_index]);
@@ -882,8 +834,6 @@ evaluate_peptide_mod_variation(match &m, const mass_trace_list *mtlp,
   }
 }
 
-
-// The choose_* functions generate the different modification possibilities.
 
 // IDEA FIX: Use a cost parameter to define the iterative search front.
 
@@ -946,299 +896,7 @@ choose_residue_mod(match &m,
   }
 }
 
-
-// Choose the number of modified residue positions.  Start with zero and count
-// up to the maximum number (which is not greater than the length of the
-// peptide).
-static inline void
-choose_residue_mod_count(match &m,
-			 const std::vector< std::vector<double> > &pmm,
-			 const mass_trace_list *mtlp,
-			 std::vector<double> &mass_list,
-			 const double N_terminal_mass,
-			 const double C_terminal_mass,
-			 score_stats &stats) NOTHROW {
-  const parameters &CP = parameters::the;
-  int mod_positions[m.peptide_sequence.size()+1];
-  unsigned int max_count=0;
-  for (unsigned i=0; i<m.peptide_sequence.size(); i++)
-    if (not pmm[m.peptide_sequence[i]].empty())
-      mod_positions[max_count++] = i;
-  mod_positions[max_count] = -1;
-  stats.combinations_searched = 0;
-
-  unsigned count_limit = max_count;
-  if (CP.maximum_simultaneous_modifications_searched > 0)
-    count_limit = std::min<unsigned int>(count_limit,
-					 CP.maximum_simultaneous_modifications_searched);
-
-  // start at one because the zero case is handled by
-  // choose_potential_mod_alternative below (!)
-  for (unsigned count=1; count <= count_limit; count++)
-    choose_residue_mod(m, pmm, mtlp, mass_list, N_terminal_mass,
-		       C_terminal_mass, stats, count, max_count, 
-		       mod_positions); 
-}
-
-
-// FIX: Is there some clear and efficient way to treat terminal mods in the
-// same way as residue mods?  Or, alternatively, is it possible to gracefully
-// merge the two choose_?_terminal_mod functions?
-
-// Choose a possible peptide C-terminal modification.
-static inline void
-choose_C_terminal_mod(match &m,
-		      const std::vector< std::vector<double> > &pmm,
-		      const mass_trace_list *mtlp,
-		      std::vector<double> &mass_list,
-		      const double N_terminal_mass,
-		      const double C_terminal_mass,
-		      score_stats &stats) NOTHROW {
-  choose_residue_mod_count(m, pmm, mtlp, mass_list, N_terminal_mass,
-			   C_terminal_mass, stats);
-
-  mass_trace_list mtl(mtlp);
-  mtl.item.position = POSITION_CTERM;
-  const std::vector<double> &C_deltas = pmm[']'];
-
-  for (std::vector<double>::const_iterator it=C_deltas.begin();
-       it != C_deltas.end(); it++) {
-    mtl.item.delta = *it;
-    mtl.item.description = "C-terminal mod"; // FIX
-    choose_residue_mod_count(m, pmm, &mtl, mass_list, N_terminal_mass,
-			     C_terminal_mass+*it, stats);
-  }
-}
-
-
-// Choose a possible peptide N-terminal modification, unless a PCA mod has
-// already been chosen.
-static inline void
-choose_N_terminal_mod(match &m, chosen ch,
-		      const std::vector< std::vector<double> > &pmm,
-		      const mass_trace_list *mtlp,
-		      std::vector<double> &mass_list,
-		      const double N_terminal_mass,
-		      const double C_terminal_mass,
-		      score_stats &stats) NOTHROW {
-  choose_C_terminal_mod(m, pmm, mtlp, mass_list, N_terminal_mass,
-			C_terminal_mass, stats);
-
-  if (ch == CHOSEN_PCA)
-    return;
-  mass_trace_list mtl(mtlp);
-  mtl.item.position = POSITION_NTERM;
-  const std::vector<double> &N_deltas = pmm['['];
-
-  for (std::vector<double>::const_iterator it=N_deltas.begin();
-       it != N_deltas.end(); it++) {
-    mtl.item.delta = *it;
-    mtl.item.description = "N-terminal mod"; // FIX
-    choose_C_terminal_mod(m, pmm, &mtl, mass_list, N_terminal_mass+*it,
-			  C_terminal_mass, stats);
-  }
-}
-
-
-// Choose none or one of the (';'-separated) potential modification
-// alternative sets.  In the 'none' case, no explicitly requested potential
-// mods will be chosen, but PCA mods (above) will still be searched.  If an
-// alternative set is chosen, at least one explicit mod must be chosen, to
-// avoid overlap with the 'none' case.
-static inline void
-choose_potential_mod_alternative(match &m, chosen ch,
-				 const mass_trace_list *mtlp,
-				 std::vector<double> &mass_list,
-				 const double N_terminal_mass,
-				 const double C_terminal_mass,
-				 score_stats &stats) NOTHROW { 
-  const parameters &CP = parameters::the;
-
-  // the 'none' case--jump over the rest of the choose_*, since in this case
-  // they choose nothing
-  evaluate_peptide_mod_variation(m, mtlp, mass_list, N_terminal_mass,
-				 C_terminal_mass, stats);
-
-  const mass_regime_parameters &mrp = CP.fragment_mass_regime[m.mass_regime];
-  const std::vector< std::vector< std::vector<double> > > &alts
-    = mrp.potential_modification_mass;
-
-  for (std::vector< std::vector< std::vector<double> > >::const_iterator
-	 it=alts.begin();
-       it != alts.end(); it++)
-    choose_N_terminal_mod(m, ch, *it, mtlp, mass_list, N_terminal_mass,
-			  C_terminal_mass, stats);
-}
-
-
-// Choose a possible modification to account for PCA (pyrrolidone carboxyl
-// acid) circularization of the peptide N-terminal.  PCA mods are excluded if
-// a static N-terminal mod has been specified.  Likewise, choosing a PCA mod
-// will exclude choosing a potential N-terminal mod.  (The PCA mod for 'C' is
-// dependent on a static mod of C+57 being in effect.)
-static inline void
-choose_PCA_mod(match &m, const mass_trace_list *mtlp,
-	       std::vector<double> &mass_list,
-	       const double N_terminal_mass,
-	       const double C_terminal_mass, score_stats &stats) NOTHROW {
-  const parameters &CP = parameters::the;
-
-  choose_potential_mod_alternative(m, CHOSEN_NONE, mtlp, mass_list,
-				   N_terminal_mass, C_terminal_mass, stats);
-
-  mass_trace_list mtl(mtlp);
-  mtl.item.position = POSITION_NTERM;
-  const mass_regime_parameters &mrp = CP.fragment_mass_regime[m.mass_regime];
-
-  // now try a possible PCA mod, if there is one
-  // FIX: somehow xtandem generates these twice??
-  if (mrp.modification_mass['['] == 0)
-    switch (m.peptide_sequence[0]) {
-    case 'E':
-      mtl.item.delta = -mrp.water_mass;
-      mtl.item.description = "PCA";
-      choose_potential_mod_alternative(m, CHOSEN_PCA, &mtl, mass_list,
-				       N_terminal_mass - mrp.water_mass,
-				       C_terminal_mass, stats);
-      break;
-    case 'C': {
-      // FIX: need better test for C+57? (symbolic?)
-      const double C_mod = mrp.modification_mass['C'];
-      if (CP.quirks_mode ? int(C_mod) != 57 : std::abs(C_mod - 57) > 0.5)
-	break;		// skip unless C+57
-      // else fall through...
-    }
-    case 'Q':
-      mtl.item.delta = -mrp.ammonia_mass;
-      mtl.item.description = "PCA";
-      choose_potential_mod_alternative(m, CHOSEN_PCA, &mtl, mass_list,
-				       N_terminal_mass - mrp.ammonia_mass,
-				       C_terminal_mass, stats);
-      break;
-    }
-}
-
-
-// Choose among the requested mass regimes (e.g., isotopes), and also choose
-// the static mods (including N- and C-terminal mods), all of which are
-// completely determined by the mass regime choice.
-static inline void
-choose_mass_regime(match &m, std::vector<double> &mass_list,
-		   const double N_terminal_mass, const double C_terminal_mass,
-		   score_stats &stats) NOTHROW {
-  const parameters &CP = parameters::the;
-
-  m.mass_regime = 0;		// FIX
-  const mass_regime_parameters &mrp = CP.fragment_mass_regime[m.mass_regime];
-  for (std::vector<double>::size_type i=0; i<m.peptide_sequence.size(); i++) {
-    const char res = m.peptide_sequence[i];
-    mass_list[i] = mrp.residue_mass[res] + mrp.modification_mass[res];
-  }
-  choose_PCA_mod(m, NULL, mass_list,
-		 N_terminal_mass + mrp.modification_mass['['],
-		 C_terminal_mass + mrp.modification_mass[']'], stats);
-}
-
-
-// Search for matches of all modification variations of this peptide against
-// the spectra.  Updates score_stats and the number of candidate spectra
-// found.
-void
-spectrum::search_peptide_all_mods(int idno, int offset, int begin,
-				  const std::string &peptide_seq,
-				  int missed_cleavage_count,
-				  score_stats &stats) {
-  std::vector<double> mass_list(peptide_seq.size());
-  double N_terminal_mass = 0.0;
-  double C_terminal_mass = 0.0;
-
-  // This match will be passed inward and used to record information that we
-  // need to remember about a match when we finally see one.  At that point, a
-  // copy of this match will be saved.
-  match m;
-  m.sequence_index = idno;
-  m.sequence_offset = offset;
-  m.peptide_begin = begin;
-  m.peptide_sequence = peptide_seq;
-  m.missed_cleavage_count = missed_cleavage_count;
-
-  choose_mass_regime(m, mass_list, N_terminal_mass, C_terminal_mass, stats);
-}
-
-
-// Search for matches of all modification variations of peptides in this
-// sequence run against the spectra.  Updates score_stats and the number of
-// candidate spectra found.
-// FIX: optimize the non-specific case?
-
-void
-spectrum::search_run_all_mods(const int maximum_missed_cleavage_sites,
-			      const int min_peptide_length,
-			      const bool no_N_term_mods,
-			      const int idno, const int offset,
-			      const std::string &run_sequence,
-			      const std::vector<int> cleavage_points,
-			      score_stats &stats) { 
-  double N_terminal_mass = 0.0;
-  double C_terminal_mass = 0.0;
-
-  // This match will be passed inward and used to record information that we
-  // need to remember about a match when we finally see one.  At that point, a
-  // copy of this match will be saved.
-  match m;
-  m.sequence_index = idno;
-  m.sequence_offset = offset;
-
-  // FIX: examine carefully for signed/unsigned problems
-
-  // The rightmost 'end' seen where 'all_spectra_masses_too_high' was true.
-  // (0 means none yet encountered.)
-  unsigned int next_end = 0;
-
-  for (unsigned int begin=0; begin<cleavage_points.size()-1; begin++) {
-    const int begin_index = m.peptide_begin = cleavage_points[begin];
-    unsigned int end = begin + 1;
-    if (no_N_term_mods)
-      if (next_end != 0)
-	end = std::max<unsigned int>(end, next_end);
-    for (; end<cleavage_points.size(); end++) {
-      m.missed_cleavage_count = end - begin - 1;
-      if (m.missed_cleavage_count > maximum_missed_cleavage_sites)
-	break;
-
-      const int end_index = cleavage_points[end];
-      const int peptide_size = end_index - begin_index;
-      if (peptide_size < min_peptide_length)
-	continue;
-      // these start vacuously true, then to be falsified if possible
-      stats.all_spectra_masses_too_high = true;
-      stats.all_spectra_masses_too_low = true;
-      m.peptide_sequence.assign(run_sequence, begin_index, peptide_size);
-      //std::cerr << "peptide: " << m.peptide_sequence << std::endl;
-      std::vector<double> mass_list(peptide_size);
-      choose_mass_regime(m, mass_list, N_terminal_mass, C_terminal_mass,
-			 stats);
-
-      // FIX: double-check that these work right even with negative potential
-      // mod deltas!
-      assert(not (stats.all_spectra_masses_too_high
-		  and stats.all_spectra_masses_too_low));
-      if (stats.all_spectra_masses_too_high) {
-	//std::cerr << "all_spectra_masses_too_high" << std::endl;
-	if (end == cleavage_points.size() - 1)
-	  return;
-	next_end = end;
-      }
-      if (stats.all_spectra_masses_too_low) {
-	//std::cerr << "all_spectra_masses_too_low" << std::endl;
-	break;
-      }
-    }
-  }
-}
-
 #endif
-
 
 
 // Search a run for matches according to the context against the spectra.
@@ -1267,12 +925,77 @@ spectrum::search_run(const search_context context,
   // (0 means none yet encountered.)
   unsigned int next_end = 0;
 
+  // p_mass is the parent mass of the peptide run_sequence[p_begin:p_end]
+  double p_mass = parent_fixed_mass;
+  unsigned p_begin=0, p_end=0;
+
   // FIX: optimize the non-specific cleavage case?
   for (unsigned int begin=0; begin<cleavage_points.size()-1; begin++) {
     const int begin_index = m.peptide_begin = cleavage_points[begin];
     unsigned int end = begin + 1;
-    if (no_N_term_mods)
-      if (next_end != 0)
-	end = std::max<unsigned int>(end, next_end);
+    if (next_end != 0)
+      end = std::max<unsigned int>(end, next_end);
+    for (; end<cleavage_points.size(); end++) {
+      m.missed_cleavage_count = end - begin - 1;
+      if (m.missed_cleavage_count > maximum_missed_cleavage_sites)
+	break;
 
+      const int end_index = cleavage_points[end];
+      const int peptide_size = end_index - begin_index;
+      if (peptide_size < min_peptide_length)
+	continue;
+
+
+      // FIX: from eval
+      m.peptide_mass = get_peptide_mass(mass_list, N_terminal_mass,
+					C_terminal_mass);
+      double sp_mass_lb = m.peptide_mass + CP.parent_monoisotopic_mass_error_minus;
+      double sp_mass_ub = m.peptide_mass + CP.parent_monoisotopic_mass_error_plus;
+
+      const std::multimap<double, std::vector<spectrum>::size_type>::const_iterator
+	candidate_spectra_info_begin
+	= spectrum::spectrum_mass_index.lower_bound(sp_mass_lb);
+      if (candidate_spectra_info_begin == spectrum::spectrum_mass_index.end()) {
+	all_spectra_masses_too_high = false;
+	continue;			// spectrum masses all too low to match peptide
+      }
+      all_spectra_masses_too_low = false;
+
+      const std::multimap<double, std::vector<spectrum>::size_type>::const_iterator
+	candidate_spectra_info_end
+	= spectrum::spectrum_mass_index.upper_bound(sp_mass_ub);
+      if (candidate_spectra_info_end == spectrum::spectrum_mass_index.begin()) {
+	continue;			// spectrum masses all too high to match peptide
+      }
+      all_spectra_masses_too_high = false;
+
+      if (candidate_spectra_info_begin == candidate_spectra_info_end) {
+	continue;			// no spectrum with close-enough parent mass
+      }
+
+  
+      // these tell us whether we should keep extending the current peptide,
+      // and how to choose a new start point
+      bool all_spectra_masses_too_high = true;
+      bool all_spectra_masses_too_low = true;
+      m.peptide_sequence.assign(run_sequence, begin_index, peptide_size);
+      //std::cerr << "peptide: " << m.peptide_sequence << std::endl;
+      std::vector<double> mass_list(peptide_size);
+
+      choose_mass_regime(m, mass_list, N_terminal_mass, C_terminal_mass,
+			 stats);
+
+      // FIX: double-check that these work right even with negative potential
+      // mod deltas!
+      assert(not (all_spectra_masses_too_high
+		  and all_spectra_masses_too_low));
+      if (all_spectra_masses_too_high) {
+	if (end == cleavage_points.size() - 1)
+	  return;
+	next_end = end;
+      } else if (all_spectra_masses_too_low) {
+	break;
+      }
+    }
+  }
 }
