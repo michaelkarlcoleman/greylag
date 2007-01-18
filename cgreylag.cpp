@@ -828,20 +828,20 @@ evaluate_peptide(const search_context &context, match &m,
 
 // IDEA FIX: Use a cost parameter to define the iterative search front.
 
-#if 0
-// Choose a possible residue modification.
+
+// Choose one possible residue modification position.  Once they're all
+// chosen, then evaluate.
 static inline void
-choose_residue_mod(match &m,
-		   const std::vector< std::vector<double> > &pmm,
-		   const mass_trace_list *mtlp,
+choose_residue_mod(match &m, const mass_trace_list *mtlp,
 		   std::vector<double> &mass_list,
-		   const double N_terminal_mass,
-		   const double C_terminal_mass, score_stats &stats,
-		   const unsigned remaining_residues_to_choose,
-		   const unsigned number_of_positions_to_consider,
-		   const int *const mod_positions_to_consider) NOTHROW {
+		   const double fragment_N_fixed_mass,
+		   const double fragment_C_fixed_mass,
+		   score_stats &stats,
+		   const unsigned remaining_positions_to_choose,
+		   const unsigned next_position_to_consider) NOTHROW {
   const parameters &CP = parameters::the;
-  assert(remaining_residues_to_choose <= number_of_positions_to_consider);
+  assert(remaining_positions_to_choose
+	 <= m.peptide_sequence.size() - next_position_to_consider);
 
   if (CP.maximum_modification_combinations_searched
       and (stats.combinations_searched
@@ -850,12 +850,43 @@ choose_residue_mod(match &m,
 
   if (remaining_residues_to_choose == 0) {
     stats.combinations_searched++;
-    evaluate_peptide_mod_variation(m, mtlp, mass_list, N_terminal_mass,
-				   C_terminal_mass, stats);
+    evaluate_peptide(context, m, mtlp, mass_list, fragment_N_fixed_mass,
+		     fragment_C_fixed_mass, candidate_spectra_info_begin,
+		     candidate_spectra_info_end, stats);
   } else {
     mass_trace_list mtl(mtlp);
 
     // consider all of the positions where we could next add a mod
+    for (unsigned int i=next_position_to_consider;
+	 i <= m.peptide_sequence.size()-remaining_positions_to_choose; i++) {
+      mtl.item.position = i;
+      const double save_pos_mass=mass_list[i];
+      const char pos_res = m.peptide_sequence[i];
+
+      // consider the possibilities for this position
+      for (std::vector<int>::const_iterator
+	     it=context.delta_bag_lookup[pos_res].begin();
+	   it != context.delta_bag_lookup[pos_res].end(); it++) {
+	const int db_index = *it;
+	if (context.delta_bag_count[db_index] < 1)
+	  continue;
+	context.delta_bag_count[db_index] -= 1;
+	mtl.item.delta = context.delta_bag_delta[db_index];
+	mtl.item.description = context.delta_bag_description[db_index];
+	mass_list[pos] = save_mass + *it;
+	choose_residue_mod(m, pmm, &mtl, mass_list, N_terminal_mass,
+			   C_terminal_mass, stats,
+			   remaining_residues_to_choose-1,
+			   number_of_positions_to_consider-i-1,
+			   mod_positions_to_consider+i+1);
+	context.delta_bag_count[db_index] += 1;
+      }
+      mass_list[i] = save_pos_mass;
+    }
+
+
+
+    
     for (unsigned i=0;
 	 i<number_of_positions_to_consider-remaining_residues_to_choose+1;
 	 i++) {
@@ -864,7 +895,7 @@ choose_residue_mod(match &m,
       assert(pos >= 0);
       const double save_mass=mass_list[pos];
       const std::vector<double> &deltas	= pmm[m.peptide_sequence[pos]];
-      // step through the deltas for this amino acid
+      // consider the possibilities for this position
       for (std::vector<double>::const_iterator it=deltas.begin();
 	   it != deltas.end(); it++) {
 	mtl.item.delta = *it;
@@ -880,7 +911,7 @@ choose_residue_mod(match &m,
     }
   }
 }
-#endif
+
 
 // p_begin (p_end) to begin_index (end_index), updating p_mass in the process.
 // The sign determines whether mass increases or decreases as p_begin (p_end)
@@ -910,7 +941,7 @@ update_p_mass(double &p_mass, unsigned int &p_begin, int begin_index, int sign,
 // Updates score_stats and the number of candidate spectra found.
 
 // FIX: examine carefully for signed/unsigned problems
-
+// FIX: mv some of these params into context?
 void
 spectrum::search_run(const search_context context,
 		     const double parent_fixed_mass,
@@ -994,25 +1025,15 @@ spectrum::search_run(const search_context context,
   
       m.peptide_sequence.assign(run_sequence, begin_index, peptide_size);
       //std::cerr << "peptide: " << m.peptide_sequence << std::endl;
-      std::vector<double> mass_list(peptide_size);
 
-      if (context.mod_count == 0)
-	evaluate_peptide(context, m, NULL, mass_list, fragment_N_fixed_mass,
-			 fragment_C_fixed_mass, candidate_spectra_info_begin,
-			 candidate_spectra_info_end, stats);
-      else
-	assert(0);
-#if 0
-      // FIX: just run both cases through this?
-	choose_residue_mod(context, m,
-		   const std::vector< std::vector<double> > &pmm,
-		   &mtlp, mass_list,
-			   fragment_N_fixed_mass, fragment_C_fixed_mass,
-			   stats,
-		   const unsigned remaining_residues_to_choose,
-		   const unsigned number_of_positions_to_consider,
-		   const int *const mod_positions_to_consider);
-#endif
+      std::vector<double> mass_list(peptide_size);
+      for (std::vector<double>::size_type i=0; i<m.peptide_sequence.size();
+	   i++)
+	mass_list[i] = (CP.fragment_mass_regime[context.mass_regime_index]
+			.fixed_residue_mass[m.peptide_sequence[i]]);
+
+      choose_mod_position(context, m, NULL, mass_list, fragment_N_fixed_mass,
+			  fragment_C_fixed_mass, stats, context.mod_count, 0);
     }
   }
 }

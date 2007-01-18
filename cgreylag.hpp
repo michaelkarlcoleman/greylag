@@ -95,7 +95,8 @@ public:
   // maps residue char to list of indices for _count/_delta
   std::vector< std::vector<int> > delta_bag_lookup;
   std::vector<double> delta_bag_delta;
-  std::vector<double> delta_bag_count;
+  std::vector<std::string> delta_bag_description;
+  std::vector<unsigned> delta_bag_count;
 
   // general search parameters
   int maximum_missed_cleavage_sites;

@@ -860,7 +860,7 @@ def get_mod_conjunct_triples(mod_tree, limit):
                   key=lambda x: (sum(len(y) for y in x), x))
 
 
-def gen_delta_bag(i, remainder, bag):
+def gen_delta_bag_counts(i, remainder, bag):
     if i < 1:
         assert i == 0
         bag[0] = remainder
@@ -871,7 +871,7 @@ def gen_delta_bag(i, remainder, bag):
         for x in gen_delta_bag(i-1, remainder-delta, bag):
             yield x
 
-def generate_delta_bags(mod_count, conjunct_length):
+def generate_delta_bag_counts(mod_count, conjunct_length):
     """Generate all tuples of positive integers having length conjunct_length
     and sum mod_count.  As a special case, () is such a tuple having length 0
     and sum 0.
@@ -896,6 +896,7 @@ def set_context_conjuncts(context, mass_regime_index, N_cj, C_cj, R_cj):
     context.delta_bag_delta.clear()
     for n, cj in enumerate(R_cj):
         context.delta_bag_delta.append(cj[5][mass_regime_index][1])
+        context.delta_bag_description.append(cj[4])
         for r in cj[3]:
             context.delta_bag_lookup[ord(r)] \
                 = context.delta_bag_lookup[ord(r)] + (n,)
