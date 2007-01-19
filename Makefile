@@ -10,7 +10,7 @@
 # Developed with swig 1.3.28, g++ 4.1.2, libstdc++.so.6 (ld 2.16.91)
 
 
-.PHONY: all pycheck modsyms install clean
+.PHONY: all pycheck modsyms install clean tags
 .DELETE_ON_ERROR:
 
 
@@ -23,9 +23,11 @@ MARCH = pentium3
 
 DEST = /n/site/inst/Linux-i686/bioinfo/greylag/
 
+PYTHONVER=2.4
+
 # Generally, this is where the 'Python.h' corresponding to your 'python' lives.
-#PYTHON_I = /n/site/inst/Linux-i686/sys/include/python2.4
-PYTHON_I = /usr/include/python2.4
+#PYTHON_I = /n/site/inst/Linux-i686/sys/include/python$(PYTHONVER)
+PYTHON_I = /usr/include/python$(PYTHONVER)
 
 
 # for debugging (extra checking, slow)
@@ -60,13 +62,16 @@ _$(MODULE).so : $(MODULE).o $(MODULE)_wrap.o
 
 
 pycheck::
-	pychecker --limit 1000 $(PROGRAM).py
+	PYTHONVER=$(PYTHONVER) pychecker --limit 1000 $(PROGRAM).py
 
 # summary C++ modules symbols used by main script
 modsyms::
 	@sed -n -e 's/^.*\(cgreylag\.[a-zA-Z0-9_.]*\).*$$/\1/p' $(PROGRAM).py \
 		| sort | uniq -c
 
+tags :: TAGS
+TAGS : $(MODULE).cpp $(MODULE).hpp
+	etags --members $^
 
 # FIX: we could compile the .py files here
 install::
@@ -77,4 +82,4 @@ install::
 
 clean::
 	-rm -f $(MODULE).py $(MODULE)_wrap.cpp $(MODULE).o $(MODULE)_wrap.o \
-		_$(MODULE).so *.py[co]
+		_$(MODULE).so *.py[co] TAGS

@@ -268,7 +268,8 @@ spectrum::read_spectra_from_ms2(FILE *f, const int file_id) {
 void
 spectrum::split_ms2_by_mass_band(FILE *inf, const std::vector<int> &outfds,
 				 const int file_id, 
-				 const std::vector<double> &mass_band_upper_bounds) {
+				 const std::vector<double>
+				   &mass_band_upper_bounds) {
   std::map<double, FILE *> mass_file_index;
 
   if (outfds.size() < 1
@@ -721,8 +722,6 @@ static inline void
 evaluate_peptide(const search_context &context, match &m,
 		 const mass_trace_list *mtlp,
 		 const std::vector<double> &mass_list,
-		 const double fragment_N_fixed_mass,
-		 const double fragment_C_fixed_mass,
 		 const spmi_c_it &candidate_spectra_info_begin,
 		 const spmi_c_it &candidate_spectra_info_end,
 		 score_stats &stats) NOTHROW {
@@ -745,8 +744,8 @@ evaluate_peptide(const search_context &context, match &m,
   // FIX: should this be a std::vector??
   static spectrum synth_sp[spectrum::max_supported_charge+1][ION_MAX];
   synthetic_spectra(synth_sp, m.peptide_sequence, mass_list,
-		    fragment_N_fixed_mass, fragment_C_fixed_mass,
-		    max_fragment_charge);
+		    context.fragment_N_fixed_mass,
+		    context.fragment_C_fixed_mass, max_fragment_charge);
 
   for (spmi_c_it candidate_it = candidate_spectra_info_begin;
        candidate_it != candidate_spectra_info_end; candidate_it++) {
@@ -832,11 +831,12 @@ evaluate_peptide(const search_context &context, match &m,
 // Choose one possible residue modification position.  Once they're all
 // chosen, then evaluate.
 static inline void
-choose_residue_mod(match &m, const mass_trace_list *mtlp,
-		   std::vector<double> &mass_list,
-		   const double fragment_N_fixed_mass,
-		   const double fragment_C_fixed_mass,
+choose_residue_mod(const search_context context, match &m,
+		   const mass_trace_list *mtlp, std::vector<double> &mass_list,
+		   const spmi_c_it &candidate_spectra_info_begin,
+		   const spmi_c_it &candidate_spectra_info_end,
 		   score_stats &stats,
+		   std::vector<int> &db_remaining,
 		   const unsigned remaining_positions_to_choose,
 		   const unsigned next_position_to_consider) NOTHROW {
   const parameters &CP = parameters::the;
@@ -848,10 +848,9 @@ choose_residue_mod(match &m, const mass_trace_list *mtlp,
 	   >= CP.maximum_modification_combinations_searched))
     return;
 
-  if (remaining_residues_to_choose == 0) {
+  if (remaining_positions_to_choose == 0) {
     stats.combinations_searched++;
-    evaluate_peptide(context, m, mtlp, mass_list, fragment_N_fixed_mass,
-		     fragment_C_fixed_mass, candidate_spectra_info_begin,
+    evaluate_peptide(context, m, mtlp, mass_list, candidate_spectra_info_begin,
 		     candidate_spectra_info_end, stats);
   } else {
     mass_trace_list mtl(mtlp);
@@ -868,46 +867,19 @@ choose_residue_mod(match &m, const mass_trace_list *mtlp,
 	     it=context.delta_bag_lookup[pos_res].begin();
 	   it != context.delta_bag_lookup[pos_res].end(); it++) {
 	const int db_index = *it;
-	if (context.delta_bag_count[db_index] < 1)
+	if (db_remaining[db_index] < 1)
 	  continue;
-	context.delta_bag_count[db_index] -= 1;
+	db_remaining[db_index] -= 1;
+	mass_list[i] = save_pos_mass + context.delta_bag_delta[db_index];
 	mtl.item.delta = context.delta_bag_delta[db_index];
 	mtl.item.description = context.delta_bag_description[db_index];
-	mass_list[pos] = save_mass + *it;
-	choose_residue_mod(m, pmm, &mtl, mass_list, N_terminal_mass,
-			   C_terminal_mass, stats,
-			   remaining_residues_to_choose-1,
-			   number_of_positions_to_consider-i-1,
-			   mod_positions_to_consider+i+1);
-	context.delta_bag_count[db_index] += 1;
+	choose_residue_mod(context, m, &mtl, mass_list,
+			   candidate_spectra_info_begin,
+			   candidate_spectra_info_end, stats, db_remaining,
+			   remaining_positions_to_choose-1, i+1);
+	db_remaining[db_index] += 1;
       }
       mass_list[i] = save_pos_mass;
-    }
-
-
-
-    
-    for (unsigned i=0;
-	 i<number_of_positions_to_consider-remaining_residues_to_choose+1;
-	 i++) {
-      const int pos=mod_positions_to_consider[i];
-      mtl.item.position = pos;
-      assert(pos >= 0);
-      const double save_mass=mass_list[pos];
-      const std::vector<double> &deltas	= pmm[m.peptide_sequence[pos]];
-      // consider the possibilities for this position
-      for (std::vector<double>::const_iterator it=deltas.begin();
-	   it != deltas.end(); it++) {
-	mtl.item.delta = *it;
-	mtl.item.description = "position mod"; // FIX
-	mass_list[pos] = save_mass + *it;
-	choose_residue_mod(m, pmm, &mtl, mass_list, N_terminal_mass,
-			   C_terminal_mass, stats,
-			   remaining_residues_to_choose-1,
-			   number_of_positions_to_consider-i-1,
-			   mod_positions_to_consider+i+1);
-      }
-      mass_list[pos] = save_mass;
     }
   }
 }
@@ -944,9 +916,6 @@ update_p_mass(double &p_mass, unsigned int &p_begin, int begin_index, int sign,
 // FIX: mv some of these params into context?
 void
 spectrum::search_run(const search_context context,
-		     const double parent_fixed_mass,
-		     const double fragment_N_fixed_mass,
-		     const double fragment_C_fixed_mass,
 		     const int idno, const int offset,
 		     const std::string &run_sequence,
 		     const std::vector<int> cleavage_points,
@@ -964,12 +933,15 @@ spectrum::search_run(const search_context context,
   m.sequence_index = idno;
   m.sequence_offset = offset;
 
+  // counts remaining as mod positions are chosen
+  std::vector<int> db_remaining = context.delta_bag_count;
+
   // the rightmost 'end' seen when all spectra masses were too high
   // (0 means none yet encountered.)
   unsigned int next_end = 0;
 
   // p_mass is the parent mass of the peptide run_sequence[p_begin:p_end]
-  double p_mass = parent_fixed_mass;
+  double p_mass = context.parent_fixed_mass;
   unsigned int p_begin=0, p_end=0;
 
   // FIX: optimize the non-specific cleavage case?
@@ -994,6 +966,8 @@ spectrum::search_run(const search_context context,
 	continue;
       update_p_mass(p_mass, p_end, end_index, +1, run_sequence,
 		    fixed_parent_mass);
+      //std::cerr << "peptide: " << std::string(run_sequence, begin_index, peptide_size) << " p_mass: " << p_mass << std::endl;
+
 
       double sp_mass_lb = p_mass + CP.parent_monoisotopic_mass_error_minus;
       double sp_mass_ub = p_mass + CP.parent_monoisotopic_mass_error_plus;
@@ -1002,6 +976,7 @@ spectrum::search_run(const search_context context,
 	= spectrum::spectrum_mass_index.lower_bound(sp_mass_lb);
       if (candidate_spectra_info_begin == spectrum::spectrum_mass_index.end()) {
 	// spectrum masses all too low to match peptide (peptide too long)
+	//std::cerr << "peptide: sp low" << std::endl;
 	break;
       }
 
@@ -1010,6 +985,7 @@ spectrum::search_run(const search_context context,
       if (candidate_spectra_info_end == spectrum::spectrum_mass_index.begin()) {
 	// spectrum masses all too high to match peptide
 	// (peptide is too short, so increase end, if possible, else return)
+	//std::cerr << "peptide: sp high" << std::endl;
 	if (end == cleavage_points.size() - 1)
 	  return;
 	next_end = end;
@@ -1017,6 +993,7 @@ spectrum::search_run(const search_context context,
       }
       if (candidate_spectra_info_begin == candidate_spectra_info_end) {
 	// no spectrum with close-enough parent mass
+	//std::cerr << "peptide: sp none nearby" << std::endl;
 	continue;
       }
 
@@ -1024,7 +1001,6 @@ spectrum::search_run(const search_context context,
       //m.fragment_peptide_mass = ???;  unneeded???
   
       m.peptide_sequence.assign(run_sequence, begin_index, peptide_size);
-      //std::cerr << "peptide: " << m.peptide_sequence << std::endl;
 
       std::vector<double> mass_list(peptide_size);
       for (std::vector<double>::size_type i=0; i<m.peptide_sequence.size();
@@ -1032,8 +1008,10 @@ spectrum::search_run(const search_context context,
 	mass_list[i] = (CP.fragment_mass_regime[context.mass_regime_index]
 			.fixed_residue_mass[m.peptide_sequence[i]]);
 
-      choose_mod_position(context, m, NULL, mass_list, fragment_N_fixed_mass,
-			  fragment_C_fixed_mass, stats, context.mod_count, 0);
+      choose_residue_mod(context, m, NULL, mass_list,
+			 candidate_spectra_info_begin,
+			 candidate_spectra_info_end, stats, db_remaining,
+			 context.mod_count, 0);
     }
   }
 }

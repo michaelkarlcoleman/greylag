@@ -62,10 +62,6 @@ public:
   std::vector<mass_regime_parameters> fragment_mass_regime;
 
   // from XTP
-  // FIX: kill these
-  double cleavage_N_terminal_mass_change;
-  double cleavage_C_terminal_mass_change;
-
   double parent_monoisotopic_mass_error_plus;
   double parent_monoisotopic_mass_error_minus;
   double fragment_mass_error;
@@ -82,6 +78,8 @@ public:
 };
 
 
+// information about the search that's passed in to--but not changed by--the
+// C++ search code
 class search_context {
 public:
   int mod_count;
@@ -96,7 +94,11 @@ public:
   std::vector< std::vector<int> > delta_bag_lookup;
   std::vector<double> delta_bag_delta;
   std::vector<std::string> delta_bag_description;
-  std::vector<unsigned> delta_bag_count;
+  std::vector<int> delta_bag_count;
+
+  double parent_fixed_mass;
+  double fragment_N_fixed_mass;
+  double fragment_C_fixed_mass;
 
   // general search parameters
   int maximum_missed_cleavage_sites;
@@ -198,7 +200,8 @@ public:
   // split into separate spectra (having the same physical_id).
   static void split_ms2_by_mass_band(FILE *inf, const std::vector<int> &outfds,
 				     const int file_id, 
-				     const std::vector<double> &mass_band_upper_bounds);
+				     const std::vector<double>
+				       &mass_band_upper_bounds);
 
 
   // Sets max/sum_peak_intensity, according to peaks and
@@ -228,11 +231,7 @@ public:
 
   // Search a run for matches according to the context against the spectra.
   // Updates score_stats and the number of candidate spectra found.
-  static void search_run(const search_context context,
-			 const double parent_fixed_mass,
-			 const double fragment_N_fixed_mass,
-			 const double fragment_C_fixed_mass,
-			 const int idno,
+  static void search_run(const search_context context, const int idno,
 			 const int offset, const std::string &run_sequence,
 			 const std::vector<int> cleavage_points,
 			 score_stats &stats);
@@ -262,6 +261,7 @@ public:
 struct mass_trace_item {
   int position;
   double delta;
+  std::string description;
   int id;			// FIX
 };
 

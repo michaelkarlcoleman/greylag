@@ -189,7 +189,7 @@ def initialize_spectrum_parameters(mass_regimes, fixed_mod_map, quirks_mode):
     global MASS_REGIME_ATOMIC_MASSES
     for regime_pair in mass_regimes:
         assert len(regime_pair) == 2    # parent and fragment
-        debug('rp: %s', regime_pair)
+        info('mass regime: %s', regime_pair)
         MASS_REGIME_ATOMIC_MASSES.append([])
         for n, regime in enumerate(regime_pair):
             atmass = mass_regime_atomic_masses(regime)
@@ -218,14 +218,14 @@ def initialize_spectrum_parameters(mass_regimes, fixed_mod_map, quirks_mode):
                 creg.fixed_residue_mass[ord(r)] = m
             # assuming these are monoisotopic (not regime)
             creg.fixed_residue_mass[ord('[')] \
-                += (XTP["protein, cleavage N-terminal mass change"]
-                    - CP.hydrogen_mass)
+                += XTP["protein, cleavage N-terminal mass change"]
             creg.fixed_residue_mass[ord(']')] \
-                += (XTP["protein, cleavage C-terminal mass change"]
-                    - creg.hydroxyl_mass)
+                += XTP["protein, cleavage C-terminal mass change"]
             if not n:
                 CP.parent_mass_regime.append(creg);
             else:
+                creg.fixed_residue_mass[ord('[')] -= CP.hydrogen_mass
+                creg.fixed_residue_mass[ord(']')] -= creg.hydroxyl_mass
                 CP.fragment_mass_regime.append(creg);
     for r in RESIDUES_W_BRACKETS:
         info('fixed_mass %s: %s', r,
@@ -241,11 +241,6 @@ def initialize_spectrum_parameters(mass_regimes, fixed_mod_map, quirks_mode):
             if CP.fragment_mass_regime[rn].fixed_residue_mass[ord(r)] < 1.0:
                 raise ValueError('bogus parent mass specification for %s' % r)
     
-    CP.cleavage_N_terminal_mass_change \
-        = XTP["protein, cleavage N-terminal mass change"]
-    CP.cleavage_C_terminal_mass_change \
-        = XTP["protein, cleavage C-terminal mass change"]
-
     CP.parent_monoisotopic_mass_error_plus \
         = XTP["spectrum, parent monoisotopic mass error plus"]
     CP.parent_monoisotopic_mass_error_minus \
@@ -868,7 +863,7 @@ def gen_delta_bag_counts(i, remainder, bag):
         return
     for delta in range(1, remainder-i+1):
         bag[i] = delta
-        for x in gen_delta_bag(i-1, remainder-delta, bag):
+        for x in gen_delta_bag_counts(i-1, remainder-delta, bag):
             yield x
 
 def generate_delta_bag_counts(mod_count, conjunct_length):
@@ -880,7 +875,8 @@ def generate_delta_bag_counts(mod_count, conjunct_length):
         return mod_count == 0 and [()] or []
     if mod_count < conjunct_length:
         return []
-    return gen_delta_bag(conjunct_length - 1, mod_count, [0] * conjunct_length)
+    return gen_delta_bag_counts(conjunct_length - 1, mod_count,
+                                [0] * conjunct_length)
 
 
 def set_context_conjuncts(context, mass_regime_index, N_cj, C_cj, R_cj):
@@ -896,7 +892,9 @@ def set_context_conjuncts(context, mass_regime_index, N_cj, C_cj, R_cj):
     context.delta_bag_delta.clear()
     for n, cj in enumerate(R_cj):
         context.delta_bag_delta.append(cj[5][mass_regime_index][1])
-        context.delta_bag_description.append(cj[4])
+        # FIX: append bombs?
+        #debug("db desc %s", cj[4])
+        #context.delta_bag_description.append(cj[4])
         for r in cj[3]:
             context.delta_bag_lookup[ord(r)] \
                 = context.delta_bag_lookup[ord(r)] + (n,)
@@ -907,6 +905,7 @@ def search_all(options, fasta_db, db, cleavage_pattern, cleavage_pos,
     """Search sequence database against searchable spectra."""
 
     mod_limit = XTP["scoring, maximum simultaneous modifications searched"]
+    # FIX: implement or delete this VVV
     combination_limit \
         = XTP["scoring, maximum modification combinations searched"]
 
@@ -939,8 +938,8 @@ def search_all(options, fasta_db, db, cleavage_pattern, cleavage_pos,
                     set_context_conjuncts(context, mr_index, N_cj, C_cj, R_cj)
                     debug("mod_count: %s", mod_count)
                     debug("cj_triple: N=%s C=%s R=%s", N_cj, C_cj, R_cj)
-                    for delta_bag in generate_delta_bags(mod_count,
-                                                         len(R_cj)):
+                    for delta_bag in generate_delta_bag_counts(mod_count,
+                                                               len(R_cj)):
                         debug("delta_bag: %s", delta_bag)
 
                         # this clear() avoids an SWIG/STL bug!?
@@ -954,12 +953,15 @@ def search_all(options, fasta_db, db, cleavage_pattern, cleavage_pos,
                                 + pmrf[ord(']')]
                                 + (C_cj and C_cj[0][5][mr_index][0] or 0)
                                 + pca_parent_delta + PROTON_MASS)
+                        context.parent_fixed_mass = p_fx
                         f_N_fx = (fmrf[ord('[')]
                                   + (N_cj and N_cj[0][5][mr_index][1] or 0)
                                   + pca_frag_delta)
+                        context.fragment_N_fixed_mass = f_N_fx
                         f_C_fx = (fmrf[ord(']')]
                                   + (C_cj and C_cj[0][5][mr_index][1] or 0)
                                   + CP.fragment_mass_regime[mr_index].water_mass)
+                        context.fragment_C_fixed_mass = f_C_fx
 
                         info("MC=%s MR=%s PCA=%s CJ=%s DB=%s"
                              % (mod_count, mr_index, pca_res, cji, delta_bag))
@@ -974,12 +976,12 @@ def search_all(options, fasta_db, db, cleavage_pattern, cleavage_pos,
                             cleavage_points = list(generate_cleavage_points(cleavage_pattern, cleavage_pos, seq))
 
                             score_statistics.combinations_searched = 0
-                            cgreylag.spectrum.search_run(context, p_fx,
-                                                         f_N_fx, f_C_fx, idno,
-                                                         offset, seq,
-                                                         cleavage_points,
+                            debug("cp: %s", cleavage_points)
+                            cgreylag.spectrum.search_run(context, idno, offset,
+                                                         seq, cleavage_points,
                                                          score_statistics) 
-                            total_combinations_searched += score_statistics.combinations_searched
+                            total_combinations_searched \
+                                += score_statistics.combinations_searched
 
                         if options.show_progress:
                             sys.stderr.write("\r%60s\r" % ' ')
@@ -1470,7 +1472,7 @@ def print_results_XML(options, db_info, spectrum_fns, spec_prot_info_items,
                                             dom.sequence_offset)]
 
                     delta_precision = 4
-                    delta = sp.mass - dom.peptide_mass
+                    delta = sp.mass - dom.parent_peptide_mass
                     if CP.quirks_mode and abs(delta) > 0.01:
                         delta_precision = 3
                     print ('<domain id="%s.%s.%s" start="%s" end="%s"'
@@ -1481,7 +1483,7 @@ def print_results_XML(options, db_info, spectrum_fns, spec_prot_info_items,
                            % (sp.id, pn+1, dn+1, dom.peptide_begin+1,
                               dom.peptide_begin+len(dom.peptide_sequence),
                               expect[spectrum_id], delta_precision,
-                              dom.peptide_mass, delta_precision, delta,
+                              dom.parent_peptide_mass, delta_precision, delta,
                               cgreylag.scale_hyperscore(score_statistics.best_score[spectrum_id]),
                               cgreylag.scale_hyperscore(score_statistics.second_best_score[spectrum_id]),
                               cgreylag.scale_hyperscore(dom.ion_scores[cgreylag.ION_Y]),
@@ -1498,11 +1500,13 @@ def print_results_XML(options, db_info, spectrum_fns, spec_prot_info_items,
                               dom.peptide_sequence, dom.missed_cleavage_count))
                     # print static mods
                     # FIX: handle '[', ']' too
+                    warning("FIX <aa lines!")
                     for i, c in enumerate(dom.peptide_sequence):
-                        delta = CP.fragment_mass_regime[dom.mass_regime].modification_mass[ord(c)]
-                        if delta:
-                            print ('<aa type="%s" at="%s" modified="%s" />'
-                                   % (c, dom.peptide_begin+i+1, delta))
+                        pass
+                        #delta = CP.fragment_mass_regime[dom.mass_regime].modification_mass[ord(c)]
+                        #if delta:
+                        #    print ('<aa type="%s" at="%s" modified="%s" />'
+                        #           % (c, dom.peptide_begin+i+1, delta))
                     # print potential mods
                     mt_items = list(dom.mass_trace)
                     mt_items.reverse()
@@ -1593,7 +1597,8 @@ def print_results_XML(options, db_info, spectrum_fns, spec_prot_info_items,
         for k in sorted(XTP.keys()):
             v = XTP[k]
             if isinstance(v, list):         # modlist
-                v = ','.join([ '%s@%s' % (mod, res) for res, mod in v ])
+                #v = ','.join([ '%s@%s' % (mod, res) for res, mod in v ])
+                v = str(v)
             elif isinstance(v, bool):
                 v = { True : 'yes', False : 'no' }[v]
             print '	<note type="input" label="%s">%s</note>' % (k, v)
