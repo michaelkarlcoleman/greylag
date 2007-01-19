@@ -679,8 +679,8 @@ score_spectrum(double &hyper_score, double &convolution_score,
       // count) times the convolution score (clipped to FLT_MAX)
       // > blurred!
       int common_peak_count;	// FIX!
-      double conv_score = spectrum::score_similarity(synth_sp[charge][ion_type],
-						     sp, &common_peak_count);
+      double conv_score = score_similarity_(synth_sp[charge][ion_type],
+					    sp, &common_peak_count);
       i_peaks += common_peak_count;
       i_scores += conv_score;
       hyper_score *= CP.factorial[common_peak_count];
@@ -751,13 +751,15 @@ evaluate_peptide(const search_context &context, match &m,
        candidate_it != candidate_spectra_info_end; candidate_it++) {
     m.spectrum_index = candidate_it->second;
     stats.candidate_spectrum_count++;
+    //std::cerr << "sp " << m.spectrum_index << std::endl;
     score_spectrum(m.hyper_score, m.convolution_score, m.ion_scores,
 		   m.ion_peaks, synth_sp, m.spectrum_index,
 		   max_fragment_charge);
+    //std::cerr << "score " << m.convolution_score << std::endl;
     if (m.convolution_score <= 2.0)
       continue;
 
-    //std::cerr << "histod: " << m.spectrum_index << " " << m.peptide_sequence
+    ////std::cerr << "histod: " << m.spectrum_index << " " << m.peptide_sequence
     //<< " " << m.peptide_mass << " " <<
     //spectrum::searchable_spectra[m.spectrum_index].mass << std::endl;
 
@@ -831,7 +833,7 @@ evaluate_peptide(const search_context &context, match &m,
 // Choose one possible residue modification position.  Once they're all
 // chosen, then evaluate.
 static inline void
-choose_residue_mod(const search_context context, match &m,
+choose_residue_mod(const search_context &context, match &m,
 		   const mass_trace_list *mtlp, std::vector<double> &mass_list,
 		   const spmi_c_it &candidate_spectra_info_begin,
 		   const spmi_c_it &candidate_spectra_info_end,
@@ -872,7 +874,6 @@ choose_residue_mod(const search_context context, match &m,
 	db_remaining[db_index] -= 1;
 	mass_list[i] = save_pos_mass + context.delta_bag_delta[db_index];
 	mtl.item.delta = context.delta_bag_delta[db_index];
-	mtl.item.description = context.delta_bag_description[db_index];
 	choose_residue_mod(context, m, &mtl, mass_list,
 			   candidate_spectra_info_begin,
 			   candidate_spectra_info_end, stats, db_remaining,
@@ -889,17 +890,17 @@ choose_residue_mod(const search_context context, match &m,
 // The sign determines whether mass increases or decreases as p_begin (p_end)
 // is moved forward--so it should be -1 for the begin case and +1 for the end
 // case.
-// FIX: is this worth its complexity?
+// FIX: is this worth its complexity?  kill or else add reset
 static inline void
-update_p_mass(double &p_mass, unsigned int &p_begin, int begin_index, int sign,
+update_p_mass(double &p_mass, int &p_begin, int begin_index, int sign,
 	      const std::string &run_sequence,
 	      const std::vector<double> &fixed_residue_mass) {
   assert(sign == +1 or sign == -1);
   assert(begin_index >= 0);
-  const bool moving_forward = begin_index - p_begin > 0;
+  const bool moving_forward = begin_index >= p_begin;
   int p0=p_begin, p1=begin_index;
   if (not moving_forward) {
-    std::swap<int>(p0, p1);
+    std::swap(p0, p1);
     sign = -sign;
   }
   for (int i=p0; i<p1; i++)
@@ -915,7 +916,7 @@ update_p_mass(double &p_mass, unsigned int &p_begin, int begin_index, int sign,
 // FIX: examine carefully for signed/unsigned problems
 // FIX: mv some of these params into context?
 void
-spectrum::search_run(const search_context context,
+spectrum::search_run(const search_context &context,
 		     const int idno, const int offset,
 		     const std::string &run_sequence,
 		     const std::vector<int> cleavage_points,
@@ -933,6 +934,8 @@ spectrum::search_run(const search_context context,
   m.sequence_index = idno;
   m.sequence_offset = offset;
 
+  assert(context.delta_bag_delta.size()
+	 == context.delta_bag_count.size());
   // counts remaining as mod positions are chosen
   std::vector<int> db_remaining = context.delta_bag_count;
 
@@ -942,7 +945,7 @@ spectrum::search_run(const search_context context,
 
   // p_mass is the parent mass of the peptide run_sequence[p_begin:p_end]
   double p_mass = context.parent_fixed_mass;
-  unsigned int p_begin=0, p_end=0;
+  int p_begin=0, p_end=0;
 
   // FIX: optimize the non-specific cleavage case?
   for (unsigned int begin=0; begin<cleavage_points.size()-1; begin++) {
@@ -960,6 +963,7 @@ spectrum::search_run(const search_context context,
 	break;
 
       const int end_index = cleavage_points[end];
+      assert(end_index - begin_index > 0);
       const int peptide_size = end_index - begin_index;
       assert(peptide_size > 0);
       if (peptide_size < min_peptide_length)

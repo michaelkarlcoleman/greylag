@@ -1,3 +1,4 @@
+FIX: rigorously check all values coming in from Python (at least by assert)
 
 
 Carboxyamidomethyl Cystenyl

@@ -29,16 +29,28 @@ PYTHONVER=2.4
 #PYTHON_I = /n/site/inst/Linux-i686/sys/include/python$(PYTHONVER)
 PYTHON_I = /usr/include/python$(PYTHONVER)
 
+CXXBASEFLAGS=-Wall -g3 -march=$(MARCH)
 
+# 0=debug, 2=fast, 3=faster and less safe
+SPEED := 2
+
+ifeq ($(SPEED),0)
 # for debugging (extra checking, slow)
-#CXXFLAGS = -Wall -g3 -O0 -D_GLIBCXX_DEBUG -march=$(MARCH)
-
-# for speed (fastest?, fewest checks)
-#CXXFLAGS = -Wall -g3 -O3 -DNDEBUG -ffast-math -mfpmath=sse -march=$(MARCH)
-#CXXFASTFLAGS = -finline-limit=20000 --param inline-unit-growth=1000 --param large-function-growth=1000
-
+CXXFLAGS = $(CXXBASEFLAGS) -O0 -D_GLIBCXX_DEBUG
+else
+  ifeq ($(SPEED),2)
 # reasonably fast
-CXXFLAGS = -Wall -g3 -O2 -ffast-math -mfpmath=sse -march=$(MARCH)
+CXXFLAGS = $(CXXBASEFLAGS) -O2 -ffast-math -mfpmath=sse
+  else
+    ifeq ($(SPEED),3)
+# for speed (fastest?, fewest checks)
+CXXFLAGS = $(CXXBASEFLAGS) -O3 -DNDEBUG -ffast-math -mfpmath=sse
+#CXXFASTFLAGS = -finline-limit=20000 --param inline-unit-growth=1000 --param large-function-growth=1000
+    else
+CXXFLAGS = ---INVALID-SPEED
+    endif
+  endif
+endif
 
 SWIGCXXFLAGS = $(CXXFLAGS) -fPIC -I$(PYTHON_I) -fno-strict-aliasing \
 		-Wno-unused-function -Wno-uninitialized

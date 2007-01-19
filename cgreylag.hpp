@@ -93,7 +93,6 @@ public:
   // maps residue char to list of indices for _count/_delta
   std::vector< std::vector<int> > delta_bag_lookup;
   std::vector<double> delta_bag_delta;
-  std::vector<std::string> delta_bag_description;
   std::vector<int> delta_bag_count;
 
   double parent_fixed_mass;
@@ -231,7 +230,7 @@ public:
 
   // Search a run for matches according to the context against the spectra.
   // Updates score_stats and the number of candidate spectra found.
-  static void search_run(const search_context context, const int idno,
+  static void search_run(const search_context &context, const int idno,
 			 const int offset, const std::string &run_sequence,
 			 const std::vector<int> cleavage_points,
 			 score_stats &stats);
@@ -261,7 +260,6 @@ public:
 struct mass_trace_item {
   int position;
   double delta;
-  std::string description;
   int id;			// FIX
 };
 

@@ -105,4 +105,6 @@
 %include file.i
 
 
+%naturalvar search_context::pca_residues;
+
 %include "cgreylag.hpp"

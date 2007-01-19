@@ -265,9 +265,6 @@ def initialize_spectrum_parameters(mass_regimes, fixed_mod_map, quirks_mode):
     CP.quirks_mode = bool(quirks_mode)
     CP.hyper_score_epsilon_ratio = 0.999 # must be slightly less than 1
 
-    if CP.quirks_mode and CP.maximum_modification_combinations_searched == 0:
-        CP.maximum_modification_combinations_searched = 1 << 12 # FIX?
-
     #debug("CP: %s", pythonize_swig_object(CP, ['the']))
 
 
@@ -635,7 +632,7 @@ XML_PARAMETER_INFO = {
     "scoring, include reverse" : (bool, "no", p_ni_equal(False)),
     "scoring, maximum missed cleavage sites" : (int, None, p_nonnegative),
     "scoring, maximum modification combinations searched" : (int, 0, p_nonnegative), # 0 -> no limit # FIX
-    "scoring, maximum simultaneous modifications searched" : (int, None, p_nonnegative),
+    "scoring, maximum simultaneous modifications searched" : (int, 0, p_nonnegative),
     "scoring, minimum ion count" : (int, None, p_positive),
     "scoring, pluggable scoring" : (bool, "no"), # ignored
     "scoring, x ions" : (bool, "no", p_ni_equal(False)),
@@ -720,6 +717,11 @@ def validate_parameters(parameters):
     if pmap["spectrum, fragment mass error"] > 0.5:
         warning("'spectrum, fragment mass error' is %s",
                 pmap["spectrum, fragment mass error"])
+
+    if (pmap["scoring, maximum simultaneous modifications searched"] < 1
+        and pmap["residue, potential modification mass"]):
+        warning("potential modifications specified, but max simultaneous mods"
+                " searched is 0, so they won't actually be searched")
 
     return pmap
 
@@ -892,9 +894,6 @@ def set_context_conjuncts(context, mass_regime_index, N_cj, C_cj, R_cj):
     context.delta_bag_delta.clear()
     for n, cj in enumerate(R_cj):
         context.delta_bag_delta.append(cj[5][mass_regime_index][1])
-        # FIX: append bombs?
-        #debug("db desc %s", cj[4])
-        #context.delta_bag_description.append(cj[4])
         for r in cj[3]:
             context.delta_bag_lookup[ord(r)] \
                 = context.delta_bag_lookup[ord(r)] + (n,)
@@ -976,7 +975,6 @@ def search_all(options, fasta_db, db, cleavage_pattern, cleavage_pos,
                             cleavage_points = list(generate_cleavage_points(cleavage_pattern, cleavage_pos, seq))
 
                             score_statistics.combinations_searched = 0
-                            debug("cp: %s", cleavage_points)
                             cgreylag.spectrum.search_run(context, idno, offset,
                                                          seq, cleavage_points,
                                                          score_statistics) 
@@ -1396,6 +1394,7 @@ def print_results_XML(options, db_info, spectrum_fns, spec_prot_info_items,
                       score_statistics):
     """Output the XTandem-style XML results file, to stdout."""
 
+    warning("FIX static <aa lines!")    # see below
     print '<?xml version="1.0"?>'
     xslpath = XTP.get("output, xsl path")
     if xslpath:
@@ -1500,7 +1499,6 @@ def print_results_XML(options, db_info, spectrum_fns, spec_prot_info_items,
                               dom.peptide_sequence, dom.missed_cleavage_count))
                     # print static mods
                     # FIX: handle '[', ']' too
-                    warning("FIX <aa lines!")
                     for i, c in enumerate(dom.peptide_sequence):
                         pass
                         #delta = CP.fragment_mass_regime[dom.mass_regime].modification_mass[ord(c)]
@@ -1512,10 +1510,11 @@ def print_results_XML(options, db_info, spectrum_fns, spec_prot_info_items,
                     mt_items.reverse()
                     for mt_item in mt_items:
                         mt_item_pos = mt_item.position
-                        if mt_item_pos == cgreylag.POSITION_NTERM:
-                            mt_item_pos = 0
-                        elif mt_item_pos == cgreylag.POSITION_CTERM:
-                            mt_item_pos = len(dom.peptide_sequence)-1
+                        # FIX
+                        #if mt_item_pos == cgreylag.POSITION_NTERM:
+                        #    mt_item_pos = 0
+                        #elif mt_item_pos == cgreylag.POSITION_CTERM:
+                        #    mt_item_pos = len(dom.peptide_sequence)-1
                         if mt_item_pos >= 0:
                             print ('<aa type="%s" at="%s" modified="%s" />'
                                    % (dom.peptide_sequence[mt_item_pos],
@@ -1819,6 +1818,10 @@ def main():
 
     info("read %s sequences (%s runs, %s residues)", len(fasta_db), len(db),
          db_residue_count)
+    max_run_length = max(len(r[3]) for r in db)
+    info("max run length is %s residues", max_run_length)
+    if max_run_length > 2**31:
+        error("runs longer than %s not yet supported", max_run_length)
     if not db:
         error("no database sequences")
 
