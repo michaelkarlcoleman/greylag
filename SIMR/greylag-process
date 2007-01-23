@@ -17,7 +17,7 @@ greylag_options="-v"
 # Divide this run into this many parts.  This should probably be at least 5x
 # the number of cluster nodes available.  Currently, the fixed overhead cost
 # for each part is pretty small (10-20 seconds?).
-PARTS=5000
+PARTS=1000
 
 
 p=`basename $0`

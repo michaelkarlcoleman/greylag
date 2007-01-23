@@ -49,6 +49,7 @@ public:
 class parameters {
 public:
   bool quirks_mode;		// try to produce results closer to xtandem's
+  bool estimate_only;		// just estimate work required
 
   // hyperscores within this ratio are considered "equal"
   double hyper_score_epsilon_ratio;
@@ -298,12 +299,14 @@ public:
 // some statistics.  Essentially, it holds the results of the search process.
 class score_stats {
 public:
-  explicit score_stats(int n) {
+  explicit score_stats(int n) : candidate_spectrum_count(0),
+				spectra_with_candidates(0),
+				improved_candidates(0),
+				combinations_searched(0) {
     hyperscore_histogram.resize(n);
     best_score.resize(n, 100.0);
     second_best_score.resize(n, 100.0);
     best_match.resize(n);
-    candidate_spectrum_count = 0;
   }
   
   // spectrum index -> (scaled, binned hyperscore -> count)
@@ -313,9 +316,12 @@ public:
   std::vector<double> second_best_score;
   // spectrum index -> [ <match info>, ... ]
   std::vector< std::vector<match> > best_match;
-  unsigned long long candidate_spectrum_count; // may be > 2^32
 
-  // for reporting, and to implement something like xtandem's search limit
+  // statistics for reporting
+  unsigned long long candidate_spectrum_count; // may be > 2^32
+  unsigned long spectra_with_candidates;
+  unsigned long long improved_candidates;
+  // to implement something like xtandem's search limit
   int combinations_searched;
 };
 

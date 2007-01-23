@@ -47,12 +47,13 @@ import elementtree.ElementTree
 import cgreylag
 
 
-# Try to drop dead immediately on interrupt (control-C), instead of normal
-# Python KeyboardInterrupt processing, since we may spend long periods of time
-# in uninterruptible C++ calls.
+# Try to drop dead immediately on SIGINT (control-C), instead of normal Python
+# KeyboardInterrupt processing, since we may spend long periods of time in
+# uninterruptible C++ calls.  Also die immediately on SIGPIPE.
 try:
     import signal
     signal.signal(signal.SIGINT, signal.SIG_DFL)
+    signal.signal(signal.SIGPIPE, signal.SIG_DFL)
 except:
     pass
 
@@ -88,8 +89,13 @@ MONOISOTOPIC_ATOMIC_MASS = {
     'S' : 31.9720706912,
     }
 
-ISOTOPIC_ATOMIC_MASS = {
-    'N15' : 15.00010889849,
+# most prevalent only (1 in 1000)
+ISOTOPIC_ATOMIC_MASS = {                # prevalence (in %)
+    'C13' : 13.003354837810,            # 1.078
+    'N15' : 15.00010889849,             # 0.3687
+    'O18' : 17.99916049,                # 0.20514
+    'S33' : 32.9714585012,              # 0.762
+    'S34' : 33.9678668311,              # 4.2928
     }
 
 AVERAGE_ATOMIC_MASS = {
@@ -172,7 +178,8 @@ def mass_regime_atomic_masses(spec):
     return r
 
 
-def initialize_spectrum_parameters(mass_regimes, fixed_mod_map, quirks_mode):
+def initialize_spectrum_parameters(mass_regimes, fixed_mod_map, quirks_mode,
+                                   estimate_only):
     """Initialize parameters known to the spectrum module.
     fixed_mod_map maps, for example, 'M' to (1, 'O', False, 'M', 'oxidation').
     """
@@ -263,6 +270,7 @@ def initialize_spectrum_parameters(mass_regimes, fixed_mod_map, quirks_mode):
         CP.factorial[n] = CP.factorial[n-1] * n
 
     CP.quirks_mode = bool(quirks_mode)
+    CP.estimate_only = bool(estimate_only)
     CP.hyper_score_epsilon_ratio = 0.999 # must be slightly less than 1
 
     #debug("CP: %s", pythonize_swig_object(CP, ['the']))
@@ -969,9 +977,12 @@ def search_all(options, fasta_db, db, cleavage_pattern, cleavage_pos,
                         for idno, offset, defline, seq, seq_filename in db:
                             if options.show_progress:
                                 sys.stderr.write("\r%s of %s sequences, %s"
-                                                 " candidates          "
+                                                 " cand for %s sp, %s++"
                                                  % (idno, len(fasta_db),
-                                                    score_statistics.candidate_spectrum_count))
+                                                    score_statistics.candidate_spectrum_count,
+                                                    score_statistics.spectra_with_candidates,
+                                                    score_statistics.improved_candidates,
+                                                    ))
                             cleavage_points = list(generate_cleavage_points(cleavage_pattern, cleavage_pos, seq))
 
                             score_statistics.combinations_searched = 0
@@ -982,7 +993,7 @@ def search_all(options, fasta_db, db, cleavage_pattern, cleavage_pos,
                                 += score_statistics.combinations_searched
 
                         if options.show_progress:
-                            sys.stderr.write("\r%60s\r" % ' ')
+                            sys.stderr.write("\r%78s\r" % ' ')
 
     info('%s candidate spectra examined',
          score_statistics.candidate_spectrum_count)
@@ -1640,6 +1651,8 @@ def main():
     pa("--quirks-mode", action="store_true", dest="quirks_mode",
        help="try to generate results as close as possible to those of X!Tandem"
        " (possibly at the expense of accuracy)")
+    pa("--estimate", action="store_true", dest="estimate_only",
+       help="just estimate the time required for the search")
     pa("--part-split", dest="part_split", type="int", help="split input into M"
        " parts, to prepare for --part runs [NOTE: the same parameter file and"
        " same spectrum files (in the same order) must be specified for all"
@@ -1657,7 +1670,7 @@ def main():
        " for *.gz, 9 for *.bz2]", metavar="N")
     pa("-q", "--quiet", action="store_true", dest="quiet", help="no warnings")
     pa("-p", "--show-progress", action="store_true", dest="show_progress",
-    help="show running progress")
+       help="show running progress")
     pa("-v", "--verbose", action="store_true", dest="verbose",
        help="be verbose") 
     pa("--copyright", action="store_true", dest="copyright",
@@ -1743,7 +1756,7 @@ def main():
 
     fixed_mod_map = dict((r[3], r) for r in XTP["residue, modification mass"])
     initialize_spectrum_parameters(XTP["residue, mass regimes"], fixed_mod_map,
-                                   options.quirks_mode)
+                                   options.quirks_mode, options.estimate_only)
 
     if options.part_split:
         # FIX: clean this up
@@ -1840,8 +1853,16 @@ def main():
         if part:
             del spectra                 # try to release memory
 
-        search_all(options, fasta_db, db, cleavage_pattern, cleavage_pos,
-                   score_statistics)
+        if spectra:
+            search_all(options, fasta_db, db, cleavage_pattern, cleavage_pos,
+                       score_statistics)
+        else:
+            warning("no spectra after filtering--search skipped")
+
+        if options.estimate_only:
+            print ("%.1f CPU minutes"
+                   % (score_statistics.candidate_spectrum_count / 2500000.0))
+            logging.shutdown()
 
         filter_matches(score_statistics)
 

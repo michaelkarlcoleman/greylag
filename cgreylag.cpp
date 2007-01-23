@@ -250,7 +250,7 @@ spectrum::read_spectra_from_ms2(FILE *f, const int file_id) {
       spectra.push_back(sp);
     }
     if (file_id != -1)
-      spectrum::next_physical_id++;
+      spectrum::next_physical_id += 1;
   }
   return spectra;
 }
@@ -342,7 +342,7 @@ spectrum::split_ms2_by_mass_band(FILE *inf, const std::vector<int> &outfds,
       if (not result or buf0[0] == ':')
 	break;
     }
-    o_next_physical_id++;
+    o_next_physical_id += 1;
   }
 
   // flush all output files (is this necessary?)
@@ -750,7 +750,10 @@ evaluate_peptide(const search_context &context, match &m,
   for (spmi_c_it candidate_it = candidate_spectra_info_begin;
        candidate_it != candidate_spectra_info_end; candidate_it++) {
     m.spectrum_index = candidate_it->second;
-    stats.candidate_spectrum_count++;
+    stats.candidate_spectrum_count += 1;
+    if (CP.estimate_only)
+      continue;
+
     //std::cerr << "sp " << m.spectrum_index << std::endl;
     score_spectrum(m.hyper_score, m.convolution_score, m.ion_scores,
 		   m.ion_peaks, synth_sp, m.spectrum_index,
@@ -784,9 +787,9 @@ evaluate_peptide(const search_context &context, match &m,
     if (not has_b_and_y)
       continue;
 
-    // check that parent masses are within error range (isotope ni)
-    // already done above (why does xtandem do it here?)
-    // if check fails, only eligible for 2nd-best record
+    // check that parent masses are within error range (isotope ni) already
+    // done above (why does xtandem do it here?  something to do with isotope
+    // jitter?)  if check fails, only eligible for 2nd-best record
 
     // Remember all of the highest-hyper-scoring matches against each
     // spectrum.  These might be in multiple domains (pos, length, mods) in
@@ -814,6 +817,10 @@ evaluate_peptide(const search_context &context, match &m,
 	or (not CP.quirks_mode
 	    and (current_ratio > (1/CP.hyper_score_epsilon_ratio)))) {
       // This score is significantly better, so forget previous matches.
+      stats.improved_candidates += 1;
+      //if (stats.best_match[m.spectrum_index].empty()) why doesn't this work?
+      if (stats.best_score[m.spectrum_index] == 100.0)
+	stats.spectra_with_candidates += 1;
       stats.best_score[m.spectrum_index] = m.hyper_score;
       stats.best_match[m.spectrum_index].clear();
     }
@@ -851,7 +858,7 @@ choose_residue_mod(const search_context &context, match &m,
     return;
 
   if (remaining_positions_to_choose == 0) {
-    stats.combinations_searched++;
+    stats.combinations_searched += 1;
     evaluate_peptide(context, m, mtlp, mass_list, candidate_spectra_info_begin,
 		     candidate_spectra_info_end, stats);
   } else {

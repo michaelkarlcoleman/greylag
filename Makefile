@@ -31,6 +31,7 @@ PYTHON_I = /usr/include/python$(PYTHONVER)
 
 CXXBASEFLAGS=-Wall -g3 -march=$(MARCH)
 
+# This makes it easy to compile different versions without editing this file.
 # 0=debug, 2=fast, 3=faster and less safe
 SPEED := 2
 
