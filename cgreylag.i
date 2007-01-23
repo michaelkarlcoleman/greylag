@@ -64,6 +64,7 @@
 
 %template(vector_int) std::vector<int>;
 %template(vector_double) std::vector<double>;
+%template(vector_sequence_run) std::vector<sequence_run>;
 %template(vector_peak) std::vector<peak>;
 %template(vector_spectrum) std::vector<spectrum>;
 %template(vector_match) std::vector<match>;

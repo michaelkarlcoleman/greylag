@@ -50,6 +50,7 @@ class parameters {
 public:
   bool quirks_mode;		// try to produce results closer to xtandem's
   bool estimate_only;		// just estimate work required
+  bool show_progress;		// running progress on stderr
 
   // hyperscores within this ratio are considered "equal"
   double hyper_score_epsilon_ratio;
@@ -79,6 +80,19 @@ public:
 };
 
 
+class sequence_run {
+public:
+  std::string sequence;
+  std::vector<int> cleavage_points; // none -> non-specific cleavage
+
+  explicit sequence_run() { }
+  explicit sequence_run(const std::string sequence,
+			const std::vector<int> cleavage_points)
+    : sequence(sequence), cleavage_points(cleavage_points) {
+  }
+};
+
+
 // information about the search that's passed in to--but not changed by--the
 // C++ search code
 class search_context {
@@ -102,6 +116,8 @@ public:
 
   // general search parameters
   int maximum_missed_cleavage_sites;
+
+  std::vector<sequence_run> sequence_runs;
 };
 
 
@@ -112,11 +128,13 @@ inline void operator++(ion &i, int) { i = ion(i + 1); }
 
 
 class peak {
- public:
+public:
   double mz;
   double intensity;
 
-  explicit peak(double mz=0, double intensity=0) : mz(mz), intensity(intensity) { }
+  explicit peak(double mz=0, double intensity=0)
+    : mz(mz), intensity(intensity) {
+  }
 
   char *__repr__() const;
 
@@ -229,12 +247,9 @@ public:
   // also build spectrum_mass_index.
   static void set_searchable_spectra(const std::vector<spectrum> &spectra);
 
-  // Search a run for matches according to the context against the spectra.
-  // Updates score_stats and the number of candidate spectra found.
-  static void search_run(const search_context &context, const int idno,
-			 const int offset, const std::string &run_sequence,
-			 const std::vector<int> cleavage_points,
-			 score_stats &stats);
+  // Search sequence runs for matches according to the context against the
+  // spectra.  Updates score_stats and the number of candidate spectra found.
+  static void search_runs(const search_context &context, score_stats &stats);
 
 
   // exposed for tinkering

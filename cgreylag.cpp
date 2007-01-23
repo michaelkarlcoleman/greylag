@@ -917,17 +917,24 @@ update_p_mass(double &p_mass, int &p_begin, int begin_index, int sign,
 
 
 
-// Search a run for matches according to the context against the spectra.
-// Updates score_stats and the number of candidate spectra found.
+// Search sequence runs for matches according to the context against the
+// spectra.  Updates score_stats and the number of candidate spectra found.
 
 // FIX: examine carefully for signed/unsigned problems
-// FIX: mv some of these params into context?
+
+//     if options.show_progress:
+// 	sys.stderr.write("%s of %s sequences, %s"
+// 			 " cand for %s sp, %s++\r"
+// 			 % (idno, len(fasta_db),
+// 			    score_statistics.candidate_spectrum_count,
+// 			    score_statistics.spectra_with_candidates,
+// 			    score_statistics.improved_candidates,
+// 			    ))
+
+
+
 void
-spectrum::search_run(const search_context &context,
-		     const int idno, const int offset,
-		     const std::string &run_sequence,
-		     const std::vector<int> cleavage_points,
-		     score_stats &stats) {
+spectrum::search_runs(const search_context &context, score_stats &stats) {
   const parameters &CP = parameters::the;
   const int min_peptide_length = std::max<int>(CP.minimum_peptide_length,
 					       context.mod_count);

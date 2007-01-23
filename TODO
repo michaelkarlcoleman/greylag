@@ -42,9 +42,6 @@ SPECIFIC TASKS
 
 - Add PPM feature.
 
-- Code cleanup, especially in new Python code.  Maybe put some stuff in
-  classes.  Could split into multiple source files.
-
 - Create DTASelect.txt output, either directly or by conversion from XML
   output.
 
@@ -52,9 +49,12 @@ SPECIFIC TASKS
   MONO, ! (first fragment regime), or by regime.  Look for similar problems
   elsewhere.
 
-- Mine OMSSA and myrimatch for ideas.  Look again at SEQUEST papers.
-
 - Make static '[' mod exclude PCA mods.
+
+- Code cleanup, especially in new Python code.  Maybe put some stuff in
+  classes.  Could split into multiple source files.
+
+- Mine OMSSA and myrimatch for ideas.  Look again at SEQUEST papers.
 
 - Need tool to compare two runs, for regression testing purposes.
 
@@ -174,6 +174,8 @@ PUTATIVE INSIGHTS
 
 
 
+------------------------------------------------------------------------------
+
 Current sloccount comparison (generated using David A. Wheeler's 'SLOCCount'):
 greylag: cpp:   898 py: 1400 (+336 sh to set up parallel jobs at SIMR)
 xtandem: cpp: 13058 (+ 1271 for parallel tandem -> 14329)
@@ -182,6 +184,8 @@ omssa:   cpp:  7583 (plus an unknown, possibly large number from the NCBI
 		    (the toolkits are 1000000 sloc, 65% cpp, 34% c)
 XXX:     cpp:  6534 (not counting expat code)
 
+
+------------------------------------------------------------------------------
 
 my source print command:
 

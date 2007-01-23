@@ -178,8 +178,7 @@ def mass_regime_atomic_masses(spec):
     return r
 
 
-def initialize_spectrum_parameters(mass_regimes, fixed_mod_map, quirks_mode,
-                                   estimate_only):
+def initialize_spectrum_parameters(options, mass_regimes, fixed_mod_map):
     """Initialize parameters known to the spectrum module.
     fixed_mod_map maps, for example, 'M' to (1, 'O', False, 'M', 'oxidation').
     """
@@ -269,8 +268,10 @@ def initialize_spectrum_parameters(mass_regimes, fixed_mod_map, quirks_mode,
     for n in range(2, len(CP.factorial)):
         CP.factorial[n] = CP.factorial[n-1] * n
 
-    CP.quirks_mode = bool(quirks_mode)
-    CP.estimate_only = bool(estimate_only)
+    CP.quirks_mode = bool(options.quirks_mode)
+    CP.estimate_only = bool(options.estimate_only)
+    CP.show_progress = bool(options.show_progress)
+    
     CP.hyper_score_epsilon_ratio = 0.999 # must be slightly less than 1
 
     #debug("CP: %s", pythonize_swig_object(CP, ['the']))
@@ -907,8 +908,7 @@ def set_context_conjuncts(context, mass_regime_index, N_cj, C_cj, R_cj):
                 = context.delta_bag_lookup[ord(r)] + (n,)
 
 
-def search_all(options, fasta_db, db, cleavage_pattern, cleavage_pos,
-               score_statistics):
+def search_all(options, context, score_statistics):
     """Search sequence database against searchable spectra."""
 
     mod_limit = XTP["scoring, maximum simultaneous modifications searched"]
@@ -926,9 +926,6 @@ def search_all(options, fasta_db, db, cleavage_pattern, cleavage_pos,
     pca_table = get_pca_table(mass_regimes)
     debug("pca_table: %s", pca_table)
 
-    context = cgreylag.search_context()
-    context.maximum_missed_cleavage_sites \
-        = XTP["scoring, maximum missed cleavage sites"]
     total_combinations_searched = 0
 
     for mod_count in range(mod_limit + 1):
@@ -974,26 +971,12 @@ def search_all(options, fasta_db, db, cleavage_pattern, cleavage_pos,
                              % (mod_count, mr_index, pca_res, cji, delta_bag))
                         debug("p_fx %s f_N_fx %s f_C_fx %s"
                               % (p_fx, f_N_fx, f_C_fx))
-                        for idno, offset, defline, seq, seq_filename in db:
-                            if options.show_progress:
-                                sys.stderr.write("\r%s of %s sequences, %s"
-                                                 " cand for %s sp, %s++"
-                                                 % (idno, len(fasta_db),
-                                                    score_statistics.candidate_spectrum_count,
-                                                    score_statistics.spectra_with_candidates,
-                                                    score_statistics.improved_candidates,
-                                                    ))
-                            cleavage_points = list(generate_cleavage_points(cleavage_pattern, cleavage_pos, seq))
 
-                            score_statistics.combinations_searched = 0
-                            cgreylag.spectrum.search_run(context, idno, offset,
-                                                         seq, cleavage_points,
-                                                         score_statistics) 
-                            total_combinations_searched \
-                                += score_statistics.combinations_searched
-
-                        if options.show_progress:
-                            sys.stderr.write("\r%78s\r" % ' ')
+                        score_statistics.combinations_searched = 0
+                        cgreylag.spectrum.search_runs(context,
+                                                      score_statistics) 
+                        total_combinations_searched \
+                            += score_statistics.combinations_searched
 
     info('%s candidate spectra examined',
          score_statistics.candidate_spectrum_count)
@@ -1838,14 +1821,6 @@ def main():
     if not db:
         error("no database sequences")
 
-    # (cleavage_re, position of cleavage in cleavage_re)
-    cleavage_pattern, cleavage_pos \
-                      = cleavage_motif_re(XTP["protein, cleavage site"])
-    if cleavage_pos == None:
-        error("cleavage site '%s' is missing '|'",
-              XTP["protein, cleavage site"])
-    cleavage_pattern = re.compile(cleavage_pattern)
-
     if not options.part_merge:
         cgreylag.spectrum.set_searchable_spectra(spectra)
         score_statistics = cgreylag.score_stats(len(spectra))
@@ -1854,8 +1829,24 @@ def main():
             del spectra                 # try to release memory
 
         if spectra:
-            search_all(options, fasta_db, db, cleavage_pattern, cleavage_pos,
-                       score_statistics)
+            # (cleavage_re, position of cleavage in cleavage_re)
+            cleavage_pattern, cleavage_pos \
+                              = cleavage_motif_re(XTP["protein, cleavage site"])
+            if cleavage_pos == None:
+                error("cleavage site '%s' is missing '|'",
+                      XTP["protein, cleavage site"])
+            cleavage_pattern = re.compile(cleavage_pattern)
+
+            context = cgreylag.search_context()
+            for idno, offset, defline, seq, seq_filename in db:
+                sr = cgreylag.sequence_run(seq,
+                         list(generate_cleavage_points(cleavage_pattern,
+                                                       cleavage_pos, seq)))
+                context.sequence_runs.append(sr)
+            context.maximum_missed_cleavage_sites \
+                = XTP["scoring, maximum missed cleavage sites"]
+
+            search_all(options, context, score_statistics)
         else:
             warning("no spectra after filtering--search skipped")
 
