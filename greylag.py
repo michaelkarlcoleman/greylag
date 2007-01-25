@@ -1738,8 +1738,8 @@ def main():
     taxonomy = read_taxonomy(XTP["list path, taxonomy information"])
 
     fixed_mod_map = dict((r[3], r) for r in XTP["residue, modification mass"])
-    initialize_spectrum_parameters(XTP["residue, mass regimes"], fixed_mod_map,
-                                   options.quirks_mode, options.estimate_only)
+    initialize_spectrum_parameters(options, XTP["residue, mass regimes"],
+                                   fixed_mod_map)
 
     if options.part_split:
         # FIX: clean this up
@@ -1839,7 +1839,7 @@ def main():
 
             context = cgreylag.search_context()
             for idno, offset, defline, seq, seq_filename in db:
-                sr = cgreylag.sequence_run(seq,
+                sr = cgreylag.sequence_run(idno, offset, seq,
                          list(generate_cleavage_points(cleavage_pattern,
                                                        cleavage_pos, seq)))
                 context.sequence_runs.append(sr)
@@ -1852,8 +1852,9 @@ def main():
 
         if options.estimate_only:
             print ("%.1f CPU minutes"
-                   % (score_statistics.candidate_spectrum_count / 2500000.0))
+                   % (score_statistics.candidate_spectrum_count / 5.0e6))
             logging.shutdown()
+            return 
 
         filter_matches(score_statistics)
 

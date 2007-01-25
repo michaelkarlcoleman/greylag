@@ -82,13 +82,17 @@ public:
 
 class sequence_run {
 public:
+  int sequence_index;		// index of this sequence in the database
+  int sequence_offset;		// offset of this run's start in sequence
   std::string sequence;
-  std::vector<int> cleavage_points; // none -> non-specific cleavage
+  std::vector<int> cleavage_points;
 
   explicit sequence_run() { }
-  explicit sequence_run(const std::string sequence,
+  explicit sequence_run(const int sequence_index, const int sequence_offset,
+			const std::string sequence,
 			const std::vector<int> cleavage_points)
-    : sequence(sequence), cleavage_points(cleavage_points) {
+    : sequence_index(sequence_index), sequence_offset(sequence_offset),
+      sequence(sequence), cleavage_points(cleavage_points) {
   }
 };
 
@@ -250,7 +254,6 @@ public:
   // Search sequence runs for matches according to the context against the
   // spectra.  Updates score_stats and the number of candidate spectra found.
   static void search_runs(const search_context &context, score_stats &stats);
-
 
   // exposed for tinkering
   static double score_similarity(const spectrum &x, const spectrum &y,

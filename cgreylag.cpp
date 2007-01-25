@@ -917,36 +917,29 @@ update_p_mass(double &p_mass, int &p_begin, int begin_index, int sign,
 
 
 
-// Search sequence runs for matches according to the context against the
+// Search a sequence run for matches according to the context against the
 // spectra.  Updates score_stats and the number of candidate spectra found.
 
 // FIX: examine carefully for signed/unsigned problems
 
-//     if options.show_progress:
-// 	sys.stderr.write("%s of %s sequences, %s"
-// 			 " cand for %s sp, %s++\r"
-// 			 % (idno, len(fasta_db),
-// 			    score_statistics.candidate_spectrum_count,
-// 			    score_statistics.spectra_with_candidates,
-// 			    score_statistics.improved_candidates,
-// 			    ))
-
-
-
-void
-spectrum::search_runs(const search_context &context, score_stats &stats) {
+void inline
+search_run(const search_context &context, const sequence_run &sequence_run,
+	   score_stats &stats) {
   const parameters &CP = parameters::the;
   const int min_peptide_length = std::max<int>(CP.minimum_peptide_length,
 					       context.mod_count);
   const std::vector<double> &fixed_parent_mass \
     = CP.parent_mass_regime[context.mass_regime_index].fixed_residue_mass;
 
+  const std::string &run_sequence = sequence_run.sequence;
+  const std::vector<int> &cleavage_points = sequence_run.cleavage_points;
+
   // This match will be passed inward and used to record information that we
   // need to remember about a match when we finally see one.  At that point, a
   // copy of this match will be saved.
   match m;			// FIX: move inward?
-  m.sequence_index = idno;
-  m.sequence_offset = offset;
+  m.sequence_index = sequence_run.sequence_index;
+  m.sequence_offset = sequence_run.sequence_offset;
 
   assert(context.delta_bag_delta.size()
 	 == context.delta_bag_count.size());
@@ -1031,5 +1024,24 @@ spectrum::search_runs(const search_context &context, score_stats &stats) {
 			 candidate_spectra_info_end, stats, db_remaining,
 			 context.mod_count, 0);
     }
+  }
+}
+
+
+// Search all sequence runs for matches according to the context against the
+// spectra.  Updates score_stats and the number of candidate spectra found.
+void
+spectrum::search_runs(const search_context &context, score_stats &stats) {
+  const parameters &CP = parameters::the;
+
+  const int no_runs = context.sequence_runs.size();
+  for (int i=0; i<no_runs; i++) {
+    search_run(context, context.sequence_runs[i], stats);
+
+    if (CP.show_progress)
+      std::cerr << i+1 << " of " << no_runs << " sequences, "
+		<< stats.candidate_spectrum_count << " cand for "
+		<< stats.spectra_with_candidates << " sp, "
+		<< stats.improved_candidates << "++\r" << std::flush;
   }
 }

@@ -16,15 +16,11 @@ OVERALL GOALS
 SPECIFIC TASKS
 
 
-- Move iteration over sequences into C.  (generate_cleavage_points and
-  search_all are killing us)  Can we still generate the cleavage points (once)
-  in Python and store them on the C side?  (store as deltas?)
-
 - Time a real no-mod search vs SEQUEST (and xtandem?), is time reasonable?
-  MAKE SURE PARAMS ARE COMPARABLE!
+  MAKE SURE PARAMS ARE COMPARABLE!  Ballpark correctness?
 
 - Time a real mod search vs SEQUEST (and xtandem?), is time reasonable?
-  MAKE SURE PARAMS ARE COMPARABLE!
+  MAKE SURE PARAMS ARE COMPARABLE!  Ballpark correctness?
 
 - Make a tool to compare greylag vs SEQUEST results by spectrum.  Want gross
   statistics--how many id's are the same, different, missing, etc.  For each
@@ -65,7 +61,7 @@ SPECIFIC TASKS
 - Advanced refinement ideas.  For example, only search a locus for a hit with N
   mods if we got a hit for it with 0..N-1 mods (or maybe 0..N-2?).  Or, only
   search a locus non-tryptically (or semi-tryptically) if we got a tryptic hit
-  for it.  
+  for it.
 
   - Investigate current SEQUEST search results to see if this looks feasible.
 
@@ -180,7 +176,7 @@ Current sloccount comparison (generated using David A. Wheeler's 'SLOCCount'):
 greylag: cpp:   898 py: 1400 (+336 sh to set up parallel jobs at SIMR)
 xtandem: cpp: 13058 (+ 1271 for parallel tandem -> 14329)
 omssa:   cpp:  7583 (plus an unknown, possibly large number from the NCBI
-		     toolkits [33 distinct headers]) 
+		     toolkits [33 distinct headers])
 		    (the toolkits are 1000000 sloc, 65% cpp, 34% c)
 XXX:     cpp:  6534 (not counting expat code)
 
