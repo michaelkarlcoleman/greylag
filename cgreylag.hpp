@@ -108,7 +108,7 @@ public:
 
   double N_delta;		// 0 if none
   double C_delta;		// 0 if none
-  
+
   // maps residue char to list of indices for _count/_delta
   std::vector< std::vector<int> > delta_bag_lookup;
   std::vector<double> delta_bag_delta;
@@ -221,7 +221,7 @@ public:
   // physical_id, and id, respectively.  Multiply charged spectra will be
   // split into separate spectra (having the same physical_id).
   static void split_ms2_by_mass_band(FILE *inf, const std::vector<int> &outfds,
-				     const int file_id, 
+				     const int file_id,
 				     const std::vector<double>
 				       &mass_band_upper_bounds);
 
@@ -326,7 +326,7 @@ public:
     second_best_score.resize(n, 100.0);
     best_match.resize(n);
   }
-  
+
   // spectrum index -> (scaled, binned hyperscore -> count)
   std::vector< std::vector<int> > hyperscore_histogram;
   // spectrum index -> best_hyperscore (and 2nd best, respectively)

@@ -15,12 +15,16 @@ OVERALL GOALS
 
 SPECIFIC TASKS
 
-
-- Time a real no-mod search vs SEQUEST (and xtandem?), is time reasonable?
-  MAKE SURE PARAMS ARE COMPARABLE!  Ballpark correctness?
-
 - Time a real mod search vs SEQUEST (and xtandem?), is time reasonable?
   MAKE SURE PARAMS ARE COMPARABLE!  Ballpark correctness?
+
+- Merge branch back into trunk.
+
+- For non-specific cleavage, don't generate cleavage points!  VERY SLOW!
+
+- Create DTASelect.txt output, either directly or by conversion from XML
+  output.  (This seems to be sufficient to support most or all DTASelect
+  output.)
 
 - Make a tool to compare greylag vs SEQUEST results by spectrum.  Want gross
   statistics--how many id's are the same, different, missing, etc.  For each
@@ -28,6 +32,9 @@ SPECIFIC TASKS
   locus was otherwise id'ed.
 
 - Investigate identification differences between greylag and SEQUEST.
+
+- Careful timing and correctness check for
+  /n/proteomics/mkc/HsProA-Control_S100_Ti_1_H_2006-03-03_wSHUFFLED-greylag
 
 - Design and implement tracing of mass regime/PCA/fixed and non-fixed
   deltas/etc into output file.  Try to stay compatible with xtandem.
@@ -38,8 +45,18 @@ SPECIFIC TASKS
 
 - Add PPM feature.
 
-- Create DTASelect.txt output, either directly or by conversion from XML
-  output.
+- Make --estimate work correctly over cluster.  (Currently takes 6 hours to
+  estimate 60--is this worthwhile?  Could we simply estimate one bag and
+  multiply by the number of bags??)
+
+- Have --estimate generate a spectrum work count file (*.est?) that can be
+  used by --part-split to generate evenly sized parts.  (Check that file is
+  newer than params file and ms2 file arguments, and that all ms2 file
+  arguments were estimated.)
+
+- Maybe --part-split should generate a downramp of sizes?  It definitely
+  should take into account spectra filtered out (== no work), but this
+  requires reading all spectra before splitting (which takes more time).
 
 - Fix "cleavage C-terminal mass change" issue.  Should this be interpreted as
   MONO, ! (first fragment regime), or by regime.  Look for similar problems

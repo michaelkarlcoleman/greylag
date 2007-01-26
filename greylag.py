@@ -40,6 +40,7 @@ import optparse
 import os
 from pprint import pprint, pformat
 import re
+from socket import gethostname
 import sys
 
 import elementtree.ElementTree
@@ -207,7 +208,7 @@ def initialize_spectrum_parameters(options, mass_regimes, fixed_mod_map):
             creg.ammonia_mass = formula_mass("NH3", atmass)
 
             creg.fixed_residue_mass.resize(RESIDUE_LIMIT)
-            
+
             for r in RESIDUES_W_BRACKETS:
                 m = 0
                 if r in RESIDUES:
@@ -246,7 +247,7 @@ def initialize_spectrum_parameters(options, mass_regimes, fixed_mod_map):
                 raise ValueError('bogus parent mass specification for %s' % r)
             if CP.fragment_mass_regime[rn].fixed_residue_mass[ord(r)] < 1.0:
                 raise ValueError('bogus parent mass specification for %s' % r)
-    
+
     CP.parent_monoisotopic_mass_error_plus \
         = XTP["spectrum, parent monoisotopic mass error plus"]
     CP.parent_monoisotopic_mass_error_minus \
@@ -271,7 +272,7 @@ def initialize_spectrum_parameters(options, mass_regimes, fixed_mod_map):
     CP.quirks_mode = bool(options.quirks_mode)
     CP.estimate_only = bool(options.estimate_only)
     CP.show_progress = bool(options.show_progress)
-    
+
     CP.hyper_score_epsilon_ratio = 0.999 # must be slightly less than 1
 
     #debug("CP: %s", pythonize_swig_object(CP, ['the']))
@@ -467,12 +468,12 @@ def mass_regime_list(mass_regime_list_specification):
 def parse_mod_term(s, is_potential=False):
     """Parse a modification term, returning a tuple (sign, mod, fixed_regime,
     residues, description).  For example:
-    
+
     '-C2H3ON!@C' --> (-1, 'C2H3ON', True, 'C', None)
     '42@STY phosphorylation' --> (1, 42.0, False, 'STY', 'phosphorylation')
 
     """
-    
+
     m = re.match(r'^\s*(-|\+)?(([1-9][0-9.]*)|([A-Z][A-Z0-9]*))(!?)'
                  r'@([A-Z]+|\[|\])(\s+([A-Za-z0-9_]+))?\s*$', s)
     if not m:
@@ -846,7 +847,7 @@ def get_mod_conjunct_triples(mod_tree, limit):
                             MASS_REGIME_ATOMIC_MASSES[regime_index][par_frag]))
             else:
                 return sign * delta
-        
+
         sign, delta, is_mono = t[:3]
         return t + (tuple((rmass(r, 0, sign, delta, is_mono),
                            rmass(r, 1, sign, delta, is_mono))
@@ -859,7 +860,7 @@ def get_mod_conjunct_triples(mod_tree, limit):
         rest = [ enmass(x) for x in c if x[3] not in '[]' ]
         rest = tuple(sorted(list(frozenset(rest))))
         return (Ns, Cs, rest)
-        
+
     return sorted(list(frozenset(triple(conjunct)
                                  for conjunct
                                  in enumerate_disjunction(mod_tree, limit))),
@@ -974,9 +975,11 @@ def search_all(options, context, score_statistics):
 
                         score_statistics.combinations_searched = 0
                         cgreylag.spectrum.search_runs(context,
-                                                      score_statistics) 
+                                                      score_statistics)
                         total_combinations_searched \
                             += score_statistics.combinations_searched
+                        info("  %s candidate spectra examined, this bag",
+                             score_statistics.combinations_searched)
 
     info('%s candidate spectra examined',
          score_statistics.candidate_spectrum_count)
@@ -1639,7 +1642,7 @@ def main():
     pa("--part-split", dest="part_split", type="int", help="split input into M"
        " parts, to prepare for --part runs [NOTE: the same parameter file and"
        " same spectrum files (in the same order) must be specified for all"
-       " --part* steps]", metavar="M") 
+       " --part* steps]", metavar="M")
     pa("--part", dest="part", help="search one part, previously created with"
        " --part-split; e.g. '1of2' and '2of2'", metavar="NofM")
     pa("--part-merge", dest="part_merge", type="int", help="merge the"
@@ -1647,7 +1650,7 @@ def main():
     default_prefix = 'greylag'
     pa("--part-prefix", dest="part_prefix", default=default_prefix,
        help="prefix to use for temporary part files [default='%s']"
-       % default_prefix, metavar="PREFIX") 
+       % default_prefix, metavar="PREFIX")
     pa("--compress-level", dest="compress_level", type="int",
        help="compression level to use for compressed files created [default=1"
        " for *.gz, 9 for *.bz2]", metavar="N")
@@ -1655,13 +1658,13 @@ def main():
     pa("-p", "--show-progress", action="store_true", dest="show_progress",
        help="show running progress")
     pa("-v", "--verbose", action="store_true", dest="verbose",
-       help="be verbose") 
+       help="be verbose")
     pa("--copyright", action="store_true", dest="copyright",
        help="print copyright and exit")
     pa("--debug", action="store_true", dest="debug",
        help="output debugging info")
     pa("--profile", action="store_true", dest="profile",
-       help="dump Python profiling output to './greylag.prof'") 
+       help="dump Python profiling output to './greylag.prof'")
     (options, args) = parser.parse_args()
 
     if options.copyright:
@@ -1716,7 +1719,7 @@ def main():
         log_level = logging.DEBUG
     logging.basicConfig(level=log_level, datefmt='%b %e %H:%M:%S',
                         format='%(asctime)s %(levelname)s: %(message)s')
-    info("starting")
+    info("starting on %s", gethostname())
 
     # read params
     parameters = read_xml_parameters(args[0])
@@ -1825,10 +1828,10 @@ def main():
         cgreylag.spectrum.set_searchable_spectra(spectra)
         score_statistics = cgreylag.score_stats(len(spectra))
 
-        if part:
-            del spectra                 # try to release memory
-
         if spectra:
+            if part:
+                del spectra             # try to release memory
+
             # (cleavage_re, position of cleavage in cleavage_re)
             cleavage_pattern, cleavage_pos \
                               = cleavage_motif_re(XTP["protein, cleavage site"])
@@ -1851,10 +1854,10 @@ def main():
             warning("no spectra after filtering--search skipped")
 
         if options.estimate_only:
-            print ("%.1f CPU minutes"
-                   % (score_statistics.candidate_spectrum_count / 5.0e6))
+            print ("%.2f generic CPU hours"
+                   % (score_statistics.candidate_spectrum_count / 300.0e6))
             logging.shutdown()
-            return 
+            return
 
         filter_matches(score_statistics)
 

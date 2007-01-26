@@ -47,7 +47,7 @@ die() {
 }
 
 if [ "$1" == "-l" ]; then
-    shift 
+    shift
     logging=1
 fi
 
@@ -131,7 +131,7 @@ results="$jobname.out.xml.gz"
 jobbasedir=$(basename $PWD)
 
 #########################################################################
-# submit the job in this shared directory so that the nodes can see it  
+# submit the job in this shared directory so that the nodes can see it
 pushd $shared_d > /dev/null || die "pushd failed!"
 
 # use err

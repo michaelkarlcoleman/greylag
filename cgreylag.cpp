@@ -267,7 +267,7 @@ spectrum::read_spectra_from_ms2(FILE *f, const int file_id) {
 // FIX: cleaner to just pass in a vector of filenames, rather than fds?
 void
 spectrum::split_ms2_by_mass_band(FILE *inf, const std::vector<int> &outfds,
-				 const int file_id, 
+				 const int file_id,
 				 const std::vector<double>
 				   &mass_band_upper_bounds) {
   std::map<double, FILE *> mass_file_index;
@@ -293,7 +293,7 @@ spectrum::split_ms2_by_mass_band(FILE *inf, const std::vector<int> &outfds,
   while (true) {
     double mass;
     std::set<FILE *> sp_files;
-    
+
     // copy headers
     while (true) {
       if (ferrorX(inf))
@@ -407,7 +407,7 @@ spectrum::filter_and_normalize(double minimum_fragment_mz,
       peaks.erase(peaks.begin() + i);
     else
       i++;
-      
+
 
   // remove_low_masses
   std::vector<peak>::iterator pi;
@@ -435,7 +435,7 @@ spectrum::filter_and_normalize(double minimum_fragment_mz,
 
   if (peaks.size() < (unsigned int) minimum_peaks)
     return false;
-    
+
   //     # check is_noise (NYI)
   //     # * is_noise attempts to determine if the spectrum is simply
   //     # noise. if the spectrum
@@ -609,7 +609,7 @@ synthetic_spectra(spectrum synth_sp[/* max_fragment_charge+1 */][ION_MAX],
 // error for each peak an arbitrary value between 1x and 2x the parameter,
 // based on quantization of that peak.  If quirks_mode is on, we'll try to
 // emulate this behavior.
-static inline double 
+static inline double
 score_similarity_(const spectrum &x, const spectrum &y,
 		  int *peak_count) NOTHROW {
   const double frag_err = parameters::the.fragment_mass_error;
@@ -620,7 +620,7 @@ score_similarity_(const spectrum &x, const spectrum &y,
   *peak_count = 0;
   std::vector<peak>::const_iterator x_it = x.peaks.begin();
   std::vector<peak>::const_iterator y_it = y.peaks.begin();
-  
+
   while (x_it != x.peaks.end() and y_it != y.peaks.end()) {
     double x_mz = x_it->mz, y_mz = y_it->mz;
     if (quirks_mode) {
@@ -645,7 +645,7 @@ score_similarity_(const spectrum &x, const spectrum &y,
 }
 
 
-double 
+double
 spectrum::score_similarity(const spectrum &x, const spectrum &y, int
 			   *peak_count) {
   return score_similarity_(x, y, peak_count);
@@ -1010,7 +1010,7 @@ search_run(const search_context &context, const sequence_run &sequence_run,
 
       m.parent_peptide_mass = p_mass;
       //m.fragment_peptide_mass = ???;  unneeded???
-  
+
       m.peptide_sequence.assign(run_sequence, begin_index, peptide_size);
 
       std::vector<double> mass_list(peptide_size);
@@ -1044,4 +1044,7 @@ spectrum::search_runs(const search_context &context, score_stats &stats) {
 		<< stats.spectra_with_candidates << " sp, "
 		<< stats.improved_candidates << "++\r" << std::flush;
   }
+
+  if (CP.show_progress)
+    std::cerr << std::endl;
 }
