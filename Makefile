@@ -1,8 +1,5 @@
 # Makefile for cgreylag module
 
-#	$Id$
-
-
 # SWIG is still experiencing rapid development--1.3.28 or better is required.
 # A reasonably recent g++/libstdc++ may also be required.  Python 2.4 or
 # better is assumed.

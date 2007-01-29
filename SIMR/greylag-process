@@ -1,5 +1,6 @@
 #!/bin/bash
-#        $Id$
+
+# This wrapper script will invoke greylag in parallel on our SGE cluster.
 
 # This directory is assumed to be shared across all cluster nodes
 SHAREDTMPDIR=/clusterfs/home/proteomics/tmp

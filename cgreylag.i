@@ -1,7 +1,5 @@
 // SWIG interface definition for module cgreylag
 
-//	$Id$
-
 //     Copyright (C) 2006-2007, Stowers Institute for Medical Research
 //
 //     This program is free software; you can redistribute it and/or modify
@@ -80,7 +78,7 @@
 %include std_map.i
 %include std_multimap.i
 
-%template(pair_double_vector_size_type) 
+%template(pair_double_vector_size_type)
     std::pair<double, std::vector<spectrum>::size_type>;
 
 // These two lines seem to be required to make the multimap template work.

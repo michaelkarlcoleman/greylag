@@ -1,7 +1,5 @@
 // C++ module for greylag
 
-// $Id$
-
 //     Copyright (C) 2006-2007, Stowers Institute for Medical Research
 //
 //     This program is free software; you can redistribute it and/or modify

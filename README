@@ -1,11 +1,7 @@
 # README for greylag
 
-#	$Id$
 
-
-Please address all inquiries regarding this software to Mike Coleman, Stowers
-Institute for Medical Research, 1000 East 50th Street, Kansas City, MO 64110,
-USA.  (mkc ...at... stowers-institute ...dot... org)
+XXX add some desc here
 
 
 
@@ -97,3 +93,11 @@ new/delete, potential buffer overflows, etc.]
 
 
 XXX = feature not yet completed
+
+
+------------------------------------------------------------------------------
+Author:	Mike Coleman  (mkc ...at... stowers-institute ...dot... org)
+	Stowers Institute for Medical Research
+	1000 East 50th Street
+	Kansas City, MO 64110  USA
+------------------------------------------------------------------------------
