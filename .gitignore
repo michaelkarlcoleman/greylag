@@ -1,0 +1,5 @@
+*.o
+*.so
+cgreylag.py
+cgreylag_wrap.cpp
+*~

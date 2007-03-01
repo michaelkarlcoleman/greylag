@@ -14,12 +14,10 @@ OVERALL GOALS
 
 SPECIFIC TASKS
 
+- For non-specific cleavage, don't generate cleavage points!  VERY SLOW!
+
 - Time a real mod search vs SEQUEST (and xtandem?), is time reasonable?
   MAKE SURE PARAMS ARE COMPARABLE!  Ballpark correctness?
-
-- Merge branch back into trunk.
-
-- For non-specific cleavage, don't generate cleavage points!  VERY SLOW!
 
 - Create DTASelect.txt output, either directly or by conversion from XML
   output.  (This seems to be sufficient to support most or all DTASelect
@@ -66,11 +64,10 @@ SPECIFIC TASKS
 - Code cleanup, especially in new Python code.  Maybe put some stuff in
   classes.  Could split into multiple source files.
 
-- Mine OMSSA and myrimatch for ideas.  Look again at SEQUEST papers.
+- Mine OMSSA and myrimatch for ideas.  Look again at X!Tandem and SEQUEST
+  papers.
 
 - Need tool to compare two runs, for regression testing purposes.
-
-- Look at moving C++ code to C+ctypes, or maybe pyrex?
 
 - Add refinement.  (like xtandem?)
 
@@ -88,10 +85,7 @@ SPECIFIC TASKS
 
 - Profiling to find slow spots, and for correctness?
 
-- Try using the Intel compiler?
-
-- Heavy optimization on inner loop.  Try running from both ends
-  simultaneously.
+- Heavy optimization on inner loop.  Try running from both ends simultaneously.
 
 - Should we try to guarantee that searching is equivalent for all mass regimes,
   to make comparisons more valid?
@@ -108,6 +102,8 @@ SPECIFIC TASKS
   peptide multiple times (saving perhaps 30% runtime for one real database).
   Alternatively, maybe we could just generate a description of peptides to be
   masked out.
+
+- Look at moving C++ code to C+ctypes, or maybe pyrex?
 
 - Incrementalize the whole program.  Want to be able to take an existing run
   and spend more time on it to get more results, possibly concentrating on a
@@ -156,7 +152,7 @@ PUTATIVE INSIGHTS
   spectra swamps everything else.  (Generation of synthetic spectra is
   noticeable, at about 15%.)
 
-- This may mean that ordering spectra by parent mass is pointless?!
+- This means that ordering spectra by parent mass is pointless?!
 
 - We can afford to be a little sloppy in how we generate the comparisons
   (as long as we're not generating duplicates, of course).
@@ -173,6 +169,9 @@ PUTATIVE INSIGHTS
   deeper searches they just silently give up.
 
 - The way X!Tandem quantizes peaks leads to noticeable quantization error.
+
+
+ETC
 
 - What is this C+57 mod called?  Carboxyamidomethyl?  +C2H3ON!
 
