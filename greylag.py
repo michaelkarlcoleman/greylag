@@ -42,8 +42,7 @@ from pprint import pprint, pformat
 import re
 from socket import gethostname
 import sys
-
-import elementtree.ElementTree
+import xml.etree.ElementTree
 
 import cgreylag
 
@@ -361,7 +360,7 @@ def read_fasta_files(filenames):
 
 def read_taxonomy(filename):
     """Return a map of taxa to lists of filenames."""
-    root = elementtree.ElementTree.ElementTree(file=filename).getroot()
+    root = xml.etree.ElementTree.ElementTree(file=filename).getroot()
     return dict( (taxon.get("label"),
                   [ f.get("URL") for f in taxon.findall('./file') ])
                  for taxon in root.findall('taxon') )
@@ -369,7 +368,7 @@ def read_taxonomy(filename):
 
 def read_xml_parameters(filename):
     """Return a map of parameters to values, per parameter file fn."""
-    root = elementtree.ElementTree.ElementTree(file=filename).getroot()
+    root = xml.etree.ElementTree.ElementTree(file=filename).getroot()
     # try to catch misspellings/etc in the config file
     bad_nodes = [ e for e in root.findall('*')
                   if (e.tag != 'note'

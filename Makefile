@@ -1,10 +1,10 @@
 # Makefile for cgreylag module
 
-# SWIG is still experiencing rapid development--1.3.28 or better is required.
-# A reasonably recent g++/libstdc++ may also be required.  Python 2.4 or
-# better is assumed.
+# SWIG is still experiencing rapid development--1.3.31 or later is required.
+# Python 2.5 or later is required.
+# A reasonably recent g++/libstdc++ may also be required.
 
-# Developed with swig 1.3.28, g++ 4.1.2, libstdc++.so.6 (ld 2.16.91)
+# Developed with swig 1.3.31, g++ 3.4.6/4.1.2, libstdc++.so.6
 
 
 .PHONY: all pycheck modsyms install clean tags
@@ -20,13 +20,10 @@ MARCH = pentium3
 
 DEST = /n/site/inst/Linux-i686/bioinfo/greylag/
 
-PYTHONVER=2.4
+PYTHONVER=2.5
+PYTHONFLAGS = $(shell python$(PYTHONVER)-config --include)
 
-# Generally, this is where the 'Python.h' corresponding to your 'python' lives.
-#PYTHON_I = /n/site/inst/Linux-i686/sys/include/python$(PYTHONVER)
-PYTHON_I = /usr/include/python$(PYTHONVER)
-
-CXXBASEFLAGS=-Wall -g3 -march=$(MARCH)
+CXXBASEFLAGS = -Wall -g3 -march=$(MARCH)
 
 # This makes it easy to compile different versions without editing this file.
 # 0=debug, 2=fast, 3=faster and less safe
@@ -50,7 +47,7 @@ CXXFLAGS = ---INVALID-SPEED
   endif
 endif
 
-SWIGCXXFLAGS = $(CXXFLAGS) -fPIC -I$(PYTHON_I) -fno-strict-aliasing \
+SWIGCXXFLAGS = $(CXXFLAGS) -fPIC $(PYTHONFLAGS) -fno-strict-aliasing \
 		-Wno-unused-function -Wno-uninitialized
 
 PROGRAM = greylag
