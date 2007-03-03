@@ -4,6 +4,8 @@
    re-implementation of the X!Tandem algorithm, with many extra features.)
 '''
 
+from __future__ import with_statement
+
 __copyright__ = '''
     greylag, Copyright (C) 2006-2007, Stowers Institute for Medical Research
 
@@ -30,6 +32,7 @@ __copyright__ = '''
 __version__ = "0.0"
 
 
+from collections import defaultdict
 import cPickle
 import fileinput
 import itertools
@@ -401,30 +404,30 @@ def read_xml_parameters(filename):
 def mass_regime_part(part_specification):
     """Parse a single mass regime specification part (e.g., 'MONO(N15@90%)').
     """
-    ps = [ x.strip() for x in part_specification.split('(', 1) ]
+    ps = [ x.strip() for x in part_specification.partition('(') ]
     if ps[0] not in ('MONO', 'AVG'):
         raise ValueError("invalid mass regime list specification"
                          " (regime id must be 'MONO' or 'AVG')")
-    if len(ps) == 1:
+    if not ps[1]:
         return (ps[0], [])
-    if ps[1][-1] != ')':
+    if ps[2][-1] != ')':
         raise ValueError("invalid mass regime list specification"
                          " (expected ')')")
-    pps = [ x.strip() for x in ps[1][:-1].split(',') ]
+    pps = [ x.strip() for x in ps[2][:-1].split(',') ]
     if len(pps) > 1:
         raise ValueError("invalid mass regime list specification"
                          " (multiple isotopes not yet implemented)")
-    ppps = [ x.strip() for x in pps[0].split('@', 1) ]
-    if len(ppps) != 2:
+    ppps = [ x.strip() for x in pps[0].partition('@') ]
+    if not ppps[1]:
         raise ValueError("invalid mass regime list specification"
                          " (expected '@')")
     if ppps[0] not in ('N15',):
         raise ValueError("invalid mass regime list specification"
                          " (isotope id must currently be 'N15')")
-    if ppps[1][-1] != '%':
+    if ppps[2][-1] != '%':
         raise ValueError("invalid mass regime list specification"
                          " (expected '%')")
-    prevalence = float(ppps[1][:-1]) / 100
+    prevalence = float(ppps[2][:-1]) / 100
     if not (0 <= prevalence <= 1):
         raise ValueError("invalid mass regime list specification"
                          " (prevalence must be in range 0-100%)")
@@ -1163,10 +1166,9 @@ def process_results(score_statistics, fasta_db, spectra, db_residue_count):
     spec_prot_info = {}
 
     for sp_n in xrange(len(score_statistics.best_match)):
-        prot_info = {}
+        prot_info = defaultdict(list)
         for m in score_statistics.best_match[sp_n]:
-            protein_id = m.sequence_index
-            prot_info.setdefault(protein_id, []).append(m)
+            prot_info[m.sequence_index].append(m)
         if prot_info:
             spec_prot_info[sp_n] = prot_info.items()
 
@@ -1204,10 +1206,10 @@ def process_results(score_statistics, fasta_db, spectra, db_residue_count):
 
     # FIX: is this redundant with spec_prot_info??
     # protein id -> list of spectra match info
-    best_protein_matches = {}
+    best_protein_matches = defaultdict(list)
     for sp_n in xrange(len(score_statistics.best_match)):
         for m in score_statistics.best_match[sp_n]:
-            best_protein_matches.setdefault(m.sequence_index, []).append(m)
+            best_protein_matches[m.sequence_index].append(m)
 
     #debug("best_protein_matches: %s" % best_protein_matches)
 
@@ -1247,9 +1249,9 @@ def process_results(score_statistics, fasta_db, spectra, db_residue_count):
     #debug("repeats: %s" % repeats)
 
     # protein id -> protein expectation value (log10 of expectation)
-    raw_protein_expect = {}
+    raw_protein_expect = defaultdict(float)
     # protein id -> set of spectrum ids used in expectation value
-    raw_protein_expect_spectra = {}
+    raw_protein_expect_spectra = defaultdict(set)
 
     # FIX: rework this and other uses of best_protein_matches to use a protein
     # -> supporting spectra map instead?
@@ -1264,11 +1266,9 @@ def process_results(score_statistics, fasta_db, spectra, db_residue_count):
             #    continue
             # this avoids adding matches for multiple domains
             # FIX: remove 'True or'!!!
-            if True or spectrum_id not in raw_protein_expect_spectra.get(protein_id, set()):
-                raw_protein_expect[protein_id] = (raw_protein_expect.get(protein_id, 0)
-                                                  + log_expect)
-                raw_protein_expect_spectra.setdefault(protein_id,
-                                                      set()).add(spectrum_id)
+            if True or spectrum_id not in raw_protein_expect_spectra[protein_id]:
+                raw_protein_expect[protein_id] += log_expect
+                raw_protein_expect_spectra[protein_id].add(spectrum_id)
 
     #debug("raw_protein_expect: %s", raw_protein_expect)
     #debug("raw_protein_expect_spectra: %s", raw_protein_expect_spectra)
@@ -1293,19 +1293,18 @@ def process_results(score_statistics, fasta_db, spectra, db_residue_count):
     #debug("protein_expect: %s" % protein_expect)
 
     # protein id -> sum of peak intensities for supporting spectra
-    intensity = {}
+    intensity = defaultdict(float)
     # protein id -> set of spectrum ids used in intensity value
-    intensity_spectra = {}
+    intensity_spectra = defaultdict(set)
     # rework?
     for pid, matches in best_protein_matches.iteritems():
         for m in matches:
             sp_n = m.spectrum_index
             if sp_n not in passing_spectra:
                 continue
-            if sp_n not in intensity_spectra.get(pid, set()):
-                intensity[pid] = (intensity.get(pid, 0.0)
-                                  + spectra[sp_n].sum_peak_intensity)
-                intensity_spectra.setdefault(pid, set()).add(sp_n)
+            if sp_n not in intensity_spectra[pid]:
+                intensity[pid] += spectra[sp_n].sum_peak_intensity
+                intensity_spectra[pid].add(sp_n)
 
     #debug("intensity: %s" % intensity)
 
@@ -1672,9 +1671,8 @@ def main():
 
     if (len(args) < 1
         or not args[0].endswith('.xml')
-        or sum(1 for f in args[1:]
-               if not (f.endswith('.ms2') or f.endswith('.ms2.gz') or
-                       f.endswith('.ms2.bz2')))
+        or any(True for f in args[1:]
+               if not (f.endswith(('.ms2', '.ms2.gz', '.ms2.bz2'))))
         or (options.part_split and options.part_split < 1)
         or (options.part_merge and options.part_merge < 1)):
         parser.print_help()
@@ -1760,23 +1758,20 @@ def main():
                             for n in range(1, options.part_split+1) ]
         mass_band_fds = [ f.fileno() for f in mass_band_files ]
         for n, fn in enumerate(spectrum_fns):
-            inf = open(fn)
-            cgreylag.spectrum.split_ms2_by_mass_band(inf, mass_band_fds, n,
-                                                     mass_band_ubs)
-            inf.close()
+            with open(fn) as inf:
+                cgreylag.spectrum.split_ms2_by_mass_band(inf, mass_band_fds, n,
+                                                         mass_band_ubs)
         for f in mass_band_files:
             f.close()
 
         info("finished, wrote %s sets of input files", options.part_split)
-        logging.shutdown()
         return
 
     # read spectra
     if options.part:
         # read from a --part-split file
-        spectra = cgreylag.spectrum.read_spectra_from_ms2(open(part_infn_pattern
-                                                               % part[0]),
-                                                          -1)
+        with open(part_infn_pattern % part[0]) as partfile:
+            spectra = cgreylag.spectrum.read_spectra_from_ms2(partfile, -1)
     else:
         spectra = itertools.chain(
             *[ cgreylag.spectrum.read_spectra_from_ms2(open(fn), n)
@@ -1855,7 +1850,6 @@ def main():
         if options.estimate_only:
             print ("%.2f generic CPU hours"
                    % (score_statistics.candidate_spectrum_count / 300.0e6))
-            logging.shutdown()
             return
 
         filter_matches(score_statistics)
@@ -1866,23 +1860,20 @@ def main():
             del fasta_db
             cgreylag.spectrum.set_searchable_spectra([])
 
-            partfile = zopen(part_outfn_pattern, 'w')
-            cPickle.dump((part, pythonize_swig_object(score_statistics)),
-                         partfile, cPickle.HIGHEST_PROTOCOL)
-            partfile.close()
+            with zopen(part_outfn_pattern, 'w') as partfile:
+                cPickle.dump((part, pythonize_swig_object(score_statistics)),
+                             partfile, cPickle.HIGHEST_PROTOCOL)
             info("finished, part file written to '%s'", part_outfn_pattern)
-            logging.shutdown()
             return
     else:
         info('loading/merging %s parts' % options.part_merge)
-        part0, score_statistics \
-               = cPickle.load(zopen(part_outfn_pattern % 1))
+        with zopen(part_outfn_pattern % 1) as partfile:
+            part0, score_statistics = cPickle.load(partfile)
         offset = len(score_statistics.best_score)
         for p in range(2, options.part_merge+1):
-            part0, score_statistics0 \
-                   = cPickle.load(zopen(part_outfn_pattern % p))
-            merge_score_statistics(score_statistics, score_statistics0,
-                                   offset)
+            with zopen(part_outfn_pattern % p) as partfile:
+                part0, score_statistics0 = cPickle.load(partfile)
+            merge_score_statistics(score_statistics, score_statistics0, offset)
             offset += len(score_statistics0.best_score)
         if len(score_statistics.best_score) != len(spectra):
             error("error during part merge (expecting %s, got %s)",
@@ -1919,7 +1910,6 @@ def main():
     # BZFile doesn't have that method)
     sys.stdout.close()
     info('finished')
-    logging.shutdown()
 
 
 if __name__ == '__main__':
@@ -1933,22 +1923,19 @@ if __name__ == '__main__':
 
     try:
         if '--profile' in sys.argv:
-            import hotshot
-            import hotshot.stats
+            import cProfile
+            import pstats
             data_fn = "greylag.prof.tmp"
-            prof = hotshot.Profile(data_fn)
-            prof.runcall(main)
-            prof.close()
-
-            sys.stdout = open("greylag.prof", 'w')
-
-            stats = hotshot.stats.load(data_fn)
-            stats.strip_dirs()
-            stats.sort_stats('cumulative')
-            stats.print_stats(100)
-            stats.sort_stats('time', 'calls')
-            stats.print_stats(100)
-            os.remove(data_fn)
+            report_fn = "greylag.prof"
+            prof = cProfile.run('main()', data_fn)
+            with open(report_fn, 'w') as report_f:
+                stats = pstats.Stats(data_fn, stream=report_f)
+                stats.strip_dirs()
+                stats.sort_stats('cumulative')
+                stats.print_stats(50)
+                stats.sort_stats('time')
+                stats.print_stats(50)
+                os.remove(data_fn)
         else:
             main()
     except SystemExit:
@@ -1957,6 +1944,8 @@ if __name__ == '__main__':
         logging.exception("unhandled exception")
         logging.shutdown()
         sys.exit(1)
+    finally:
+        logging.shutdown()
 
 
 # FIXES:
