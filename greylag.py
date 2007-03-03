@@ -1672,7 +1672,7 @@ def main():
     if (len(args) < 1
         or not args[0].endswith('.xml')
         or any(True for f in args[1:]
-               if not (f.endswith(('.ms2', '.ms2.gz', '.ms2.bz2'))))
+               if not f.endswith(('.ms2', '.ms2.gz', '.ms2.bz2')))
         or (options.part_split and options.part_split < 1)
         or (options.part_merge and options.part_merge < 1)):
         parser.print_help()
@@ -1942,7 +1942,6 @@ if __name__ == '__main__':
         raise
     except:
         logging.exception("unhandled exception")
-        logging.shutdown()
         sys.exit(1)
     finally:
         logging.shutdown()
