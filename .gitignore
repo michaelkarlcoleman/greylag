@@ -1,5 +1,7 @@
 *.o
 *.so
+*.pyc
+*.pyo
 cgreylag.py
 cgreylag_wrap.cpp
 *~
