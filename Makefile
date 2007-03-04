@@ -7,7 +7,7 @@
 # Developed with swig 1.3.31, g++ 3.4.6/4.1.2, libstdc++.so.6
 
 
-.PHONY: all pycheck modsyms install clean tags
+.PHONY: all pycheck modsyms install clean tags test
 .DELETE_ON_ERROR:
 
 
@@ -90,3 +90,6 @@ install::
 clean::
 	-rm -f $(MODULE).py $(MODULE)_wrap.cpp $(MODULE).o $(MODULE)_wrap.o \
 		_$(MODULE).so *.py[co] TAGS
+
+test::
+	nosetests --exe --with-doctest $(NOSEFLAGS)

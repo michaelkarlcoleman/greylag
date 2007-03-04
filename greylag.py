@@ -120,9 +120,17 @@ AVERAGE_ATOMIC_MASS = {
 
 def formula_mass(formula, atomic_mass=MONOISOTOPIC_ATOMIC_MASS):
     """Return the mass of formula, using the given mass regime (monoisotopic
-    by default)."""
+    by default).
+
+    >>> formula_mass('H2O', { 'H':1, 'O':16 })
+    18
+    >>> # monoisotopic mass of glycine
+    >>> str(round(formula_mass('C2H3ON'), 4))
+    '57.0215'
+
+    """
     parts = [ p or '1' for p in re.split(r'([A-Z][a-z]*)', formula)[1:] ]
-    # e.g., parts for alanine is ('C', '3', 'H', '5', 'O', '1', 'N', '1')
+    # parts for glycine = ['C', '2', 'H', '3', 'O', '1', 'N', '1']
     return sum(atomic_mass[parts[i]] * int(parts[i+1])
                for i in range(0, len(parts), 2))
 
@@ -283,9 +291,15 @@ def initialize_spectrum_parameters(options, mass_regimes, fixed_mod_map):
 def cleavage_motif_re(motif):
     """Return (regexp, pos), where regexp is a regular expression that will
     match a cleavage motif, and pos is the position of the cleavage with
-    respect to the match (e.g., 1 for '[KR]|{P}', or None if absent).  (The RE
-    actually matches one character, the rest matching as lookahead, which
-    means that re.finditer will find all overlapping matches.)
+    respect to the match (or None).  (The RE actually matches one character,
+    the rest matching as lookahead, so that re.finditer will find all
+    overlapping matches.)
+
+    >>> cleavage_motif_re('[KR]|{P}')
+    ('[KR](?=[^P])', 1)
+    >>> cleavage_motif_re('[X]|[X]')
+    ('.(?=.)', 1)
+
     """
     cleavage_pos = None
     re_parts = []
@@ -321,7 +335,13 @@ def cleavage_motif_re(motif):
 
 def generate_cleavage_points(cleavage_re, cleavage_pos, sequence):
     """Yields the offsets of the cleavages in sequence.  The endpoints are
-    always included, by convention."""
+    always included, by convention.
+
+    >>> list(generate_cleavage_points(re.compile('[KR](?=[^P])'), 1,
+    ...                               'ARBCKDEKPF'))
+    [0, 2, 5, 10]
+
+    """
     yield 0
     for m in cleavage_re.finditer(sequence):
         p = m.start() + cleavage_pos
@@ -335,7 +355,15 @@ aa_sequence = re.compile(r'[ARNDCQEGHILKMFPSTWYV]+')
 def split_sequence_into_aa_runs(idno, defline, sequence, filename):
     """Returns a tuple (idno, start, defline, seq, filename) for each
     contiguous run of residues in sequence, where 'start' is the position of
-    'seq' in 'sequence'."""
+    'seq' in 'sequence'.
+
+    >>> pprint(split_sequence_into_aa_runs(123, 'defline', 'STSS*DEFABA',
+    ...                                    'filename'))
+    [(123, 0, 'defline', 'STSS', 'filename'),
+     (123, 5, 'defline', 'DEFA', 'filename'),
+     (123, 10, 'defline', 'A', 'filename')]
+
+    """
     matches = list(aa_sequence.finditer(sequence))
     return [ (idno, m.start(), defline, m.group(), filename)
              for n, m in enumerate(matches) ]
@@ -386,13 +414,8 @@ def read_xml_parameters(filename):
             warning("%s: invalid '%s' element (type=%s, label=%s)"
                     % (filename, bn.tag, bn.get('type'), bn.get('label')))
 
-    def clean_value(v):
-        "strip and collapse internal whitespace"
-        if not v:
-            return v
-        return re.sub(r'[\s]+', ' ', v.strip())
     # return just the good nodes
-    return dict((e.get("label"), clean_value(e.text))
+    return dict((e.get("label"), clean_string(e.text))
                 for e in root.findall('note')
                 if e.get("type") == "input")
 
@@ -402,7 +425,15 @@ def read_xml_parameters(filename):
 # FIX: This parsing is way too complex.  How to simplify?
 
 def mass_regime_part(part_specification):
-    """Parse a single mass regime specification part (e.g., 'MONO(N15@90%)').
+    """Parse a single mass regime specification part.
+
+    >>> mass_regime_part('MONO')
+    ('MONO', [])
+    >>> mass_regime_part('AVG')
+    ('AVG', [])
+    >>> mass_regime_part('MONO(N15@87.5%)')
+    ('MONO', [('N15', 0.875)])
+
     """
     ps = [ x.strip() for x in part_specification.partition('(') ]
     if ps[0] not in ('MONO', 'AVG'):
@@ -436,15 +467,14 @@ def mass_regime_part(part_specification):
 def mass_regime_list(mass_regime_list_specification):
     """Check and return a list of regime tuples (parent_regime,
     fragment_regime), where each regime is a tuple (id, [(isotope_id,
-    prevalence), ...]).  So, for example, 'AVG/MONO;MONO;MONO(N15@90%)' would
-    return
+    prevalence), ...]). Multiple isotopes (when implemented) would be
+    comma-separated.
 
+    >>> pprint(mass_regime_list('AVG/MONO;MONO;MONO(N15@75%)'))
     [[('AVG', []), ('MONO', [])],
      [('MONO', []), ('MONO', [])],
-     [('MONO', [('N15', 0.90000000000000002)]),
-      ('MONO', [('N15', 0.90000000000000002)])]]
+     [('MONO', [('N15', 0.75)]), ('MONO', [('N15', 0.75)])]]
 
-    Multiple isotopes (when implemented) would be comma-separated.
     """
     result = []
     for regspec in mass_regime_list_specification.split(';'):
@@ -469,10 +499,12 @@ def mass_regime_list(mass_regime_list_specification):
 
 def parse_mod_term(s, is_potential=False):
     """Parse a modification term, returning a tuple (sign, mod, fixed_regime,
-    residues, description).  For example:
+    residues, description).
 
-    '-C2H3ON!@C' --> (-1, 'C2H3ON', True, 'C', None)
-    '42@STY phosphorylation' --> (1, 42.0, False, 'STY', 'phosphorylation')
+    >>> parse_mod_term('-C2H3ON!@C')
+    (-1, 'C2H3ON', True, 'C', None)
+    >>> parse_mod_term('42@STY phosphorylation', is_potential=True)
+    (1, 42.0, False, 'STY', 'phosphorylation')
 
     """
 
@@ -505,7 +537,18 @@ def parse_mod_term(s, is_potential=False):
 
 
 def fixed_mod_list(specification):
-    """Check and return a list of modification tuples."""
+    """Check and return a list of modification tuples.
+
+    >>> fixed_mod_list('57@C')
+    [(1, 57.0, False, 'C', None)]
+    >>> fixed_mod_list('57@C,CH!@N desc')
+    [(1, 57.0, False, 'C', None), (1, 'CH', True, 'N', 'desc')]
+    >>> fixed_mod_list('57@C,58@C')
+    Traceback (most recent call last):
+        ...
+    ValueError: invalid modification list specification '['C', 'C']' (duplicate residues prohibited)
+
+    """
     if not specification:
         return []
     result = [ parse_mod_term(s) for s in specification.split(',') ]
@@ -562,6 +605,18 @@ def potential_mod_list(specification):
     """Check and return a tree of potential modification tuples.  Nodes at
     even (odd) levels are disjunctions (conjunctions).  (The top list is a
     disjunction.)
+
+    >>> potential_mod_list('PO3H@STY; C2H2O@KST')
+    [[(1, 'PO3H', False, 'STY', None)], [(1, 'C2H2O', False, 'KST', None)]]
+    >>> pprint(potential_mod_list('''(PO3H@STY phosphorylation;
+    ...                               C2H2O@KST acetylation;
+    ...                               CH2@AKST methylation),
+    ...                              O@M oxidation'''))
+    [[[[(1, 'PO3H', False, 'STY', 'phosphorylation')],
+       [(1, 'C2H2O', False, 'KST', 'acetylation')],
+       [(1, 'CH2', False, 'AKST', 'methylation')]],
+      (1, 'O', False, 'M', 'oxidation')]]
+
     """
     if not specification:
         return []
@@ -743,6 +798,12 @@ def generate_mass_bands(band_count, mass_list):
     to band_count.  To generate the bands, the mass list (which is assumed
     already sorted by mass) is evenly partitioned into bands with masses in
     the range [mass_lb, mass_ub).
+
+    >>> list(generate_mass_bands(1, [ float(x) for x in range(1000) ]))
+    [(1, 0.0, 1000.0)]
+    >>> list(generate_mass_bands(4, [ float(x) for x in range(1000) ]))
+    [(1, 0.0, 250.0), (2, 250.0, 500.0), (3, 500.0, 750.0), (4, 750.0, 1000.0)]
+
     """
     assert mass_list and band_count > 0
     band_size = len(mass_list) / band_count + 1
@@ -761,7 +822,9 @@ class struct:
     "generic struct class used by pythonize_swig_object"
 
     def __repr__(self):
-        return 'struct(%s)' % self.__dict__
+        return 'struct({%s})' % ', '.join('%r: %r' % kv
+                                          for kv
+                                          in sorted(self.__dict__.items()))
 
 
 def pythonize_swig_object(o, skip_methods=[]):
@@ -769,6 +832,10 @@ def pythonize_swig_object(o, skip_methods=[]):
     easily pickled, or printed (for debugging purposes).  If provided,
     'skip_methods' is a list of methods not to include--this is a hack to
     avoid infinite recursion.
+
+    >>> pprint(pythonize_swig_object(cgreylag.score_stats(3)))
+    struct({'best_match': [[], [], []], 'best_score': [100.0, 100.0, 100.0], 'candidate_spectrum_count': 0, 'combinations_searched': 0, 'hyperscore_histogram': [[], [], []], 'improved_candidates': 0, 'second_best_score': [100.0, 100.0, 100.0], 'spectra_with_candidates': 0})
+
     """
 
     if isinstance(o, str):
@@ -824,8 +891,19 @@ def enumerate_conjunction(mod_tree, limit, conjuncts=[]):
         for y in enumerate_conjunction(rest, limit, conjuncts + [first]):
             yield y
 
-def enumerate_disjunction(mod_tree, limit):
-    """Generates the conjuncts for mod_tree that are no longer than limit."""
+def enumerate_disjunction(mod_tree, limit=sys.maxint):
+    """Generates the conjuncts for mod_tree that are no longer than limit.
+
+    >>> list(enumerate_disjunction([['a'],['b'],['c']]))
+    [[], ['a'], ['b'], ['c']]
+    >>> list(enumerate_disjunction([[1,2,3]]))
+    [[], [3], [2], [2, 3], [1], [1, 3], [1, 2], [1, 2, 3]]
+    >>> list(enumerate_disjunction([[1,2,3],[4,5]]))
+    [[], [3], [2], [2, 3], [1], [1, 3], [1, 2], [1, 2, 3], [5], [4], [4, 5]]
+    >>> list(enumerate_disjunction([[1,2,3],[4,5]], limit=2))
+    [[], [3], [2], [2, 3], [1], [1, 3], [1, 2], [5], [4], [4, 5]]
+
+    """
     assert isinstance(mod_tree, list)
     yield []
     for b in mod_tree:
@@ -884,9 +962,23 @@ def generate_delta_bag_counts(mod_count, conjunct_length):
     """Generate all tuples of positive integers having length conjunct_length
     and sum mod_count.  As a special case, () is such a tuple having length 0
     and sum 0.
+
+    >>> for i in range(6): print i, list(generate_delta_bag_counts(4, i))
+    ...
+    0 []
+    1 [(4,)]
+    2 [(3, 1), (2, 2), (1, 3)]
+    3 [(2, 1, 1), (1, 2, 1), (1, 1, 2)]
+    4 [(1, 1, 1, 1)]
+    5 []
+    >>> list(generate_delta_bag_counts(0, 0))
+    [()]
+    >>> list(generate_delta_bag_counts(0, 1))
+    []
+
     """
     if conjunct_length == 0:
-        return mod_count == 0 and [()] or []
+        return [()] if mod_count == 0 else []
     if mod_count < conjunct_length:
         return []
     return gen_delta_bag_counts(conjunct_length - 1, mod_count,
@@ -1020,6 +1112,12 @@ def get_spectrum_expectation(hyper_score, histogram):
     histogram, where a0 and a1 are the intercept and slope, respectively, for
     the least-squares fit to the survival curve, used to predict the
     expectation.
+
+    >>> get_spectrum_expectation(100.0, [4,3,2,1])
+    (114.81536214968828, [10, 6, 3, 1], (3.5, -0.17999999999999999))
+    >>> get_spectrum_expectation(100.0, [4,3,2,1,0,0])
+    (114.81536214968828, [10, 6, 3, 1], (3.5, -0.17999999999999999))
+
     """
     scaled_hyper_score = cgreylag.scale_hyperscore(hyper_score)
 
@@ -1330,6 +1428,19 @@ def process_results(score_statistics, fasta_db, spectra, db_residue_count):
 
 
 def get_prefix_sequence(begin_pos, run_offset, sequence):
+    """
+    >>> get_prefix_sequence(0, 0, 'abcdefghi')
+    '['
+    >>> get_prefix_sequence(1, 0, 'abcdefghi')
+    '[a'
+    >>> get_prefix_sequence(3, 0, 'abcdefghi')
+    '[abc'
+    >>> get_prefix_sequence(4, 0, 'abcdefghi')
+    'abcd'
+    >>> get_prefix_sequence(4, 2, 'abcdefghi')
+    'cdef'
+
+    """
     prefix_start = run_offset + begin_pos - 4
     s = sequence[max(0, prefix_start):prefix_start+4]
     if len(s) < 4:
@@ -1337,6 +1448,19 @@ def get_prefix_sequence(begin_pos, run_offset, sequence):
     return s
 
 def get_suffix_sequence(end_pos, run_offset, sequence):
+    """
+    >>> get_suffix_sequence(0, 0, 'abcdefghi')
+    'abcd'
+    >>> get_suffix_sequence(4, 0, 'abcdefghi')
+    'efgh'
+    >>> get_suffix_sequence(6, 0, 'abcdefghi')
+    'ghi]'
+    >>> get_suffix_sequence(8, 0, 'abcdefghi')
+    'i]'
+    >>> get_suffix_sequence(4, 2, 'abcdefghi')
+    'ghi]'
+
+    """
     suffix_start = run_offset + end_pos
     s = sequence[suffix_start:suffix_start+4]
     if len(s) < 4:
@@ -1344,14 +1468,38 @@ def get_suffix_sequence(end_pos, run_offset, sequence):
     return s
 
 
+def clean_string(v):
+    """Strip and collapse internal whitespace.
+
+    >>> clean_string(' one   two ')
+    'one two'
+
+    """
+    if not v:
+        return v
+    return re.sub(r'[\s]+', ' ', v.strip())
+
+
 def clean_defline(s):
-    """Return the given string with tags replaced by spaces and control
-    characters removed, then stripped."""
+    """Return the given string with tabs replaced by spaces and control
+    and non-ASCII characters removed, then stripped.
+
+    >>> tab=chr(9); clean_defline(' one' + tab + ' two three\001four ')
+    'one  two threefour'
+
+    """
     return re.sub(r'[^ -~]', '', s.replace('\t', ' ')).strip()
 
 
 def abbrev_defline(s):
-    """Return an abbreviated version of the defline--about 80 characters."""
+    """Return an abbreviated version of the defline--about 80 characters.
+
+    >>> abbrev_defline('words ' * 10)
+    'words words words words words words words words words words '
+    >>> abbrev_defline('words ' * 20)
+    'words words words words words words words words words words words words words words...'
+
+    """
     ab = re.match(r'.{,80}\S{,170}', s).group(0)
     if len(ab) < len(s):
         ab += '...'
