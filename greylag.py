@@ -33,6 +33,7 @@ __version__ = "0.0"
 
 
 from collections import defaultdict
+import contextlib
 import cPickle
 import fileinput
 import itertools
@@ -1893,25 +1894,21 @@ def main(args=sys.argv[1:]):
         # FIX: clean this up
         info("reading spectrum masses")
         sp_files = [ open(fn) for fn in spectrum_fns ]
-        masses = cgreylag.spectrum.read_ms2_spectrum_masses([ f.fileno()
-                                                              for f
-                                                              in sp_files ])
-        for f in sp_files:
-            f.close()
+        with contextlib.nested(*sp_files) as spf: # closes files
+            masses = cgreylag.spectrum\
+                     .read_ms2_spectrum_masses([ f.fileno() for f in spf ])
         info("writing %s sets of input files", options.part_split)
         mass_bands = list(generate_mass_bands(options.part_split, masses))
         #info("mass bands: %s", mass_bands)
         mass_band_ubs = [ x[2] for x in mass_bands ]
         mass_band_files = [ open(part_infn_pattern % n, 'w')
                             for n in range(1, options.part_split+1) ]
-        mass_band_fds = [ f.fileno() for f in mass_band_files ]
-        for n, fn in enumerate(spectrum_fns):
-            with open(fn) as inf:
-                cgreylag.spectrum.split_ms2_by_mass_band(inf, mass_band_fds, n,
-                                                         mass_band_ubs)
-        for f in mass_band_files:
-            f.close()
-
+        with contextlib.nested(*mass_band_files) as mbf: # closes files
+            mass_band_fds = [ f.fileno() for f in mbf ]
+            for n, fn in enumerate(spectrum_fns):
+                with open(fn) as inf:
+                    cgreylag.spectrum.split_ms2_by_mass_band(inf, mass_band_fds,
+                                                             n, mass_band_ubs)
         info("finished, wrote %s sets of input files", options.part_split)
         return
 
@@ -1921,9 +1918,11 @@ def main(args=sys.argv[1:]):
         with open(part_infn_pattern % part[0]) as partfile:
             spectra = cgreylag.spectrum.read_spectra_from_ms2(partfile, -1)
     else:
-        spectra = itertools.chain(
-            *[ cgreylag.spectrum.read_spectra_from_ms2(open(fn), n)
-               for n, fn in enumerate(spectrum_fns) ])
+        sp_files = [ open(fn) for fn in spectrum_fns ]
+        with contextlib.nested(*sp_files) as spf: # closes files
+            spectra = itertools.chain(
+                *[ cgreylag.spectrum.read_spectra_from_ms2(f, n)
+                   for n, f in enumerate(spf) ])
     spectra = list(spectra)
     spectra.sort(key=lambda x: x.mass)
 
