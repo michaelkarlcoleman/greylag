@@ -1772,7 +1772,7 @@ def zopen(filename, mode='r', compresslevel=None):
         return open(filename, mode)
 
 
-def main():
+def main(args=sys.argv[1:]):
     parser = optparse.OptionParser(usage=
                                    "usage: %prog [options] <parameter-file>"
                                    " [<ms2-file>...]",
@@ -1811,7 +1811,7 @@ def main():
        help="output debugging info")
     pa("--profile", action="store_true", dest="profile",
        help="dump Python profiling output to './greylag.prof'")
-    (options, args) = parser.parse_args()
+    (options, args) = parser.parse_args(args=args)
 
     if options.copyright:
         print __copyright__
