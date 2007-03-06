@@ -2,6 +2,9 @@
 
 
 from __future__ import with_statement
+
+import contextlib
+
 from nose.tools import *
 
 from greylag import *
@@ -209,9 +212,8 @@ def XML_PARAMETER_INFO_test():
 
 class test_zopen:
     def read_check(self, filename):
-        f = zopen(filename)
-        data = f.read()
-        f.close()
+        with contextlib.closing(zopen(filename)) as f:
+            data = f.read()
         assert data == 'data\n'
 
     def plain_test(self):

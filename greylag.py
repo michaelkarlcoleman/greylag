@@ -2027,22 +2027,19 @@ def main(args=sys.argv[1:]):
             del fasta_db
             cgreylag.spectrum.set_searchable_spectra([])
 
-            partfile = zopen(part_outfn_pattern, 'w')
-            cPickle.dump((part, pythonize_swig_object(score_statistics)),
-                         partfile, cPickle.HIGHEST_PROTOCOL)
-            partfile.close()
+            with contextlib.closing(zopen(part_outfn_pattern, 'w')) as partfile:
+                cPickle.dump((part, pythonize_swig_object(score_statistics)),
+                             partfile, cPickle.HIGHEST_PROTOCOL)
             info("finished, part file written to '%s'", part_outfn_pattern)
             return
     else:
         info('loading/merging %s parts' % options.part_merge)
-        partfile = zopen(part_outfn_pattern % 1)
-        part0, score_statistics = cPickle.load(partfile)
-        partfile.close()
+        with contextlib.closing(zopen(part_outfn_pattern % 1)) as partfile:
+            part0, score_statistics = cPickle.load(partfile)
         offset = len(score_statistics.best_score)
         for p in range(2, options.part_merge+1):
-            partfile = zopen(part_outfn_pattern % p)
-            part0, score_statistics0 = cPickle.load(partfile)
-            partfile.close()
+            with contextlib.closing(zopen(part_outfn_pattern % p)) as partfile:
+                part0, score_statistics0 = cPickle.load(partfile)
             merge_score_statistics(score_statistics, score_statistics0, offset)
             offset += len(score_statistics0.best_score)
         if len(score_statistics.best_score) != len(spectra):
