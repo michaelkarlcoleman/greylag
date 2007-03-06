@@ -1,0 +1,17 @@
+>ugly test fasta file
+>
+abc
+>1
+Stalemating
+> foo
+aardvarks aardvarks
+ aardvarks 
+>gi|1234| bleah
+SISTERLIKE
+>gi|1234| bleah
+SISTER*LIKE
+
+>control-A here: []
+& here: []
+>no final newline after F
+ARF

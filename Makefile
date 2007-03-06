@@ -89,7 +89,7 @@ install::
 
 clean::
 	-rm -f $(MODULE).py $(MODULE)_wrap.cpp $(MODULE).o $(MODULE)_wrap.o \
-		_$(MODULE).so *.py[co] TAGS
+		_$(MODULE).so *.py[co] test/*.py[co] TAGS *~ test/*~
 
 check::
-	nosetests --exe --with-doctest $(NOSEFLAGS)
+	nosetests --exe --with-doctest --detailed-errors $(NOSEFLAGS)

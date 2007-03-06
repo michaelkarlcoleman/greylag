@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<bioml label="x! taxon-to-file matching list">
+	<taxon label="label">
+		<file format="peptide" URL="labeled.fa" />
+	</taxon>
+	<taxon label="simple.fa">
+		<file format="peptide" URL="simple.fa" />
+	</taxon>
+	<taxon label="multiple">
+		<file format="peptide" URL="one.fa" />
+		<file format="peptide" URL="two.fa" />
+		<file format="peptide" URL="three.fa" />
+	</taxon>
+</bioml>

@@ -351,7 +351,7 @@ def generate_cleavage_points(cleavage_re, cleavage_pos, sequence):
     yield len(sequence)
 
 
-aa_sequence = re.compile(r'[ARNDCQEGHILKMFPSTWYV]+')
+AA_SEQUENCE = re.compile(r'[ARNDCQEGHILKMFPSTWYV]+')
 
 def split_sequence_into_aa_runs(idno, defline, sequence, filename):
     """Returns a tuple (idno, start, defline, seq, filename) for each
@@ -365,9 +365,8 @@ def split_sequence_into_aa_runs(idno, defline, sequence, filename):
      (123, 10, 'defline', 'A', 'filename')]
 
     """
-    matches = list(aa_sequence.finditer(sequence))
     return [ (idno, m.start(), defline, m.group(), filename)
-             for n, m in enumerate(matches) ]
+             for n, m in enumerate(AA_SEQUENCE.finditer(sequence)) ]
 
 
 def read_fasta_files(filenames):
@@ -378,7 +377,7 @@ def read_fasta_files(filenames):
     for line in fileinput.input(filenames):
         line = line.strip()
         if line[:1] == '>':
-            if defline:
+            if defline != None:
                 yield (defline, ''.join(seqs), fileinput.filename())
             elif seqs:
                 fileerror("bad format: line precedes initial defline")
@@ -607,8 +606,12 @@ def potential_mod_list(specification):
     even (odd) levels are disjunctions (conjunctions).  (The top list is a
     disjunction.)
 
+    >>> potential_mod_list('')
+    []
     >>> potential_mod_list('PO3H@STY; C2H2O@KST')
     [[(1, 'PO3H', False, 'STY', None)], [(1, 'C2H2O', False, 'KST', None)]]
+    >>> potential_mod_list('PO3H@STY, C2H2O@KST')
+    [[(1, 'PO3H', False, 'STY', None), (1, 'C2H2O', False, 'KST', None)]]
     >>> pprint(potential_mod_list('''(PO3H@STY phosphorylation;
     ...                               C2H2O@KST acetylation;
     ...                               CH2@AKST methylation),
@@ -687,7 +690,7 @@ XML_PARAMETER_INFO = {
     "refine, sequence path" : (str, "", p_ni_empty),
     "refine, spectrum synthesis" : (bool, "no"),
     "refine, tic percent" : (float, 20.0, p_nonnegative), # ignored
-    "refine, unanticipated cleavage" : (bool, p_ni_equal(False)),
+    "refine, unanticipated cleavage" : (bool, "no", p_ni_equal(False)),
     "refine, use potential modifications for full refinement" : (bool, "no", p_ni_equal(False)),
     "residue, mass regimes" : (mass_regime_list, "MONO"),
     "residue, modification mass" : (fixed_mod_list, ""),
@@ -733,13 +736,22 @@ XML_PARAMETER_INFO = {
     "spectrum, use noise suppression" : (bool, "yes", p_ni_equal(False)),
 }
 
-def validate_parameters(parameters):
+def validate_parameters(parameters, parameter_info=XML_PARAMETER_INFO):
     """Verify that parameters are valid, have valid values, and correspond to
-    currently implemented functionality.  Default values are filled in, and a
-    name/value dict returned."""
+    currently implemented functionality.  Values are converted, default values
+    are filled in, and the resulting name/value dict returned.
+
+    >>> sorted(validate_parameters({'spectrum, total peaks' : '40'},
+    ...                            {'spectrum, total peaks'
+    ...                             : (int, '50', p_positive),
+    ...                             'output, spectra'
+    ...                             : (bool, 'no')}).items())
+    [('output, spectra', False), ('spectrum, total peaks', 40)]
+
+    """
 
     pmap = {}
-    for p_name, p_info in sorted(XML_PARAMETER_INFO.items()):
+    for p_name, p_info in sorted(parameter_info.items()):
         type_ = p_info[0]
         default = p_info[1]
         check_fn = len(p_info) > 2 and p_info[2] or None
@@ -770,11 +782,16 @@ def validate_parameters(parameters):
                   " implemented)" % (p_name, v))
         pmap[p_name] = v
 
-    unknown_parameters = set(parameters) - set(XML_PARAMETER_INFO)
+    unknown_parameters = set(parameters) - set(parameter_info)
     if unknown_parameters:
         warning("%s unknown parameters:\n %s"
                 % (len(unknown_parameters),
                    pformat(sorted(list(unknown_parameters)))))
+    return pmap
+
+
+def check_parameters_ad_hoc(pmap):
+    """Do some higher-level, more ad hoc checks of the input parameters."""
 
     # FIX: this would trip the "cyclic" param (assume Daltons)
     assert (abs(pmap["spectrum, parent monoisotopic mass error plus"]) > 0.095
@@ -791,8 +808,6 @@ def validate_parameters(parameters):
         warning("potential modifications specified, but max simultaneous mods"
                 " searched is 0, so they won't actually be searched")
 
-    return pmap
-
 
 def generate_mass_bands(band_count, mass_list):
     """Yield (n, mass_lb, mass_ub) for each mass band, where n ranges from 1
@@ -800,14 +815,16 @@ def generate_mass_bands(band_count, mass_list):
     already sorted by mass) is evenly partitioned into bands with masses in
     the range [mass_lb, mass_ub).
 
-    >>> list(generate_mass_bands(1, [ float(x) for x in range(1000) ]))
-    [(1, 0.0, 1000.0)]
-    >>> list(generate_mass_bands(4, [ float(x) for x in range(1000) ]))
-    [(1, 0.0, 250.0), (2, 250.0, 500.0), (3, 500.0, 750.0), (4, 750.0, 1000.0)]
+    >>> list(generate_mass_bands(1, [ float(x) for x in range(100) ]))
+    [(1, 0.0, 100.0)]
+    >>> list(generate_mass_bands(4, [ float(x) for x in range(100) ]))
+    [(1, 0.0, 25.0), (2, 25.0, 50.0), (3, 50.0, 75.0), (4, 75.0, 100.0)]
+    >>> list(generate_mass_bands(3, [ float(x) for x in range(100) ]))
+    [(1, 0.0, 34.0), (2, 34.0, 68.0), (3, 68.0, 100.0)]
 
     """
-    assert mass_list and band_count > 0
-    band_size = len(mass_list) / band_count + 1
+    assert band_count > 0 and mass_list and sorted(mass_list) == mass_list
+    band_size = int(math.ceil(float(len(mass_list)) / band_count))
     lb = mass_list[0]
     for bn in range(1, band_count):
         i = min(bn*band_size, len(mass_list)-1)
@@ -903,6 +920,8 @@ def enumerate_disjunction(mod_tree, limit=sys.maxint):
     [[], [3], [2], [2, 3], [1], [1, 3], [1, 2], [1, 2, 3], [5], [4], [4, 5]]
     >>> list(enumerate_disjunction([[1,2,3],[4,5]], limit=2))
     [[], [3], [2], [2, 3], [1], [1, 3], [1, 2], [5], [4], [4, 5]]
+    >>> list(enumerate_disjunction([[1,2,3],[4,5]], limit=0))
+    [[]]
 
     """
     assert isinstance(mod_tree, list)
@@ -925,7 +944,7 @@ def get_mod_conjunct_triples(mod_tree, limit):
                 if is_mono:
                     regime_index = 0
                 return (sign * formula_mass(delta,
-                            MASS_REGIME_ATOMIC_MASSES[regime_index][par_frag]))
+                           MASS_REGIME_ATOMIC_MASSES[regime_index][par_frag]))
             else:
                 return sign * delta
 
@@ -1876,6 +1895,7 @@ def main(args=sys.argv[1:]):
         parameters = default_parameters
     global XTP
     XTP = validate_parameters(parameters)
+    check_parameters_ad_hoc(XTP)
 
     if len(args) > 1:
         spectrum_fns = args[1:]
@@ -2007,19 +2027,22 @@ def main(args=sys.argv[1:]):
             del fasta_db
             cgreylag.spectrum.set_searchable_spectra([])
 
-            with zopen(part_outfn_pattern, 'w') as partfile:
-                cPickle.dump((part, pythonize_swig_object(score_statistics)),
-                             partfile, cPickle.HIGHEST_PROTOCOL)
+            partfile = zopen(part_outfn_pattern, 'w')
+            cPickle.dump((part, pythonize_swig_object(score_statistics)),
+                         partfile, cPickle.HIGHEST_PROTOCOL)
+            partfile.close()
             info("finished, part file written to '%s'", part_outfn_pattern)
             return
     else:
         info('loading/merging %s parts' % options.part_merge)
-        with zopen(part_outfn_pattern % 1) as partfile:
-            part0, score_statistics = cPickle.load(partfile)
+        partfile = zopen(part_outfn_pattern % 1)
+        part0, score_statistics = cPickle.load(partfile)
+        partfile.close()
         offset = len(score_statistics.best_score)
         for p in range(2, options.part_merge+1):
-            with zopen(part_outfn_pattern % p) as partfile:
-                part0, score_statistics0 = cPickle.load(partfile)
+            partfile = zopen(part_outfn_pattern % p)
+            part0, score_statistics0 = cPickle.load(partfile)
+            partfile.close()
             merge_score_statistics(score_statistics, score_statistics0, offset)
             offset += len(score_statistics0.best_score)
         if len(score_statistics.best_score) != len(spectra):
