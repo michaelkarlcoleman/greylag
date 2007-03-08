@@ -140,14 +140,23 @@ spectrum::read_ms2_spectrum_masses(std::vector<int> fds) {
 }
 
 
-// Read spectra from file in ms2 format, tagging them with file_id.  Spectra
-// with charge zero are omitted from the result.  (All of them are read,
-// though, to keep spectrum ids in sync.)  If file_id == -1, the ms2 file is
-// an annotated file produced by split_ms2_by_mass_band.
+// true iff s consists entirely of whitespace
+static bool
+at_eol(const char *s) {
+  return s[strspn(s, " \t\r\n\f\v")] == 0;
+}
+
+
+// Read spectra from file in ms2 format, tagging them with file_id.  If
+// file_id == -1, the ms2 file is an annotated file produced by
+// split_ms2_by_mass_band.
 
 // Multiply charge spectra (e.g., +2/+3) are split into separate spectra
 // having the same physical id.  The peak list is initially sorted by mz.
 // Throws an exception on invalid input.
+
+// Error checking is the most stringent in this function.  The other readers
+// can be a little looser since all ms2 files eventually get read here anyway.
 
 std::vector<spectrum>
 spectrum::read_spectra_from_ms2(FILE *f, const int file_id) {
@@ -182,38 +191,51 @@ spectrum::read_spectra_from_ms2(FILE *f, const int file_id) {
 	  io_error(f, "bad ms2+ format: '#' not found");
 	names.push_back(std::string(buf+1, anno_hash));
 	errno = 0;
-	file_ids.push_back(std::strtol(anno_hash+1, &endp, 10));
-	physical_ids.push_back(std::strtol(endp+1, &endp, 10));
-	ids.push_back(std::strtol(endp+1, &endp, 10));
-	if (errno)		// FIX: improve error check
+	int file_id_0 = std::strtol(anno_hash+1, &endp, 10);
+	file_ids.push_back(file_id_0);
+	int physical_id = std::strtol(endp+1, &endp, 10);
+	physical_ids.push_back(physical_id);
+	int id = std::strtol(endp+1, &endp, 10);
+	ids.push_back(id);
+	if (errno or file_id_0 < 0 or physical_id < 0 or id < 0
+	    or not at_eol(endp))
 	  io_error(f, "bad ms2+ format: bad values");
       }
       if (not fgetsX(buf, bufsiz, f))
 	io_error(f, "bad ms2 format: mass/charge line expected");
       errno = 0;
-      masses.push_back(std::strtod(buf, &endp)); // need double accuracy here
-      if (errno or endp == buf)
+      double mass = std::strtod(buf, &endp); // need double accuracy here
+      masses.push_back(mass);
+      if (errno or endp == buf or mass <= 0)
 	io_error(f, "bad ms2 format: bad mass");
       const char *endp0 = endp;
-      charges.push_back(std::strtol(endp0, &endp, 10));
-      if (errno or endp == endp0)
+      int charge = std::strtol(endp0, &endp, 10);
+      charges.push_back(charge);
+      if (errno or endp == endp0 or charge <= 0)
 	io_error(f, "bad ms2 format: bad charge");
+      if (not at_eol(endp))
+	io_error(f, "bad ms2 format: junk at end of mass/charge line");
       result = fgetsX(buf, bufsiz, f);
     }
-    if (not result)
+    if (not result) {
+      if (not names.empty())
+	io_error(f, "bad ms2 format: spectrum has no peaks (file truncated?)");
       break;
+    }
     // read peaks
     std::vector<peak> peaks;
     while (true) {
       peak p;
       errno = 0;
       p.mz = strtod(buf, &endp);
-      if (errno or endp == buf)
+      if (errno or endp == buf or p.mz <= 0)
 	io_error(f, "bad ms2 format: bad peak mz");
       const char *endp0 = endp;
       p.intensity = strtod(endp0, &endp);
-      if (errno or endp == endp0)
+      if (errno or endp == endp0 or p.intensity <= 0)
 	io_error(f, "bad ms2 format: bad peak intensity");
+      if (not at_eol(endp))
+	io_error(f, "bad ms2 format: junk at end of peak line");
       peaks.push_back(p);
 
       result = fgetsX(buf, bufsiz, f);

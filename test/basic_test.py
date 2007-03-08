@@ -320,23 +320,23 @@ class read_spectra_test:
         self.read_ms2([':0002.0002.1', '1234.5 1'])
 
     @raises(RuntimeError)
-    def test_bad_0(self):
+    def test_missing_mass_charge(self):
         self.read_ms2([':'])
 
     @raises(RuntimeError)
-    def test_bad_1(self):
+    def test_missing_additional_mass_charge(self):
         self.read_ms2([':0002.0002.2', '1234.5 2', ':0002.0002.3'])
 
     @raises(RuntimeError)
-    def test_bad_2(self):
-        self.read_ms2([':0002.0002.2', '1234.5 2 3'])
+    def test_extra_following_mass_charge(self):
+        self.read_ms2([':0002.0002.2', '1234.5 2 3', '123 456 789'])
 
     @raises(RuntimeError)
-    def test_bad_3(self):
+    def test_extra_following_peak(self):
         self.read_ms2([':0002.0002.2', '1234.5 2', '123 456 789'])
 
     @raises(RuntimeError)
-    def test_bad_4(self):
+    def test_missing_colon_line(self):
         self.read_ms2(['1234.5 2', '123 456 789'])
 
     @raises(RuntimeError)
@@ -354,6 +354,34 @@ class read_spectra_test:
     @raises(RuntimeError)
     def test_bad_number_3(self):
         self.read_ms2([':0002.0002.2', '1234.5 2', '123 a456'])
+
+    @raises(RuntimeError)
+    def test_nonpositive_number_0(self):
+        self.read_ms2([':0002.0002.2', '-1234.5 2', '123 456'])
+
+    @raises(RuntimeError)
+    def test_nonpositive_number_1(self):
+        self.read_ms2([':0002.0002.2', '1234.5 -2', '123 456'])
+
+    @raises(RuntimeError)
+    def test_nonpositive_number_2(self):
+        self.read_ms2([':0002.0002.2', '1234.5 2', '-123 456'])
+
+    @raises(RuntimeError)
+    def test_nonpositive_number_3(self):
+        self.read_ms2([':0002.0002.2', '1234.5 2', '123 -456'])
+
+    @raises(RuntimeError)
+    def test_zero_number_0(self):
+        self.read_ms2([':0002.0002.2', '0.0 2', '123 456'])
+
+    @raises(RuntimeError)
+    def test_zero_number_1(self):
+        self.read_ms2([':0002.0002.2', '1234.5 0', '123 456'])
+
+    @raises(RuntimeError)
+    def test_zero_number_2(self):
+        self.read_ms2([':0002.0002.2', '1234.5 2', '0.0 456'])
 
     @raises(RuntimeError)
     def test_bad_blank_0(self):
