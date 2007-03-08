@@ -199,7 +199,6 @@ public:
   }
 
 
-
   // Read spectra from file in ms2 format, tagging them with file_id.  Spectra
   // with charge zero are omitted from the result.  (All of them are read,
   // though, so the ids for any spectrum will be the same regardless of the
@@ -259,10 +258,7 @@ public:
 
   // conceptually these are 'protected:', but we're taking it easy here
 public:
-  void set_id() {
-    id = next_id++;
-    assert(next_id > 0);
-  }
+  void set_id() { id = next_id++; assert(next_id > 0); }
 
   static int next_id;
   static int next_physical_id;
