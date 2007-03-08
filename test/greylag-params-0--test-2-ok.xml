@@ -1,0 +1,266 @@
+<?xml version="1.0"?>
+<?xml-stylesheet type="text/xsl" href="/tandem/tandem-style.xsl"?>
+<bioml xmlns:GAML="http://www.bioml.com/gaml/" label="models from ['test-2.ms2']">
+<group id="1243" mh="1745.150000" z="2" expect="9.2e-04" label="gi|6323840|ref|NP_013911.1| Cytoplasmic chaperone of the Hsp90 family, redundant..." type="model" sumI="7.99" maxI="1.50477e+07" fI="150477" >
+<protein expect="-13.7" id="1243.1" uid="1" label="gi|6323840|ref|NP_013911.1| Cytoplasmic chaperone of the Hsp90 family, redundant..." sumI="8.36" >
+<note label="description">gi|6323840|ref|NP_013911.1| Cytoplasmic chaperone of the Hsp90 family, redundant in function and nearly identical with Hsp82p, and together they are essential; expressed constitutively at 10-fold higher basal levels that HSP82 and induced 2-3 fold by heat shock; Hsc82p [Saccharomyces cerevisiae]</note>
+<file type="peptide" URL="6323840.fa"/>
+<peptide start="1" end="705">
+	MAGETFEFQA EITQLMSLII NTVYSNKEIF LRELISNASD ALDKIRYQAL
+	SDPKQLETEP DLFIRITPKP EEKVLEIRDS GIGMTKAELI NNLGTIAKSG
+	TKAFMEALSA GADVSMIGQF GVGFYSLFLV ADRVQVISKN NEDEQYIWES
+	NAGGSFTVTL DEVNERIGRG TVLRLFLKDD QLEYLEEKRI KEVIKRHSEF
+	VAYPIQLLVT KEVEKEVPIP EEEKKDEEKK DEDDKKPKLE EVDEEEEEKK
+	PKTKKVKEEV QELEELNKTK PLWTRNPSDI TQEEYNAFYK SISNDWEDPL
+	YVKHFSVEGQ LEFRAILFIP KRAPFDLFES KKKKNNIKLY VRRVFITDEA
+	EDLIPEWLSF VKGVVDSEDL PLNLSREMLQ QNKIMKVIRK NIVKKLIEAF
+	NEIAEDSEQF DKFYSAFAKN IKLGVHEDTQ NRAALAKLLR YNSTKSVDEL
+	TSLTDYVTRM PEHQKNIYYI TGESLKAVEK SPFLDALKAK NFEVLFLTDP
+	IDEYAFTQLK EFEGKTLVDI TKDFELEETD EEKAEREKEI KEYEPLTKAL
+	KDILGDQVEK VVVSYKLLDA PAAIRTGQFG WSANMERIMK AQALRDSSMS
+	SYMSSKKTFE ISPKSPIIKE LKKRVDEGGA QDKTVKDLTN LLFETALLTS
+	GFSLEEPTSF ASRINRLISL GLNIDEDEET ETAPEASTEA PVEEVPADTE
+	MEEVD
+<domain id="1243.1.1" start="197" end="211" expect="9.2e-04" mh="1744.9632" delta="0.1868" hyperscore="36.3" nextscore="8.0" y_score="11.6" y_ions="4" b_score="10.6" b_ions="8" pre="VIKR" post="EVEK" seq="HSEFVAYPIQLLVTK" missed_cleavages="0">
+</domain>
+</peptide>
+</protein>
+<group label="supporting data" type="support">
+<GAML:trace label="1243.hyper" type="hyperscore expectation function">
+<GAML:attribute type="a0">3.5</GAML:attribute>
+<GAML:attribute type="a1">-0.18</GAML:attribute>
+<GAML:Xdata label="1243.hyper" units="score">
+<GAML:values byteorder="INTEL" format="ASCII" numvalues="38">
+0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 
+</GAML:values>
+</GAML:Xdata>
+<GAML:Ydata label="1243.hyper" units="counts">
+<GAML:values byteorder="INTEL" format="ASCII" numvalues="38">
+1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0 
+</GAML:values>
+</GAML:Ydata>
+</GAML:trace>
+
+</group>
+<group type="support" label="fragment ion mass spectrum">
+<note label="Description">test-2.ms2:1475.1475.2</note>
+<GAML:trace id="1243" label="1243.spectrum" type="tandem mass spectrum">
+<GAML:attribute type="M+H">1745.15</GAML:attribute>
+<GAML:attribute type="charge">2</GAML:attribute>
+<GAML:Xdata label="1243.spectrum" units="MASSTOCHARGERATIO">
+<GAML:values byteorder="INTEL" format="ASCII" numvalues="50">
+288 306 339.1 353.9 363.9 444.9 454.1 473.3 477.4 501 527.1 569 572.5 582.3 600 633.8 643.1 653.3 664.1 671.1 686 735.2 750.5 800.7 806.2 816.1 827.2 834.1 835.2 846.8 911.2 1044.1 1055.9 1066.3 1074.5 1122.8 1145.3 1154.4 1172.3 1245.4 1285.4 1317.5 1391.4 1398.2 1479.7 1497.4 1502.2 1521.4 1608.3 1617.3 
+</GAML:values>
+</GAML:Xdata>
+<GAML:Ydata label="1243.spectrum" units="UNKNOWN">
+<GAML:values byteorder="INTEL" format="ASCII" numvalues="50">
+3 12 4 6 3 5 3 5 4 11 3 6 4 12 19 8 16 24 6 25 3 4 4 9 13 15 4 58 7 7 100 3 3 5 56 3 76 4 7 19 7 3 13 6 6 6 4 19 7 3 
+</GAML:values>
+</GAML:Ydata>
+</GAML:trace>
+</group></group>
+<group id="1207" mh="1745.150000" z="2" expect="2.0e-02" label="gi|6323840|ref|NP_013911.1| Cytoplasmic chaperone of the Hsp90 family, redundant..." type="model" sumI="8.03" maxI="1.62721e+07" fI="162721" >
+<protein expect="-13.7" id="1207.1" uid="1" label="gi|6323840|ref|NP_013911.1| Cytoplasmic chaperone of the Hsp90 family, redundant..." sumI="8.36" >
+<note label="description">gi|6323840|ref|NP_013911.1| Cytoplasmic chaperone of the Hsp90 family, redundant in function and nearly identical with Hsp82p, and together they are essential; expressed constitutively at 10-fold higher basal levels that HSP82 and induced 2-3 fold by heat shock; Hsc82p [Saccharomyces cerevisiae]</note>
+<file type="peptide" URL="6323840.fa"/>
+<peptide start="1" end="705">
+	MAGETFEFQA EITQLMSLII NTVYSNKEIF LRELISNASD ALDKIRYQAL
+	SDPKQLETEP DLFIRITPKP EEKVLEIRDS GIGMTKAELI NNLGTIAKSG
+	TKAFMEALSA GADVSMIGQF GVGFYSLFLV ADRVQVISKN NEDEQYIWES
+	NAGGSFTVTL DEVNERIGRG TVLRLFLKDD QLEYLEEKRI KEVIKRHSEF
+	VAYPIQLLVT KEVEKEVPIP EEEKKDEEKK DEDDKKPKLE EVDEEEEEKK
+	PKTKKVKEEV QELEELNKTK PLWTRNPSDI TQEEYNAFYK SISNDWEDPL
+	YVKHFSVEGQ LEFRAILFIP KRAPFDLFES KKKKNNIKLY VRRVFITDEA
+	EDLIPEWLSF VKGVVDSEDL PLNLSREMLQ QNKIMKVIRK NIVKKLIEAF
+	NEIAEDSEQF DKFYSAFAKN IKLGVHEDTQ NRAALAKLLR YNSTKSVDEL
+	TSLTDYVTRM PEHQKNIYYI TGESLKAVEK SPFLDALKAK NFEVLFLTDP
+	IDEYAFTQLK EFEGKTLVDI TKDFELEETD EEKAEREKEI KEYEPLTKAL
+	KDILGDQVEK VVVSYKLLDA PAAIRTGQFG WSANMERIMK AQALRDSSMS
+	SYMSSKKTFE ISPKSPIIKE LKKRVDEGGA QDKTVKDLTN LLFETALLTS
+	GFSLEEPTSF ASRINRLISL GLNIDEDEET ETAPEASTEA PVEEVPADTE
+	MEEVD
+<domain id="1207.1.1" start="197" end="211" expect="2.0e-02" mh="1744.9632" delta="0.1868" hyperscore="28.9" nextscore="8.0" y_score="11.6" y_ions="5" b_score="10.2" b_ions="5" pre="VIKR" post="EVEK" seq="HSEFVAYPIQLLVTK" missed_cleavages="0">
+</domain>
+</peptide>
+</protein>
+<group label="supporting data" type="support">
+<GAML:trace label="1207.hyper" type="hyperscore expectation function">
+<GAML:attribute type="a0">3.5</GAML:attribute>
+<GAML:attribute type="a1">-0.18</GAML:attribute>
+<GAML:Xdata label="1207.hyper" units="score">
+<GAML:values byteorder="INTEL" format="ASCII" numvalues="31">
+0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 
+</GAML:values>
+</GAML:Xdata>
+<GAML:Ydata label="1207.hyper" units="counts">
+<GAML:values byteorder="INTEL" format="ASCII" numvalues="31">
+1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0 
+</GAML:values>
+</GAML:Ydata>
+</GAML:trace>
+
+</group>
+<group type="support" label="fragment ion mass spectrum">
+<note label="Description">test-2.ms2:1439.1439.2</note>
+<GAML:trace id="1207" label="1207.spectrum" type="tandem mass spectrum">
+<GAML:attribute type="M+H">1745.15</GAML:attribute>
+<GAML:attribute type="charge">2</GAML:attribute>
+<GAML:Xdata label="1207.spectrum" units="MASSTOCHARGERATIO">
+<GAML:values byteorder="INTEL" format="ASCII" numvalues="50">
+288 306 318 327 336 339.1 398.9 435 463 501 553.3 565.1 572.1 582 600.1 607.6 618.8 620.8 625.4 634.1 635.3 643.5 653.1 671.1 684 697 735.2 765.2 806 816.1 834.2 836.5 898.1 911.3 1074.3 1145.4 1146.4 1172.4 1201 1244.4 1285.2 1380.4 1391.5 1399.5 1479.6 1497.3 1502.5 1521.4 1599.4 1616.3 
+</GAML:values>
+</GAML:Xdata>
+<GAML:Ydata label="1207.spectrum" units="UNKNOWN">
+<GAML:values byteorder="INTEL" format="ASCII" numvalues="50">
+4 5 4 4 5 9 3 6 4 7 4 4 6 19 28 5 4 9 4 12 5 9 14 21 3 6 4 6 8 32 49 5 3 100 51 64 26 4 4 17 8 4 19 6 10 6 4 15 8 4 
+</GAML:values>
+</GAML:Ydata>
+</GAML:trace>
+</group></group>
+<group id="2261" mh="2407.650000" z="2" expect="3.7e-06" label="gi|6323840|ref|NP_013911.1| Cytoplasmic chaperone of the Hsp90 family, redundant..." type="model" sumI="7.39" maxI="6.63261e+06" fI="66326.1" >
+<protein expect="-13.7" id="2261.1" uid="1" label="gi|6323840|ref|NP_013911.1| Cytoplasmic chaperone of the Hsp90 family, redundant..." sumI="8.36" >
+<note label="description">gi|6323840|ref|NP_013911.1| Cytoplasmic chaperone of the Hsp90 family, redundant in function and nearly identical with Hsp82p, and together they are essential; expressed constitutively at 10-fold higher basal levels that HSP82 and induced 2-3 fold by heat shock; Hsc82p [Saccharomyces cerevisiae]</note>
+<file type="peptide" URL="6323840.fa"/>
+<peptide start="1" end="705">
+	MAGETFEFQA EITQLMSLII NTVYSNKEIF LRELISNASD ALDKIRYQAL
+	SDPKQLETEP DLFIRITPKP EEKVLEIRDS GIGMTKAELI NNLGTIAKSG
+	TKAFMEALSA GADVSMIGQF GVGFYSLFLV ADRVQVISKN NEDEQYIWES
+	NAGGSFTVTL DEVNERIGRG TVLRLFLKDD QLEYLEEKRI KEVIKRHSEF
+	VAYPIQLLVT KEVEKEVPIP EEEKKDEEKK DEDDKKPKLE EVDEEEEEKK
+	PKTKKVKEEV QELEELNKTK PLWTRNPSDI TQEEYNAFYK SISNDWEDPL
+	YVKHFSVEGQ LEFRAILFIP KRAPFDLFES KKKKNNIKLY VRRVFITDEA
+	EDLIPEWLSF VKGVVDSEDL PLNLSREMLQ QNKIMKVIRK NIVKKLIEAF
+	NEIAEDSEQF DKFYSAFAKN IKLGVHEDTQ NRAALAKLLR YNSTKSVDEL
+	TSLTDYVTRM PEHQKNIYYI TGESLKAVEK SPFLDALKAK NFEVLFLTDP
+	IDEYAFTQLK EFEGKTLVDI TKDFELEETD EEKAEREKEI KEYEPLTKAL
+	KDILGDQVEK VVVSYKLLDA PAAIRTGQFG WSANMERIMK AQALRDSSMS
+	SYMSSKKTFE ISPKSPIIKE LKKRVDEGGA QDKTVKDLTN LLFETALLTS
+	GFSLEEPTSF ASRINRLISL GLNIDEDEET ETAPEASTEA PVEEVPADTE
+	MEEVD
+<domain id="2261.1.1" start="343" end="362" expect="3.7e-06" mh="2407.2544" delta="0.3956" hyperscore="49.6" nextscore="8.0" y_score="11.7" y_ions="4" b_score="13.1" b_ions="11" pre="LYVR" post="GVVD" seq="RVFITDEAEDLIPEWLSFVK" missed_cleavages="1">
+</domain>
+</peptide>
+</protein>
+<group label="supporting data" type="support">
+<GAML:trace label="2261.hyper" type="hyperscore expectation function">
+<GAML:attribute type="a0">3.5</GAML:attribute>
+<GAML:attribute type="a1">-0.18</GAML:attribute>
+<GAML:Xdata label="2261.hyper" units="score">
+<GAML:values byteorder="INTEL" format="ASCII" numvalues="52">
+0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 
+</GAML:values>
+</GAML:Xdata>
+<GAML:Ydata label="2261.hyper" units="counts">
+<GAML:values byteorder="INTEL" format="ASCII" numvalues="52">
+1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0 
+</GAML:values>
+</GAML:Ydata>
+</GAML:trace>
+
+</group>
+<group type="support" label="fragment ion mass spectrum">
+<note label="Description">test-2.ms2:2647.2647.2</note>
+<GAML:trace id="2261" label="2261.spectrum" type="tandem mass spectrum">
+<GAML:attribute type="M+H">2407.65</GAML:attribute>
+<GAML:attribute type="charge">2</GAML:attribute>
+<GAML:Xdata label="2261.spectrum" units="MASSTOCHARGERATIO">
+<GAML:values byteorder="INTEL" format="ASCII" numvalues="50">
+416.9 418.9 442.9 470.6 498 515 526.1 538.1 582.9 588.2 610.8 613 617 714.9 732.3 742.1 761.2 779.2 826.1 841.1 859.3 861.1 907.9 932.4 937.3 954.2 1005.3 1061.4 1078.4 1118.3 1158.5 1176.3 1231.4 1247.4 1289.4 1328.3 1346.2 1374.4 1385.3 1386.5 1402.4 1499.4 1546.4 1575.3 1628.5 1657.4 1675.4 1814.4 1831.7 1927.6 
+</GAML:values>
+</GAML:Xdata>
+<GAML:Ydata label="2261.spectrum" units="UNKNOWN">
+<GAML:values byteorder="INTEL" format="ASCII" numvalues="50">
+2 1 3 1 2 1 3 2 2 1 2 2 2 3 23 3 1 5 1 5 3 7 8 3 2 1 49 5 2 4 2 21 12 1 14 3 5 11 3 1 100 2 2 2 7 2 15 6 2 8 
+</GAML:values>
+</GAML:Ydata>
+</GAML:trace>
+</group></group>
+<group label="input parameters" type="parameters">
+	<note type="input" label="list path, default parameters">qtof_defaults.xml</note>
+	<note type="input" label="list path, taxonomy information">databases.xml</note>
+	<note type="input" label="output, histogram column width">1000000</note>
+	<note type="input" label="output, histograms">yes</note>
+	<note type="input" label="output, log path"></note>
+	<note type="input" label="output, maximum valid expectation value">0.1</note>
+	<note type="input" label="output, message">.</note>
+	<note type="input" label="output, one sequence copy">no</note>
+	<note type="input" label="output, parameters">yes</note>
+	<note type="input" label="output, path">test-2.xml</note>
+	<note type="input" label="output, path hashing">no</note>
+	<note type="input" label="output, performance">yes</note>
+	<note type="input" label="output, proteins">yes</note>
+	<note type="input" label="output, results">valid</note>
+	<note type="input" label="output, sequence path"></note>
+	<note type="input" label="output, sequences">yes</note>
+	<note type="input" label="output, sort results by">protein</note>
+	<note type="input" label="output, spectra">yes</note>
+	<note type="input" label="output, xsl path">/tandem/tandem-style.xsl</note>
+	<note type="input" label="protein, C-terminal residue modification mass">0.0</note>
+	<note type="input" label="protein, N-terminal residue modification mass">0.0</note>
+	<note type="input" label="protein, cleavage C-terminal mass change">17.002735</note>
+	<note type="input" label="protein, cleavage N-terminal limit">100000000</note>
+	<note type="input" label="protein, cleavage N-terminal mass change">1.007825</note>
+	<note type="input" label="protein, cleavage semi">no</note>
+	<note type="input" label="protein, cleavage site">[RK]|{P}</note>
+	<note type="input" label="protein, homolog management">no</note>
+	<note type="input" label="protein, modified residue mass file"></note>
+	<note type="input" label="protein, taxon">6323840.fa</note>
+	<note type="input" label="refine">no</note>
+	<note type="input" label="refine, cleavage semi">no</note>
+	<note type="input" label="refine, maximum valid expectation value">0.1</note>
+	<note type="input" label="refine, modification mass">[]</note>
+	<note type="input" label="refine, point mutations">no</note>
+	<note type="input" label="refine, potential C-terminus modifications">[]</note>
+	<note type="input" label="refine, potential N-terminus modification position limit">50</note>
+	<note type="input" label="refine, potential N-terminus modifications">[]</note>
+	<note type="input" label="refine, potential modification mass">[]</note>
+	<note type="input" label="refine, potential modification motif"></note>
+	<note type="input" label="refine, sequence path"></note>
+	<note type="input" label="refine, spectrum synthesis">yes</note>
+	<note type="input" label="refine, tic percent">20.0</note>
+	<note type="input" label="refine, unanticipated cleavage">no</note>
+	<note type="input" label="refine, use potential modifications for full refinement">no</note>
+	<note type="input" label="residue, mass regimes">[[('MONO', []), ('MONO', [])]]</note>
+	<note type="input" label="residue, modification mass">[(1, 57.021999999999998, False, 'C', None)]</note>
+	<note type="input" label="residue, potential modification mass">[]</note>
+	<note type="input" label="residue, potential modification motif"></note>
+	<note type="input" label="scoring, a ions">no</note>
+	<note type="input" label="scoring, b ions">yes</note>
+	<note type="input" label="scoring, c ions">no</note>
+	<note type="input" label="scoring, cyclic permutation">no</note>
+	<note type="input" label="scoring, include reverse">no</note>
+	<note type="input" label="scoring, maximum missed cleavage sites">1</note>
+	<note type="input" label="scoring, maximum modification combinations searched">0</note>
+	<note type="input" label="scoring, maximum simultaneous modifications searched">0</note>
+	<note type="input" label="scoring, minimum ion count">4</note>
+	<note type="input" label="scoring, pluggable scoring">no</note>
+	<note type="input" label="scoring, x ions">no</note>
+	<note type="input" label="scoring, y ions">yes</note>
+	<note type="input" label="scoring, z ions">no</note>
+	<note type="input" label="spectrum, check all charges">no</note>
+	<note type="input" label="spectrum, check all fragment charges">no</note>
+	<note type="input" label="spectrum, dynamic range">100.0</note>
+	<note type="input" label="spectrum, fragment mass error">0.41278</note>
+	<note type="input" label="spectrum, fragment mass error units">Daltons</note>
+	<note type="input" label="spectrum, fragment mass type">monoisotopic</note>
+	<note type="input" label="spectrum, homology error">4.5</note>
+	<note type="input" label="spectrum, maximum parent charge">4</note>
+	<note type="input" label="spectrum, minimum fragment mz">150.0</note>
+	<note type="input" label="spectrum, minimum parent m+h">500.0</note>
+	<note type="input" label="spectrum, minimum peaks">15</note>
+	<note type="input" label="spectrum, neutral loss mass">0.0</note>
+	<note type="input" label="spectrum, neutral loss window">0.0</note>
+	<note type="input" label="spectrum, parent monoisotopic mass error minus">-0.5</note>
+	<note type="input" label="spectrum, parent monoisotopic mass error plus">4.0</note>
+	<note type="input" label="spectrum, parent monoisotopic mass error units">Daltons</note>
+	<note type="input" label="spectrum, parent monoisotopic mass isotope error">no</note>
+	<note type="input" label="spectrum, path">test-2.dta</note>
+	<note type="input" label="spectrum, sequence batch size">1000</note>
+	<note type="input" label="spectrum, threads">1</note>
+	<note type="input" label="spectrum, total peaks">50</note>
+	<note type="input" label="spectrum, use conditioning">yes</note>
+	<note type="input" label="spectrum, use contrast angle">no</note>
+	<note type="input" label="spectrum, use neutral loss window">no</note>
+	<note type="input" label="spectrum, use noise suppression">no</note>
+</group>
+</bioml>
