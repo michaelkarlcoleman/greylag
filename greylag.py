@@ -63,7 +63,10 @@ except:
 
 
 def error(s, *args):
+    "fatal error"
     logging.error(s, *args)
+    if __name__ != "__main__":
+        raise Exception("(fatal error, but unit testing, so not exiting)")
     sys.exit(1)
 
 
@@ -1690,7 +1693,6 @@ def print_results_XML(options, db_info, spectrum_fns, spec_prot_info_items,
                 print '</protein>'
 
         if XTP["output, histograms"]:
-
             print '<group label="supporting data" type="support">'
             print_histogram_XML("%s.hyper" % (sp.id),
                                 "hyperscore expectation function",
@@ -1915,8 +1917,9 @@ def main(args=sys.argv[1:]):
         info("reading spectrum masses")
         sp_files = [ open(fn) for fn in spectrum_fns ]
         with contextlib.nested(*sp_files) as spf: # closes files
-            masses = cgreylag.spectrum\
-                     .read_ms2_spectrum_masses([ f.fileno() for f in spf ])
+            masses = cgreylag.spectrum.read_ms2_spectrum_masses([ f.fileno()
+                                                                  for f
+                                                                  in spf ])
         info("writing %s sets of input files", options.part_split)
         mass_bands = list(generate_mass_bands(options.part_split, masses))
         #info("mass bands: %s", mass_bands)
