@@ -11,9 +11,9 @@
 .DELETE_ON_ERROR:
 
 
-MARCH = pentium3
+# MARCH = pentium3
 # MARCH = pentium4
-# MARCH = prescott
+MARCH = prescott
 # MARCH = opteron
 # MARCH = nocona
 
@@ -23,7 +23,7 @@ DEST = /n/site/inst/Linux-i686/bioinfo/greylag/
 PYTHONVER=2.5
 PYTHONFLAGS = $(shell python$(PYTHONVER)-config --include)
 
-CXXBASEFLAGS = -Wall -g3 -march=$(MARCH)
+CXXBASEFLAGS = -Wall -g3 -march=$(MARCH) -fPIC
 
 # This makes it easy to compile different versions without editing this file.
 # 0=debug, 2=fast, 3=faster and less safe
@@ -47,7 +47,7 @@ CXXFLAGS = ---INVALID-SPEED
   endif
 endif
 
-SWIGCXXFLAGS = $(CXXFLAGS) -fPIC $(PYTHONFLAGS) -fno-strict-aliasing \
+SWIGCXXFLAGS = $(CXXFLAGS) $(PYTHONFLAGS) -fno-strict-aliasing \
 		-Wno-unused-function -Wno-uninitialized
 
 PROGRAM = greylag
@@ -86,10 +86,12 @@ install::
 	install -p _$(MODULE).so $(DEST)
 	install -p --mode=444 $(MODULE).py $(DEST)
 	install -p $(PROGRAM).py $(DEST)
+	install -p $(PROGRAM)-mp.py $(DEST)
 
 clean::
 	-rm -f $(MODULE).py $(MODULE)_wrap.cpp $(MODULE).o $(MODULE)_wrap.o \
-		_$(MODULE).so *.py[co] test/*.py[co] TAGS *~ test/*~ test/tmp*
+		_$(MODULE).so *.py[co] test/*.py[co] TAGS *~ .??*~ test/*~ \
+		test/tmp*
 
 check::
 	nosetests --exe --with-doctest $(NOSEFLAGS)
