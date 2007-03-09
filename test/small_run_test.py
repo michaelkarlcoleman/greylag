@@ -12,8 +12,13 @@ from nose.tools import *
 
 from greylag import *
 
-# program and initial args required to run from test directory
-GREYLAG_PROGRAM = 'python2.5 ../greylag.py'
+
+# parallel job processes
+CPUS = 4
+
+# program locations
+GREYLAG_PROGRAM = '../greylag.py'
+GREYLAGMP_PROGRAM = '../greylag-mp.py'
 
 # temporary output file
 GREYLAG_OUTPUT = 'tmp-greylag-out.xml'
@@ -35,6 +40,12 @@ def run_gl(args):
     subprocess.check_call(("%s -q -o %s %s"
                            % (GREYLAG_PROGRAM, GREYLAG_OUTPUT, args)).split())
 
+def run_gl_mp(args):
+    "Run greylag in multiple subprocesses, checking for error return."
+    subprocess.check_call(("%s %s -q -o %s %s"
+                           % (GREYLAGMP_PROGRAM, CPUS, GREYLAG_OUTPUT,
+                              args)).split())
+
 def run_combination(combination=None):
     """Run a greylag test, as specified by combination.
 
@@ -47,26 +58,35 @@ def run_combination(combination=None):
     '__'.)  The results will be compared to 'greylag-params-0--test-2-ok.xml'.
     If this baseline file is not present and the environment variable
     NOSEUPDATE is set, a new baseline will be created.
+
+    Normally the test will only be done using greylag-mp.py, to speed things
+    up.  If single_cpu is True, a single greylag.py process is used.  The
+    results should be identical.
     """
     if combination == None:
         # name of caller
         combination = inspect.getouterframes(inspect.currentframe())[1][3]
     assert combination.endswith('_test')
     combination = combination.rpartition('_test')[0]
+    run = run_gl
+    if combination.endswith('_mp'):
+        run = run_gl_mp
+        combination = combination.rpartition('_mp')[0]
     parts = combination.split('__')
     params, spectra = parts[0], parts[1:]
     assert len(spectra) >= 1
     params = params.replace('_', '-') + '.xml'
     spectra = [ sp.replace('_', '-') + '.ms2' for sp in spectra ]
-    correct_fn = combination.replace('_', '-') + '-ok.xml'
-    assert os.path.exists(correct_fn) or 'NOSEUPDATE' in os.environ, 'no baseline'
-    run_gl(params + ' ' + ' '.join(spectra))
-    if os.path.exists(correct_fn):
-        assert filecmp.cmp(GREYLAG_OUTPUT, correct_fn), 'output differs'
+    ok_fn = combination.replace('_', '-') + '-ok.xml'
+    assert os.path.exists(ok_fn) or 'NOSEUPDATE' in os.environ, 'no baseline'
+
+    run(params + ' ' + ' '.join(spectra))
+    if os.path.exists(ok_fn):
+        assert filecmp.cmp(GREYLAG_OUTPUT, ok_fn), 'output differs'
     else:
-        os.rename(GREYLAG_OUTPUT, correct_fn)
-    # FIX: now do it in parts, and compare that result
+        os.rename(GREYLAG_OUTPUT, ok_fn)
     # also do it for --quirks?
+
 
 # Could do xtandem and rough compare to quirks?  Is this worth doing, since we
 # can expect at least small differences?  Probably we should have a separate
@@ -78,5 +98,14 @@ def run_combination(combination=None):
 class modless_run_tests:
     def greylag_params_0__test_2_test(self):
         run_combination()
+    def greylag_params_0__test_2_mp_test(self):
+        run_combination()
     def greylag_params_0__6323840_test(self):
+        run_combination()
+    def greylag_params_0__6323840_mp_test(self):
+        run_combination()
+
+    def greylag_params_yeast_0__test_2_test(self):
+        run_combination()
+    def greylag_params_yeast_0__test_2_mp_test(self):
         run_combination()
