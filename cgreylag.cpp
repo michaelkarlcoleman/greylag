@@ -77,7 +77,7 @@ spectrum::__repr__() const {
   static char temp[1024];
   sprintf(temp,
 	  "<spectrum #%d (phys #%d) '%s' %.4f/%+d"
-	  " [%d peaks, maxI=%f, sumI=%f]>",
+	  " [%zd peaks, maxI=%f, sumI=%f]>",
 	  id, physical_id, name.c_str(), mass, charge, peaks.size(),
 	  max_peak_intensity, sum_peak_intensity);
   return &temp[0];
