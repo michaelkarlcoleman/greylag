@@ -787,7 +787,7 @@ def validate_parameters(parameters, parameter_info=XML_PARAMETER_INFO):
 
     unknown_parameters = set(parameters) - set(parameter_info)
     if unknown_parameters:
-        warning("%s unknown parameters:\n %s"
+        warning("%s unknown parameter(s):\n %s"
                 % (len(unknown_parameters),
                    pformat(sorted(list(unknown_parameters)))))
     return pmap
@@ -1803,6 +1803,9 @@ def main(args=sys.argv[1:]):
     pa = parser.add_option
     pa("-o", "--output", dest="output", help="destination file [default as"
        " given in parameter file, '-' for stdout]", metavar="FILE")
+    pa("-P", "--parameter", dest="parameters", action="append",
+       help="override a parameter in <parameter-file>, may be used multiple"
+       " times; quoting will generally be necessary", metavar="NAME:VALUE")
     pa("--quirks-mode", action="store_true", dest="quirks_mode",
        help="try to generate results as close as possible to those of X!Tandem"
        " (possibly at the expense of accuracy)")
@@ -1895,6 +1898,11 @@ def main(args=sys.argv[1:]):
 
     # read params
     parameters = read_xml_parameters(args[0])
+    if options.parameters:
+        if not all((':' in p) for p in options.parameters):
+            error("bad override parameter (-P): missing colon")
+        override_parameters = dict(p.split(':', 1) for p in options.parameters)
+        parameters.update(override_parameters)
     default_parameter_fn = parameters.get("list path, default parameters")
     if default_parameter_fn:
         default_parameters = read_xml_parameters(default_parameter_fn)
