@@ -40,7 +40,7 @@ import subprocess
 import sys
 
 
-GREYLAG_PROGRAM = 'greylag.py'
+GREYLAG_PROGRAM = 'greylag'
 
 
 def warn(s):

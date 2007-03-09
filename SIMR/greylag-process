@@ -5,11 +5,8 @@
 # This directory is assumed to be shared across all cluster nodes
 SHAREDTMPDIR=/clusterfs/home/proteomics/tmp
 
-# The python image to use
-PYTHON=/n/site/inst/Linux-i686/sys/bin/python2.4
-
-# greylag lives here (use python2.4 explicitly)
-greylag=/clusterfs/site/inst/Linux-i686/bioinfo/greylag/greylag.py
+# greylag lives here
+greylag=greylag
 
 # options passed to all greylag invocations
 #greylag_options="-v --quirks-mode"
@@ -152,7 +149,7 @@ err round 0 setup
 # [NB: the ms2 arguments must be given in the same order each time!]
 
 # split ms2 files (on master, for now)
-$PYTHON $greylag $greylag_options \
+$greylag $greylag_options \
     -o "$results" \
     --part-split=$PARTS \
     "$params" *.ms2 \
@@ -170,7 +167,7 @@ qsub -sync y -r y -b y -cwd -V -hard -l mem_free=250M \
     -N "greylag-$jobbasedir-$jobname-$$" \
     -e 'round-1.$TASK_ID.err' \
     -o 'round-1.$TASK_ID.out' \
-    $PYTHON $greylag $greylag_options \
+    $greylag $greylag_options \
     -o "$results" \
     --part='${SGE_TASK_ID}of${SGE_TASK_LAST}' \
     "$params" *.ms2
@@ -183,7 +180,7 @@ fi
 err round 0 merge
 
 # now merge results (on master, for now)
-$PYTHON $greylag $greylag_options \
+$greylag $greylag_options \
     -o "$results" \
     --part-merge=$PARTS \
     "$params" *.ms2 \
