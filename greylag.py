@@ -661,7 +661,7 @@ XML_PARAMETER_INFO = {
     "output, one sequence copy" : (bool, "no", p_ni_equal(False)),
     "output, parameters" : (bool, "no"),
     "output, path hashing" : (bool, "no", p_ni_equal(False)),
-    "output, path" : (str, ""),
+    "output, path" : (str, ""), # ignored
     "output, performance" : (bool, "no"),
     "output, proteins" : (bool, "no"),
     "output, results" : (('all', 'valid', 'stochastic'), "all", p_ni_equal("valid")),
@@ -1801,8 +1801,9 @@ def main(args=sys.argv[1:]):
                                    " [<ms2-file>...]",
                                    description=__doc__)
     pa = parser.add_option
-    pa("-o", "--output", dest="output", help="destination file [default as"
-       " given in parameter file, '-' for stdout]", metavar="FILE")
+    pa("-o", "--output", dest="output",
+       help="destination file ['-' for stdout; default='abc.out.xml', given"
+       " 'abc.xml' as <parameter-file>]", metavar="FILE") 
     pa("-P", "--parameter", dest="parameters", action="append",
        help="override a parameter in <parameter-file>, may be used multiple"
        " times; quoting will generally be necessary", metavar="NAME:VALUE")
@@ -2080,9 +2081,9 @@ def main(args=sys.argv[1:]):
         if options.output != '-':
             sys.stdout = zopen(options.output, 'w')
     else:
-        output_path = XTP["output, path"]
-        if output_path:
-            sys.stdout = zopen(output_path, 'w')
+        base, ext = os.path.splitext(os.path.basename(args[0]))
+        assert ext == '.xml'
+        sys.stdout = zopen(base + '.out.xml', 'w')
 
     print_results_XML(options, db_info, spectrum_fns, spec_prot_info_items,
                       spectra, expect, protein_expect, intensity,
