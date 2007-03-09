@@ -826,7 +826,8 @@ def generate_mass_bands(band_count, mass_list):
     [(1, 0.0, 34.0), (2, 34.0, 68.0), (3, 68.0, 100.0)]
 
     """
-    assert band_count > 0 and mass_list and sorted(mass_list) == mass_list
+    assert band_count > 0 and mass_list
+    assert sorted(mass_list) == list(mass_list)
     band_size = int(math.ceil(float(len(mass_list)) / band_count))
     lb = mass_list[0]
     for bn in range(1, band_count):
@@ -1851,6 +1852,10 @@ def main(args=sys.argv[1:]):
     if sum(1 for x in (options.part_split, options.part, options.part_merge)
            if x != None) > 1:
         error("specify only one of --part-split, --part and --part-merge")
+
+    # prevent format char problems
+    if options.part_prefix and '%' in options.part_prefix:
+        error("--part-prefix may not contain '%'")
 
     part_fn_pattern = '%s.0.%sof%s.part.%s'
     part_fn_in_suffix = 'ms2+'
