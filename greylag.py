@@ -1803,7 +1803,7 @@ def main(args=sys.argv[1:]):
     pa = parser.add_option
     pa("-o", "--output", dest="output",
        help="destination file ['-' for stdout; default='abc.out.xml', given"
-       " 'abc.xml' as <parameter-file>]", metavar="FILE") 
+       " 'abc.xml' as <parameter-file>]", metavar="FILE")
     pa("-P", "--parameter", dest="parameters", action="append",
        help="override a parameter in <parameter-file>, may be used multiple"
        " times; quoting will generally be necessary", metavar="NAME:VALUE")
@@ -2109,17 +2109,22 @@ if __name__ == '__main__':
         if '--profile' in sys.argv:
             import cProfile
             import pstats
-            data_fn = "greylag.prof.tmp"
-            report_fn = "greylag.prof"
+            report_fn = "greylag.prof.%s" % os.getpid()
+            data_fn = report_fn + ".tmp"
             prof = cProfile.run('main()', data_fn)
             with open(report_fn, 'w') as report_f:
-                stats = pstats.Stats(data_fn, stream=report_f)
-                stats.strip_dirs()
-                stats.sort_stats('cumulative')
-                stats.print_stats(50)
-                stats.sort_stats('time')
-                stats.print_stats(50)
-                os.remove(data_fn)
+                try:
+                    stats = pstats.Stats(data_fn, stream=report_f)
+                    stats.strip_dirs()
+                    stats.sort_stats('cumulative')
+                    stats.print_stats(50)
+                    stats.sort_stats('time')
+                    stats.print_stats(50)
+                finally:
+                    try:
+                        os.remove(data_fn)
+                    except:
+                        pass
         else:
             main()
     except SystemExit:
