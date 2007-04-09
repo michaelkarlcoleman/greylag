@@ -1,0 +1,50 @@
+
+
+PUTATIVE INSIGHTS (things we think we've learned so far)
+
+- At least for deeper mod searches, evaluation time for real vs synthetic
+  spectra swamps everything else.  (Generation of synthetic spectra is
+  noticeable, at about 15%.)  This means that ordering spectra by parent mass
+  is pointless?!
+
+- We can afford to be a little sloppy in how we generate the comparisons
+  (as long as we're not generating duplicates, of course).
+
+- The number of leaves at level N is probably about N times more than all of
+  the previous N-1 levels put together.
+
+- SEQUEST does its FFT step only for a fixed number (500?) of candidate
+  matches for each spectrum.  If the number of matches explodes with
+  increasing depth, maybe this implies that only their preliminary scoring
+  algorithm really matters for mod searches?
+
+- X!Tandem limits modification combinations searched to 2**12 or so.  For
+  deeper searches they just silently give up.
+
+- The way X!Tandem quantizes peaks leads to noticeable quantization error.
+
+- Myrimatch silently fails if the number of possible mod positions/kinds is
+  more than 2^31 or 2^64 (depending on sizeof(int)).
+
+
+------------------------------------------------------------------------------
+
+One of our goals is to keep things simple and compact.  Here's a recent
+comparison against similar programs (generated using David A. Wheeler's
+'SLOCCount'):
+
+greylag: cpp:   898 py: 1400 (+336 sh to set up parallel jobs at SIMR)
+xtandem: cpp: 13058 (+ 1271 for parallel tandem -> 14329)
+omssa:   cpp:  7583 (plus an unknown, possibly large number from the NCBI
+		     toolkits [33 distinct headers])
+		    (the toolkits are 1000000 sloc, 65% cpp, 34% c)
+myrimatch: cpp:  6534 (not counting expat code)
+
+
+------------------------------------------------------------------------------
+
+This is a nice way to print the source code three-up, in a fairly small font,
+which makes it easy to study off-line:
+
+  enscript -E -B -3 -r -s 0 --borders -fCourier4.8 --mark-wrapped-lines=arrow
+           --margins=:30::

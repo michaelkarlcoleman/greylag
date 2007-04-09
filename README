@@ -11,11 +11,12 @@ Features:
 
 - Can simultaneously search multiple potential modifications on the same
 residue (e.g., K+14, K+16, K+28).  [Both X!Tandem and SEQUEST silently fail to
-do this.  OMSSA?]
+do this.  Myrimatch does it?  OMSSA?]
 
 - No limit on the number of simultaneous modifications searched (aside from
 user patience).  [SEQUEST limited to three deltas.  OMSSA limited to 32 sites
-per peptide.]
+per peptide.  Myrimatch limited to sizeof(int)-1 sites/kinds per peptide (and
+fails silently for more).]
 
 - Can simultaneously search multiple mass regimes in a single search.  (A
 "mass regime" is an assignment of residue masses.  Two common regimes would be
@@ -32,10 +33,11 @@ separate search with a subsequent merge.  It also should be at least a little
 faster.
 
 - Modification limit can be specified as a limit on modifications per peptide
-(similar to SEQUEST) and/or as a limit on the combinations searched per
-peptide (similar to X!Tandem and OMSSA).  (The first limit differs from
-SEQUEST in that a SEQUEST limit of N would allow N modifications for each
-delta in a peptide, whereas greylag allows N modifications total per peptide.)
+(similar to SEQUEST) (and Myrimatch?) and/or as a limit on the combinations
+searched per peptide (similar to X!Tandem and OMSSA).  (The first limit
+differs from SEQUEST in that a SEQUEST limit of N would allow N modifications
+for each delta in a peptide, whereas greylag allows N modifications total per
+peptide.)
 
 - Modifications can be specified by formula (e.g., +CH2 instead of +14 for
 methylation).  This allows the mass delta to be calculated more accurately,
@@ -60,12 +62,14 @@ replacement for X!Tandem, with some limitations.
 - Has a "quirks-mode" feature that attempts to replicate X!Tandem's behavior
 as closely as possible (warts and all).
 
-- Supports ms2 spectrum files.  [X!Tandem and OMSSA require conversion.]
+- Supports ms2 spectrum files.  [X!Tandem, OMSSA, Myrimatch require
+conversion.]
 
 - Supports multiple spectrum files.  [X!Tandem handles only one at a time.]
 
 - Integrated cluster implementation.  [X!Tandem has a multithreading feature
-that works on single machines, and an add-on cluster implementation.]
+that works on single machines, and an add-on cluster implementation.
+Myrimatch uses multithreading and MPI.]
 
 - Source code is relatively small and simple (currently about 15% of
 X!Tandem's size).  Most functionality is implemented in a high-level

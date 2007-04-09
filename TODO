@@ -1,204 +1,245 @@
-GREYLAG TODO LIST
+GREYLAG TODO LIST						-*-outline-*-
 
+
+==============================================================================
 
 OVERALL GOALS
 
 1.  Replace SEQUEST at SIMR with something at least as good.
 2.  Do better than SEQUEST for things that SIMR cares about.
-3.  Showcase Python w/C-ish inner loop code strategy.
-4.  Do better than SEQUEST generally.
+3.  Showcase Python w/C-ish inner loop code implementation strategy.
+4.  Try to take the best ideas from other similar programs.
 5.  Greylag as a pedagogical artifact and foundation for further
     experimentation.
 
+==============================================================================
 
 
-SPECIFIC TASKS
+MILESTONE M1:
 
-- For non-specific cleavage, don't generate cleavage points!  VERY SLOW!
+* Good first impression
+* Basic correctness
+* Handles at least LCQ input
+* Generates SQT output, usable in our pipeline, at least for non-N15 runs
+* Decent performance/efficiency on our clusters
 
-- Time a real mod search vs SEQUEST (and xtandem?), is time reasonable?
+MILESTONE M2:
+
+* Basic public website/source release/git archive
+* Documentation (asciidoc/man pages)
+
+
+
+TASK QUEUE
+
+* Design new command-line command/option/argument structure
+
+  What are the commands and what is their invocation pattern for (a)
+  single-process testing, (b) multiple processes on a single host, and (c) a
+  cluster?
+
+  What are the input and output files?  (Work manifests?)
+
+  Try to push work out to subordinate processes, but watch I/O.
+
+* Design SQT output (like Myrimatch)
+
+  How to handle multiple residue mods?
+
+* Design and implement new config file format--options and defaults
+
+* Implement spectrum indexer (also checks sp name uniqueness and order)
+
+* Examine Myrimatch spectrum filtering/pre-processing
+
+* Implement Myrimatch spectrum filtering/pre-processing
+
+* Examine Myrimatch theoretical spectrum generation
+** neutral loss generation?
+
+* Implement Myrimatch theoretical spectrum generation
+
+* Examine Myrimatch scoring
+
+* Implement Myrimatch scoring
+
+* Generate an mzData input file (test-2 case?)
+** Use ReAdW
+
+* Compare greylag vs Myrimatch on test-2 case
+
+* Try Myrimatch valgrind/callgrind
+
+* Evaluate performance differences
+
+* Basic test of DTASelect compatibility
+
+* Design and implement SQT fileset merger
+
+* Update test cases
+
+
+* For non-specific cleavage, don't generate cleavage points!  VERY SLOW!
+
+= M1 =========================================================================
+
+
+* Test tolerance monotonicity
+
+
+* Examine DBValidate
+** Design similar statistical evaluation
+** Look at what we do here (paper)
+
+
+* Handle Orbitrap
+** isotope jitter
+** PPM error tolerances
+
+
+* Add duplicate peptide masking optimization
+
+
+
+
+* Time a real mod search vs SEQUEST (and xtandem?), is time reasonable?
   MAKE SURE PARAMS ARE COMPARABLE!  Ballpark correctness?
 
-- Create DTASelect.txt output, either directly or by conversion from XML
+* Create DTASelect.txt output, either directly or by conversion from XML
   output.  (This seems to be sufficient to support most or all DTASelect
   output.)
 
-- Make a tool to compare greylag vs SEQUEST results by spectrum.  Want gross
+* Make a tool to compare greylag vs SEQUEST results by spectrum.  Want gross
   statistics--how many id's are the same, different, missing, etc.  For each
   spectrum, want to see what each program did, and how many times the assigned
   locus was otherwise id'ed.
 
-- Investigate identification differences between greylag and SEQUEST.
+* Investigate identification differences between greylag and SEQUEST.
 
-- Careful timing and correctness check for
+* Careful timing and correctness check for
   /n/proteomics/mkc/HsProA-Control_S100_Ti_1_H_2006-03-03_wSHUFFLED-greylag
 
-- Design and implement tracing of mass regime/PCA/fixed and non-fixed
+* Design and implement tracing of mass regime/PCA/fixed and non-fixed
   deltas/etc into output file.  Try to stay compatible with xtandem.
 
-- Add isotope jitter feature, for Orbitrap.  (xtandem considers one C13 if
+* Add isotope jitter feature, for Orbitrap.  (xtandem considers one C13 if
   MH>1000, and one/two C13 if MH>1500.)  Should we try to predict this based
   on the peptide sequence?  MH probably close enough.
 
-- Add PPM feature.
+* Add PPM feature.
 
-- Make --estimate work correctly over cluster.  (Currently takes 6 hours to
+* Make --estimate work correctly over cluster.  (Currently takes 6 hours to
   estimate 60--is this worthwhile?  Could we simply estimate one bag and
   multiply by the number of bags??)
 
-- Have --estimate generate a spectrum work count file (*.est?) that can be
+* Have --estimate generate a spectrum work count file (*.est?) that can be
   used by --part-split to generate evenly sized parts.  (Check that file is
   newer than params file and ms2 file arguments, and that all ms2 file
   arguments were estimated.)
 
-- Maybe --part-split should generate a downramp of sizes?  It definitely
+* Maybe --part-split should generate a downramp of sizes?  It definitely
   should take into account spectra filtered out (== no work), but this
   requires reading all spectra before splitting (which takes more time).
 
-- Fix "cleavage C-terminal mass change" issue.  Should this be interpreted as
+* Fix "cleavage C-terminal mass change" issue.  Should this be interpreted as
   MONO, ! (first fragment regime), or by regime.  Look for similar problems
   elsewhere.
 
-- Make static '[' mod exclude PCA mods.
+* Make static '[' mod exclude PCA mods.
 
-- Code cleanup, especially in new Python code.  Maybe put some stuff in
+* Code cleanup, especially in new Python code.  Maybe put some stuff in
   classes.  Could split into multiple source files.
 
-- Mine OMSSA and myrimatch for ideas.  Look again at X!Tandem and SEQUEST
+* Mine OMSSA and myrimatch for ideas.  Look again at X!Tandem and SEQUEST
   papers.
 
-- Need tool to compare two runs, for regression testing purposes.
+* Need tool to compare two runs, for regression testing purposes.
 
-- Add refinement.  (like xtandem?)
+* Add refinement.  (like xtandem?)
 
-- Advanced refinement ideas.  For example, only search a locus for a hit with N
+* Advanced refinement ideas.  For example, only search a locus for a hit with N
   mods if we got a hit for it with 0..N-1 mods (or maybe 0..N-2?).  Or, only
   search a locus non-tryptically (or semi-tryptically) if we got a tryptic hit
   for it.
 
-  - Investigate current SEQUEST search results to see if this looks feasible.
+** Investigate current SEQUEST search results to see if this looks feasible.
 
-- Think about ways to get more id's per hour of processing time.
+* Think about ways to get more id's per hour of processing time.
 
-- Try to adapt to instrument accuracy.  Maybe start with a narrow parent mass
+* Try to adapt to instrument accuracy.  Maybe start with a narrow parent mass
   range and adaptively widen it.
 
-- Profiling to find slow spots, and for correctness?
+* Profiling to find slow spots, and for correctness?
 
-- Heavy optimization on inner loop.  Try running from both ends simultaneously.
+* Heavy optimization on inner loop.  Try running from both ends simultaneously.
 
-- Should we try to guarantee that searching is equivalent for all mass regimes,
+* Should we try to guarantee that searching is equivalent for all mass regimes,
   to make comparisons more valid?
 
-- Eval speedup: make intensity information integer, or otherwise store it in
+* Eval speedup: make intensity information integer, or otherwise store it in
   log form so we can add instead of multiplying?
 
-- Try to switch FP code to use integers instead?
+* Try to switch FP code to use integers instead?
 
-- Rigorously check all values coming in from Python (at least by assert).
+* Rigorously check all values coming in from Python (at least by assert).
 
-- We can now pre-build a peptide index if we want to.  The main utility of this
+* We can now pre-build a peptide index if we want to.  The main utility of this
   is that it would allow us to avoid searching a spectrum against the same
   peptide multiple times (saving perhaps 30% runtime for one real database).
   Alternatively, maybe we could just generate a description of peptides to be
   masked out.
 
-- Look at moving C++ code to C+ctypes, or maybe pyrex?
+* Look at moving C++ code to C+ctypes, or maybe pyrex?
 
-- Incrementalize the whole program.  Want to be able to take an existing run
+* Incrementalize the whole program.  Want to be able to take an existing run
   and spend more time on it to get more results, possibly concentrating on a
   particular kind of modification.
 
-- Try to figure out whether SEQUEST is really searching everything, or whether
+* Try to figure out whether SEQUEST is really searching everything, or whether
   it gives up in certain cases like X!Tandem does.
 
-- Isotope S34 and C13 are common (4%, 1%).  Is there a good way to look for
+* Isotope S34 and C13 are common (4%, 1%).  Is there a good way to look for
   them?  We could look for singleton occurrences pretty cheaply using a delta
   mod type procedure.
 
-- Splitting idea: Rather than having all parts be equal, maybe its better for
+* Splitting idea: Rather than having all parts be equal, maybe its better for
   the parts processed first to be bigger, with smallest parts processed last,
   so that they can fill in the final gaps (leading all processors to finish at
   about the same time).  What should the split curve look like?  Linear, but
   what slope?  No split should be smaller than one spectrum (after
   filtering).
 
-- Look carefully at the statistics code.  Problems?
+* Look carefully at the statistics code.  Problems?
 
-- Implement "cyclic permutation" of xtandem.
+* Implement "cyclic permutation" of xtandem.
 
-- Possible generation optimization: Figure out the maximum number of mods,
+* Possible generation optimization: Figure out the maximum number of mods,
   which would be the number that could be added to the smallest, lightest
   peptide without exceeding the mass of the largest spectrum parent mass.
   Probably not worth doing?  Similarly, if we know all bags of size N are too
   large, and all deltas are positive, we can skip larger bags.
 
-- Can we make the parts restartable?  If so, maybe this could be used to load
+* Can we make the parts restartable?  If so, maybe this could be used to load
   balance, recover from crashes, etc.
 
-- Is NOTHROW faster or slower?
+* Is NOTHROW faster or slower?
 
-- If we see a good hit for a spectrum, we could try to see if there's an
+* If we see a good hit for a spectrum, we could try to see if there's an
   identifiable tag.  If so, could restrict further searching to peptides with
   that tag.
 
-- Motif-based differential deltas (like xtandem).
+* Motif-based differential deltas (like xtandem).
 
 
 
-PUTATIVE INSIGHTS
+TO FILE:
 
-- At least for deeper mod searches, evaluation time for real vs synthetic
-  spectra swamps everything else.  (Generation of synthetic spectra is
-  noticeable, at about 15%.)
+* What is this C+57 mod called?  Carboxyamidomethyl?  +C2H3ON!
 
-- This means that ordering spectra by parent mass is pointless?!
+* Is there anything we can do with neutral losses?
 
-- We can afford to be a little sloppy in how we generate the comparisons
-  (as long as we're not generating duplicates, of course).
+* test spectrum synthesis
 
-- The number of leaves at level N is probably about N times more than all of
-  the previous N-1 levels put together.
+* test semi-tryptic cleavage
 
-- SEQUEST does its FFT step only for a fixed number (500?) of candidate matches
-  for each spectrum.  If the number of matches explodes with increasing depth,
-  does this imply that only their preliminary scoring algorithm really matters
-  for mod searches?
-
-- X!Tandem limits modification combinations searched to 2**12 or so.  So for
-  deeper searches they just silently give up.
-
-- The way X!Tandem quantizes peaks leads to noticeable quantization error.
-
-
-ETC
-
-- What is this C+57 mod called?  Carboxyamidomethyl?  +C2H3ON!
-
-- Is there anything we can do with neutral losses?
-
-- test spectrum synthesis
-
-- test semi-tryptic cleavage
-
-- double-check handling of FP arithmetic using epsilons (no ==, no strict <)
-
-
-
-------------------------------------------------------------------------------
-
-Current sloccount comparison (generated using David A. Wheeler's 'SLOCCount'):
-greylag: cpp:   898 py: 1400 (+336 sh to set up parallel jobs at SIMR)
-xtandem: cpp: 13058 (+ 1271 for parallel tandem -> 14329)
-omssa:   cpp:  7583 (plus an unknown, possibly large number from the NCBI
-		     toolkits [33 distinct headers])
-		    (the toolkits are 1000000 sloc, 65% cpp, 34% c)
-XXX:     cpp:  6534 (not counting expat code)
-
-
-------------------------------------------------------------------------------
-
-my source print command:
-
-  enscript -E -B -3 -r -s 0 --borders -fCourier4.8 --mark-wrapped-lines=arrow
-           --margins=:30::
+* double-check handling of FP arithmetic using epsilons (no ==, no strict <)
