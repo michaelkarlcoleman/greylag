@@ -1834,6 +1834,8 @@ def main(args=sys.argv[1:]):
        help="be verbose")
     pa("--copyright", action="store_true", dest="copyright",
        help="print copyright and exit")
+    pa("--version", action="store_true", dest="version",
+       help="print version and exit")
     pa("--debug", action="store_true", dest="debug",
        help="output debugging info")
     pa("--profile", action="store_true", dest="profile",
@@ -1842,6 +1844,9 @@ def main(args=sys.argv[1:]):
 
     if options.copyright:
         print __copyright__
+        sys.exit(0)
+    if options.version:
+        print __version__
         sys.exit(0)
 
     if (len(args) < 1
