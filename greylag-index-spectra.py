@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 
 '''Create a trivial index giving the starting point of each spectrum, as a
-   byte offset from the previous starting point.
+   byte offset from the previous starting point.  Also checks that spectra
+   names are unique and that spectra are ordered by name.
 '''
 
 from __future__ import with_statement
@@ -32,6 +33,10 @@ import re
 import sys
 
 
+def error(s):
+    sys.exit('error: ' + s)
+
+
 def main(args=sys.argv[1:]):
     parser = optparse.OptionParser(usage=
                                    "usage: %prog [options] <ms2-file>...",
@@ -58,9 +63,19 @@ def main(args=sys.argv[1:]):
     for fn in args:
         with open(fn) as specfile:
             contents = specfile.read()
+        specnames = set()
+        prevname = ''
         offset = 0
         with open(fn + '.idx', 'w') as idx:
-            for m in re.finditer('^:', contents, re.MULTILINE):
+            for m in re.finditer('^:.*$', contents, re.MULTILINE):
+                specname = m.group()
+                if specname in specnames:
+                    error("duplicate spectrum names not allowed [%s]"
+                          % specname)
+                specnames.add(specname)
+                if not prevname < specname:
+                    error("spectra must be ordered by name [%s]" % specname)
+                prevname = specname
                 print >> idx, m.start() - offset
                 offset = m.start()
 
