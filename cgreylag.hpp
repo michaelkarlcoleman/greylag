@@ -46,12 +46,11 @@ public:
 // member 'the' is a handle to the singleton instance, for now.
 class parameters {
 public:
-  bool quirks_mode;		// try to produce results closer to xtandem's
   bool estimate_only;		// just estimate work required
   bool show_progress;		// running progress on stderr
 
-  // hyperscores within this ratio are considered "equal"
-  double hyper_score_epsilon_ratio;
+  // scores within this ratio are considered "equal"
+  double epsilon_ratio;
 
   std::vector<double> factorial; // factorial[n] == n!
 
@@ -65,13 +64,10 @@ public:
   double parent_monoisotopic_mass_error_plus;
   double parent_monoisotopic_mass_error_minus;
   double fragment_mass_error;
-  int minimum_ion_count;
   int minimum_peptide_length;
 
-  bool spectrum_synthesis;
   bool check_all_fragment_charges;
 
-  long maximum_modification_combinations_searched;
   unsigned int maximum_simultaneous_modifications_searched;
 
   static parameters the;
@@ -167,7 +163,7 @@ public:
   std::string name;
   int file_id;			// file # of spectra's source
   int id;			// unique for all spectra
-  int physical_id;
+  int physical_id;		// FIX: unneeded?
 
   // Construct an empty spectrum.
   explicit spectrum(double mass=0, int charge=0) : mass(mass), charge(charge) {
@@ -199,28 +195,13 @@ public:
   }
 
 
-  // Read spectra from file in ms2 format, tagging them with file_id.  Spectra
-  // with charge zero are omitted from the result.  (All of them are read,
-  // though, so the ids for any spectrum will be the same regardless of the
-  // range used.)  If file_id == -1, the ms2 file is an annotated file
-  // produced by split_ms2_by_mass_band.
-  static std::vector<spectrum> read_spectra_from_ms2(FILE *f,
-						     const int file_id);
-
-  // Return sorted list of parent masses present in the given ms2 files.
-  static std::vector<double> read_ms2_spectrum_masses(std::vector<int> fds);
-
-  // Copy spectra from an ms2 file to a set of output ms2 files, one for each
-  // band in the set of mass bands described by their upper bounds.  Extra
-  // information is written in the first header line of each spectra so that
-  // id's may be recovered.  So, for example, ':0002.0002.1' might become
-  // ':0002.0002.1 # 0 45 78', where 0, 45, 78 are the spectrum's file_id,
-  // physical_id, and id, respectively.  Multiply charged spectra will be
-  // split into separate spectra (having the same physical_id).
-  static void split_ms2_by_mass_band(FILE *inf, const std::vector<int> &outfds,
-				     const int file_id,
-				     const std::vector<double>
-				       &mass_band_upper_bounds);
+  // Read spectra from file in ms2 format, tagging them with file_id.  Before
+  // reading, seek to absolute position offset_begin.  If offset_end != -1,
+  // any spectra that begin after position offset_end in the file are not
+  // read.
+  static std::vector<spectrum>
+  read_spectra_from_ms2(FILE *f, const int file_id, const long offset_begin,
+			const long offset_end);
 
 
   // Sets max/sum_peak_intensity, according to peaks and

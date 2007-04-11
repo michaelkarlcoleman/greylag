@@ -32,7 +32,7 @@ MILESTONE M2:
 
 TASK QUEUE
 
-* Design new command-line command/option/argument structure
+* X Design new command-line command/option/argument structure
 
   What are the commands and what is their invocation pattern for (a)
   single-process testing, (b) multiple processes on a single host, and (c) a
@@ -41,14 +41,6 @@ TASK QUEUE
   What are the input and output files?  (Work manifests?)
 
   Try to push work out to subordinate processes, but watch I/O.
-
-* Design SQT output (like Myrimatch)
-
-  How to handle multiple residue mods?
-
-* Design and implement new config file format--options and defaults
-
-* Implement spectrum indexer (also checks sp name uniqueness and order)
 
 * Examine Myrimatch spectrum filtering/pre-processing
 
@@ -92,9 +84,20 @@ TASK QUEUE
 ** Look at what we do here (paper)
 
 
-* Handle Orbitrap
-** isotope jitter
-** PPM error tolerances
+* Add isotope jitter feature, for Orbitrap.
+
+  xtandem considers one C13 if MH>1000, and one/two C13 if MH>1500.  Should we
+  try to predict this based on the peptide sequence?  MH probably close
+  enough.  What does MyriMatch do?
+
+
+* Implement MyriMatch charge-calling algorithm?
+
+* Implement MyriMatch deisotoping?
+
+
+
+* Figure out how to handle multiple residue mods (delta, isotope, etc)
 
 
 * Add duplicate peptide masking optimization
@@ -122,11 +125,7 @@ TASK QUEUE
 * Design and implement tracing of mass regime/PCA/fixed and non-fixed
   deltas/etc into output file.  Try to stay compatible with xtandem.
 
-* Add isotope jitter feature, for Orbitrap.  (xtandem considers one C13 if
-  MH>1000, and one/two C13 if MH>1500.)  Should we try to predict this based
-  on the peptide sequence?  MH probably close enough.
-
-* Add PPM feature.
+* PPM error tolerances (MyriMatch doesn't implement this?)
 
 * Make --estimate work correctly over cluster.  (Currently takes 6 hours to
   estimate 60--is this worthwhile?  Could we simply estimate one bag and

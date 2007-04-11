@@ -1,8 +1,9 @@
 #!/usr/bin/env python
 
 '''Create a trivial index giving the starting point of each spectrum, as a
-   byte offset from the previous starting point.  Also checks that spectra
-   names are unique and that spectra are ordered by name.
+   byte offset from the file beginning.  (The index is stored in Python pickle
+   format, compressed with gzip.)  Also checks that spectra names are unique
+   and that spectra are ordered by name, which other greylag programs assume.
 '''
 
 from __future__ import with_statement
@@ -28,6 +29,9 @@ __copyright__ = '''
 __version__ = "0.0"
 
 
+import contextlib
+import cPickle
+import gzip
 import optparse
 import re
 import sys
@@ -66,18 +70,15 @@ def main(args=sys.argv[1:]):
         specnames = set()
         prevname = ''
         offset = 0
-        with open(fn + '.idx', 'w') as idx:
-            for m in re.finditer('^:.*$', contents, re.MULTILINE):
-                specname = m.group()
-                if specname in specnames:
-                    error("duplicate spectrum names not allowed [%s]"
-                          % specname)
-                specnames.add(specname)
-                if not prevname < specname:
-                    error("spectra must be ordered by name [%s]" % specname)
-                prevname = specname
-                print >> idx, m.start() - offset
-                offset = m.start()
+        with contextlib.closing(gzip.open(fn + '.idx', 'w')) as idx:
+            ms = [ m for m in re.finditer('^:.*$', contents, re.MULTILINE) ]
+            specnames = [ m.group() for m in ms ]
+            if len(set(specnames)) < len(ms):
+                error("duplicate spectrum names not allowed")
+            if specnames != sorted(specnames):
+                error("spectra must be ordered by name")
+            offsets = [ m.start() for m in ms ]
+            cPickle.dump(offsets, idx, cPickle.HIGHEST_PROTOCOL)
 
 
 if __name__ == '__main__':

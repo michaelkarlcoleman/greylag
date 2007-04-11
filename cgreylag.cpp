@@ -32,19 +32,23 @@
 #include <iostream>
 
 
+
 #ifdef __GNU__
 #define NOTHROW __attribute__ ((nothrow))
-// use faster, non-threadsafe versions, since we don't use threads
+// Use faster, non-threadsafe versions, since we don't use threads.  This is
+// maybe 10% faster?
 #define fgetsX fgets_unlocked
 #define fputsX fputs_unlocked
 #define fprintfX __builtin_fprintf_unlocked
 #define ferrorX ferror_unlocked
+#define getcX getc_unlocked
 #else
 #define NOTHROW
 #define fgetsX std::fgets
 #define fputsX std::fputs
 #define fprintfX std::fprintf
 #define ferrorX std::ferror
+#define getcX std::getc
 #endif
 
 
@@ -94,52 +98,6 @@ io_error(FILE *f, const char *message="") {
 }
 
 
-// Return sorted list of parent masses present in the given ms2 files.
-std::vector<double>
-spectrum::read_ms2_spectrum_masses(std::vector<int> fds) {
-  std::vector<double> masses;
-
-  for (std::vector<int>::const_iterator fdit=fds.begin(); fdit != fds.end();
-       fdit++) {
-    FILE *f = fdopen(*fdit, "r");
-
-    const int bufsiz = 1024;
-    char buf[bufsiz];
-    char *endp;
-    char *result = fgetsX(buf, bufsiz, f);
-    while (true) {
-      // read headers
-      while (true) {
-	if (ferrorX(f))
-	  io_error(f);
-	if (not result or buf[0] != ':')
-	  break;
-	if (not fgetsX(buf, bufsiz, f))
-	  io_error(f, "bad ms2 format: mass/charge line expected");
-	errno = 0;
-	masses.push_back(std::strtod(buf, &endp)); // need double accuracy here
-	if (errno or endp == buf)
-	  io_error(f, "bad ms2 format: bad mass");
-	result = fgetsX(buf, bufsiz, f);
-      }
-      if (not result)
-	break;
-      // read peaks
-      std::vector<peak> peaks;
-      while (true) {
-	result = fgetsX(buf, bufsiz, f);
-	if (ferrorX(f))
-	  io_error(f);
-	if (not result or buf[0] == ':')
-	  break;
-      }
-    }
-  }
-  std::sort(masses.begin(), masses.end());
-  return masses;
-}
-
-
 // true iff s consists entirely of whitespace
 static bool
 at_eol(const char *s) {
@@ -147,25 +105,64 @@ at_eol(const char *s) {
 }
 
 
-// Read spectra from file in ms2 format, tagging them with file_id.  If
-// file_id == -1, the ms2 file is an annotated file produced by
-// split_ms2_by_mass_band.
+// Check whether we've past the end offset, throwing exception on I/O error.
+static inline bool
+check_past_end(FILE *f, const long offset_end) {
+  if (offset_end == -1)
+    return false;
+  long pos = std::ftell(f);
+  if (pos == -1)
+    io_error(f);
+  return pos >= offset_end;
+}
+
+
+// Read spectra from file in ms2 format, tagging them with file_id.  Before
+// reading, seek to absolute position offset_begin.  If offset_end != -1, any
+// spectra that begin after position offset_end in the file are not read.
 
 // Multiply charge spectra (e.g., +2/+3) are split into separate spectra
-// having the same physical id.  The peak list is initially sorted by mz.
-// Throws an exception on invalid input.
+// having the same physical id.  Note that depending on
+// offset_begin/offset_end, we may end up with the first charge and not the
+// second, or vice versa.
 
-// Error checking is the most stringent in this function.  The other readers
-// can be a little looser since all ms2 files eventually get read here anyway.
+// The peak list is initially sorted by mz.  Throws an exception on invalid
+// input.  Error checking is the most stringent in this function.  Other
+// readers can be a little looser since all ms2 files eventually get read here
+// anyway.
 
 std::vector<spectrum>
-spectrum::read_spectra_from_ms2(FILE *f, const int file_id) {
+spectrum::read_spectra_from_ms2(FILE *f, const int file_id,
+				const long offset_begin,
+				const long offset_end) {
   std::vector<spectrum> spectra;
 
   const int bufsiz = 1024;
   char buf[bufsiz];
   char *endp;
 
+  // first seek to offset_begin and synchronize at next "\n:"
+  if (offset_begin > 0) {
+    if (std::fseek(f, offset_begin-1, SEEK_SET) == -1)
+      io_error(f);
+    int c = getcX(f);
+    while (c != '\n' and c != EOF)
+      c = getcX(f);
+    if (ferrorX(f))
+      io_error(f);
+    if (c == '\n') {
+      do {
+	c = getcX(f);
+      } while (c != ':' and c != EOF);
+      if (ferrorX(f))
+	io_error(f);
+      if (c == ':')
+	std::ungetc(c, f);
+    }
+  }
+  // at this point we expect to read the first ':' of a header, or EOF
+
+  bool past_end = check_past_end(f, offset_end);
   char *result = fgetsX(buf, bufsiz, f);
   while (true) {
     std::vector<std::string> names;
@@ -182,41 +179,29 @@ spectrum::read_spectra_from_ms2(FILE *f, const int file_id) {
 	io_error(f);
       if (not result or buf[0] != ':')
 	break;
-      if (file_id != -1)
+      if (not past_end)
 	names.push_back(std::string(buf+1, buf+std::strlen(buf)-1));
-      else {
-	char *anno_hash = std::strrchr(buf, '#'); // const, but C++ doesn't
-						  // like it declared thus--yuck
-	if (not anno_hash)
-	  io_error(f, "bad ms2+ format: '#' not found");
-	names.push_back(std::string(buf+1, anno_hash));
-	errno = 0;
-	int file_id_0 = std::strtol(anno_hash+1, &endp, 10);
-	file_ids.push_back(file_id_0);
-	int physical_id = std::strtol(endp+1, &endp, 10);
-	physical_ids.push_back(physical_id);
-	int id = std::strtol(endp+1, &endp, 10);
-	ids.push_back(id);
-	if (errno or file_id_0 < 0 or physical_id < 0 or id < 0
-	    or not at_eol(endp))
-	  io_error(f, "bad ms2+ format: bad values");
-      }
       if (not fgetsX(buf, bufsiz, f))
 	io_error(f, "bad ms2 format: mass/charge line expected");
       errno = 0;
       double mass = std::strtod(buf, &endp); // need double accuracy here
-      masses.push_back(mass);
+      if (not past_end)
+	masses.push_back(mass);
       if (errno or endp == buf or mass <= 0)
 	io_error(f, "bad ms2 format: bad mass");
       const char *endp0 = endp;
       int charge = std::strtol(endp0, &endp, 10);
-      charges.push_back(charge);
+      if (not past_end)
+	charges.push_back(charge);
       if (errno or endp == endp0 or charge <= 0)
 	io_error(f, "bad ms2 format: bad charge");
       if (not at_eol(endp))
 	io_error(f, "bad ms2 format: junk at end of mass/charge line");
+      past_end = past_end or check_past_end(f, offset_end);
       result = fgetsX(buf, bufsiz, f);
     }
+    if (names.empty() and past_end)
+      break;
     if (not result) {
       if (not names.empty())
 	io_error(f, "bad ms2 format: spectrum has no peaks (file truncated?)");
@@ -238,6 +223,7 @@ spectrum::read_spectra_from_ms2(FILE *f, const int file_id) {
 	io_error(f, "bad ms2 format: junk at end of peak line");
       peaks.push_back(p);
 
+      past_end = past_end or check_past_end(f, offset_end);
       result = fgetsX(buf, bufsiz, f);
       if (ferrorX(f))
 	io_error(f);
@@ -273,102 +259,6 @@ spectrum::read_spectra_from_ms2(FILE *f, const int file_id) {
       spectrum::next_physical_id += 1;
   }
   return spectra;
-}
-
-
-// Copy spectra from an ms2 file to a set of output ms2 files, one for each
-// band in the set of mass bands described by their upper bounds.  Extra
-// information is written in the first header line of each spectra so that
-// id's may be recovered.  So, for example, ':0002.0002.1' might become
-// ':0002.0002.1 # 0 45 78', where 0, 45, 78 are the spectrum's file_id,
-// physical_id, and id, respectively.  Multiply charged spectra will be
-// split into separate spectra (having the same physical_id).
-
-// FIX: cleaner to just pass in a vector of filenames, rather than fds?
-void
-spectrum::split_ms2_by_mass_band(FILE *inf, const std::vector<int> &outfds,
-				 const int file_id,
-				 const std::vector<double>
-				   &mass_band_upper_bounds) {
-  std::map<double, FILE *> mass_file_index;
-
-  if (outfds.size() < 1
-      or outfds.size() != mass_band_upper_bounds.size())
-    throw std::invalid_argument("invalid argument value");
-
-  for (std::vector<int>::size_type i=0; i<outfds.size(); i++) {
-    FILE *f = fdopen(outfds[i], "w");
-    if (not f)
-      throw std::ios_base::failure("fdopen failed: fd limit exceeded?");
-    mass_file_index.insert(std::make_pair(mass_band_upper_bounds[i], f));
-  }
-
-  int o_next_id = FIRST_SPECTRUM_ID;
-  int o_next_physical_id = FIRST_SPECTRUM_ID;
-
-  const int bufsiz = 1024;
-  char buf0[bufsiz], buf1[bufsiz];
-  char *endp;
-  char *result = fgetsX(buf0, bufsiz, inf);
-  while (true) {
-    double mass;
-    std::set<FILE *> sp_files;
-
-    // copy headers
-    while (true) {
-      if (ferrorX(inf))
-	io_error(inf);
-      if (not result or buf0[0] != ':')
-	break;
-      if (not fgetsX(buf1, bufsiz, inf))
-	io_error(inf, "bad ms2 format: mass/charge line expected");
-      errno = 0;
-      mass = std::strtod(buf1, &endp); // need double accuracy here
-      if (errno or endp == buf1)
-	io_error(inf, "bad ms2 format: bad mass");
-      errno = 0;
-      std::map<double, FILE *>::const_iterator bit
-	= mass_file_index.lower_bound(mass);
-      if (bit == mass_file_index.end())
-	throw std::invalid_argument("internal error: mass out of range");
-      FILE *bandf = bit->second;
-      sp_files.insert(bandf);
-      assert(buf0[strlen(buf0)-1] == '\n');
-      buf0[strlen(buf0)-1] = 0;	// chop newline
-      fprintfX(bandf, "%s # %d %d %d\n", buf0, file_id, o_next_physical_id,
-	       o_next_id++);
-      fputsX(buf1, bandf);
-      if (errno)
-	io_error(bandf, "error writing ms2 file");
-      result = fgetsX(buf0, bufsiz, inf);
-    }
-    if (not result)
-      break;
-    if (sp_files.empty())
-      io_error(inf, "bad ms2 format: missing header lines?");
-    // copy peaks
-    while (true) {
-      peak p;
-      errno = 0;
-      for (std::set<FILE *>::const_iterator fit = sp_files.begin();
-	   fit != sp_files.end(); fit++) {
-	fputsX(buf0, *fit);
-	if (errno)
-	  io_error(*fit, "error writing ms2 file");
-      }
-      result = fgetsX(buf0, bufsiz, inf);
-      if (ferrorX(inf))
-	io_error(inf);
-      if (not result or buf0[0] == ':')
-	break;
-    }
-    o_next_physical_id += 1;
-  }
-
-  // flush all output files (is this necessary?)
-  for (std::map<double, FILE *>::const_iterator it = mass_file_index.begin();
-       it != mass_file_index.end(); it++)
-    std::fflush(it->second);
 }
 
 
@@ -502,8 +392,6 @@ static inline void
 synthesize_ladder_intensities(std::vector<peak> &mass_ladder,
 			      const std::string &peptide_seq,
 			      const bool is_XYZ) NOTHROW {
-  const parameters &CP = parameters::the;
-
   assert(mass_ladder.size() == peptide_seq.size() - 1);
   assert(mass_ladder.size() >= 2);
 
@@ -516,7 +404,7 @@ synthesize_ladder_intensities(std::vector<peak> &mass_ladder,
   if (peptide_seq[1] == 'P')
     mass_ladder[proline_bonus_position].intensity = 10.0;
 
-  if (CP.spectrum_synthesis)
+  if (0) //(CP.spectrum_synthesis)
     for (unsigned int i=0; i<mass_ladder.size(); i++) {
       // FIX: there must be a better way
       const char peptide_index = is_XYZ ? mass_ladder.size()-i-1 : i;
@@ -633,7 +521,7 @@ static inline double
 score_similarity_(const spectrum &x, const spectrum &y,
 		  int *peak_count) NOTHROW {
   const double frag_err = parameters::the.fragment_mass_error;
-  const bool quirks_mode = parameters::the.quirks_mode;
+  const bool quirks_mode = 0; //parameters::the.quirks_mode;
   const double error_limit = quirks_mode ? frag_err*1.5 : frag_err;
 
   double score = 0;
@@ -801,8 +689,9 @@ evaluate_peptide(const search_context &context, match &m,
     // nyi: permute stuff
     // FIX
     const int sp_ion_count = m.ion_peaks[ION_B] + m.ion_peaks[ION_Y];
-    if (sp_ion_count < CP.minimum_ion_count)
-      continue;
+    // SKIP--not MM
+    //if (sp_ion_count < CP.minimum_ion_count)
+    //  continue;
     const bool has_b_and_y = m.ion_peaks[ION_B] and m.ion_peaks[ION_Y];
     if (not has_b_and_y)
       continue;
@@ -825,17 +714,18 @@ evaluate_peptide(const search_context &context, match &m,
     const double current_ratio = (m.hyper_score
 				  / stats.best_score[m.spectrum_index]);
 
-    if (CP.quirks_mode and (m.hyper_score < stats.best_score[m.spectrum_index])
-	or (not CP.quirks_mode
-	    and (current_ratio < CP.hyper_score_epsilon_ratio))) {
+    const bool quirks_mode = false;
+    if (quirks_mode and (m.hyper_score < stats.best_score[m.spectrum_index])
+	or (not quirks_mode
+	    and (current_ratio < CP.epsilon_ratio))) {
       // This isn't a best score, so see if it's a second-best score.
       if (m.hyper_score > stats.second_best_score[m.spectrum_index])
 	stats.second_best_score[m.spectrum_index] = m.hyper_score;
       continue;
     }
-    if (CP.quirks_mode and (m.hyper_score > stats.best_score[m.spectrum_index])
-	or (not CP.quirks_mode
-	    and (current_ratio > (1/CP.hyper_score_epsilon_ratio)))) {
+    if (quirks_mode and (m.hyper_score > stats.best_score[m.spectrum_index])
+	or (not quirks_mode
+	    and (current_ratio > (1/CP.epsilon_ratio)))) {
       // This score is significantly better, so forget previous matches.
       stats.improved_candidates += 1;
       //if (stats.best_match[m.spectrum_index].empty()) why doesn't this work?
@@ -868,14 +758,14 @@ choose_residue_mod(const search_context &context, match &m,
 		   std::vector<int> &db_remaining,
 		   const unsigned remaining_positions_to_choose,
 		   const unsigned next_position_to_consider) NOTHROW {
-  const parameters &CP = parameters::the;
   assert(remaining_positions_to_choose
 	 <= m.peptide_sequence.size() - next_position_to_consider);
 
-  if (CP.maximum_modification_combinations_searched
-      and (stats.combinations_searched
-	   >= CP.maximum_modification_combinations_searched))
-    return;
+  // SKIP--no MM
+  //if (CP.maximum_modification_combinations_searched
+  //    and (stats.combinations_searched
+  //         >= CP.maximum_modification_combinations_searched))
+  //  return;
 
   if (remaining_positions_to_choose == 0) {
     stats.combinations_searched += 1;

@@ -1,7 +1,16 @@
 #!/usr/bin/env python
 
-'''Analyze mass spectra and assign peptides and proteins.  (This is a partial
-   re-implementation of the X!Tandem algorithm, with many extra features.)
+'''This program does the actual work to search mass spectra against a sequence
+database.  <job-id> is a unique identifier used as a prefix for work and
+output directories.  The <parameter-file> contains program options.  The
+spectra are in <ms2-file>s; greylag-index-spectra must already have been run
+on them.
+
+This program can operate in standalone mode (useful for testing) or command
+mode.  If the --work-slice option is given, that slice will be searched in
+standalone mode, then the program will exit.  Otherwise, the program will
+process commands until an exit command is received.
+
 '''
 
 from __future__ import with_statement
@@ -32,21 +41,22 @@ __copyright__ = '''
 __version__ = "0.0"
 
 
+import ConfigParser
 from collections import defaultdict
 import contextlib
 import cPickle
 import fileinput
+import gzip
 import itertools
 import logging
 from logging import debug, info, warning
-import math
+import math                             #??
 import optparse
 import os
 from pprint import pprint, pformat
 import re
 from socket import gethostname
 import sys
-import xml.etree.ElementTree
 
 import cgreylag
 
@@ -238,10 +248,8 @@ def initialize_spectrum_parameters(options, mass_regimes, fixed_mod_map):
                         m += rmod[0] * rmod[1]
                 creg.fixed_residue_mass[ord(r)] = m
             # assuming these are monoisotopic (not regime)
-            creg.fixed_residue_mass[ord('[')] \
-                += XTP["protein, cleavage N-terminal mass change"]
-            creg.fixed_residue_mass[ord(']')] \
-                += XTP["protein, cleavage C-terminal mass change"]
+            creg.fixed_residue_mass[ord('[')] += formula_mass("H")
+            creg.fixed_residue_mass[ord(']')] += formula_mass("OH")
             if not n:
                 CP.parent_mass_regime.append(creg);
             else:
@@ -262,32 +270,24 @@ def initialize_spectrum_parameters(options, mass_regimes, fixed_mod_map):
             if CP.fragment_mass_regime[rn].fixed_residue_mass[ord(r)] < 1.0:
                 raise ValueError('bogus parent mass specification for %s' % r)
 
-    CP.parent_monoisotopic_mass_error_plus \
-        = XTP["spectrum, parent monoisotopic mass error plus"]
-    CP.parent_monoisotopic_mass_error_minus \
-        = XTP["spectrum, parent monoisotopic mass error minus"]
-    CP.fragment_mass_error = XTP["spectrum, fragment mass error"]
+    CP.parent_monoisotopic_mass_error_plus = XTP["parent_mass_tolerance"]
+    CP.parent_monoisotopic_mass_error_minus = -XTP["parent_mass_tolerance"]
+    CP.fragment_mass_error = XTP["fragment_mass_tolerance"]
 
-    CP.minimum_ion_count = XTP["scoring, minimum ion count"]
-    CP.minimum_peptide_length = 5       # FIX: make XTP param?
-    CP.spectrum_synthesis = XTP["refine, spectrum synthesis"]
-    CP.check_all_fragment_charges = XTP["spectrum, check all fragment charges"]
+    CP.minimum_peptide_length = XTP["min_peptide_length"]
+    CP.check_all_fragment_charges = XTP["check_all_fragment_charges"]
 
-    CP.maximum_modification_combinations_searched \
-        = XTP["scoring, maximum modification combinations searched"]
-    CP.maximum_simultaneous_modifications_searched \
-        = XTP["scoring, maximum simultaneous modifications searched"]
+    CP.maximum_simultaneous_modifications_searched = XTP["potential_mod_limit"]
 
     # CP.factorial[n] == (double) n!
     CP.factorial.resize(100, 1.0)
     for n in range(2, len(CP.factorial)):
         CP.factorial[n] = CP.factorial[n-1] * n
 
-    CP.quirks_mode = bool(options.quirks_mode)
     CP.estimate_only = bool(options.estimate_only)
     CP.show_progress = bool(options.show_progress)
 
-    CP.hyper_score_epsilon_ratio = 0.999 # must be slightly less than 1
+    CP.epsilon_ratio = 0.999            # must be slightly less than 1
 
     #debug("CP: %s", pythonize_swig_object(CP, ['the']))
 
@@ -392,35 +392,33 @@ def read_fasta_files(filenames):
         yield (defline, ''.join(seqs), fileinput.filename())
 
 
-def read_taxonomy(filename):
-    """Return a map of taxa to lists of filenames."""
-    root = xml.etree.ElementTree.ElementTree(file=filename).getroot()
-    return dict( (taxon.get("label"),
-                  [ f.get("URL") for f in taxon.findall('./file') ])
-                 for taxon in root.findall('taxon') )
+def read_spectra_slice(spectrum_fns, offset_indices, slice):
+    s_l, s_u = slice
+    assert 0 <= s_l <= s_u <= 1
 
+    total_spectra = sum(len(oi) for oi in offset_indices)
+    sp_l = int(float(s_l) * total_spectra)
+    sp_u = int(float(s_u) * total_spectra)
 
-def read_xml_parameters(filename):
-    """Return a map of parameters to values, per parameter file fn."""
-    root = xml.etree.ElementTree.ElementTree(file=filename).getroot()
-    # try to catch misspellings/etc in the config file
-    bad_nodes = [ e for e in root.findall('*')
-                  if (e.tag != 'note'
-                      or set(e.keys()) not in [ set(), set(['type']),
-                                                set(['type', 'label']) ]
-                      or e.get("type") not in [ None, "input", "description" ]
-                      or e.get("type") == "input" and e.get("label") == None
-                      or (e.get("type") == "description"
-                          and e.get("label") != None)) ]
-    if bad_nodes:
-        for bn in bad_nodes:
-            warning("%s: invalid '%s' element (type=%s, label=%s)"
-                    % (filename, bn.tag, bn.get('type'), bn.get('label')))
+    seeing_l = 0
+    spectra = []
 
-    # return just the good nodes
-    return dict((e.get("label"), clean_string(e.text))
-                for e in root.findall('note')
-                if e.get("type") == "input")
+    for f_no, (fn, oi) in enumerate(zip(spectrum_fns, offset_indices)):
+        seeing_u = seeing_l + len(oi)
+        f_l = max(sp_l, seeing_l)
+        f_u = min(sp_u, seeing_u)
+
+        if f_l < f_u:
+            b_l = oi[f_l - seeing_l]
+            b_u = oi[f_u - seeing_l] if f_u - seeing_l < len(oi) else -1 # oo
+
+            with open(fn) as f:
+                fsp = cgreylag.spectrum.read_spectra_from_ms2(f, f_no,
+                                                              b_l, b_u)
+                spectra.extend(fsp)
+        seeing_l = seeing_u
+
+    return spectra
 
 
 # XML parameter file processing
@@ -635,111 +633,38 @@ def potential_mod_list(specification):
     return tree
 
 
-# "ni" means check verifies that "not implemented" functionality is not
-# specified
-def p_ni_equal(x): return lambda y: y == x
-def p_ni_empty(x): return len(x) == 0
 def p_positive(x): return x > 0
 def p_negative(x): return x < 0
 def p_nonnegative(x): return x >= 0
+def p_proportion(x): return 0 <= x <= 1
 
+# Configuration file parameter specification
+#
 # name -> (type, default, check_fn)
 # type may be bool, int, float, str, modlist, or a tuple of values
 # default, as a string value, or None if value must be explicitly specified
 # check_fn is an optional function that returns True iff the value is valid
-# *1: param required, as has differing defaults based on other params, in
-# xtandem
 
-XML_PARAMETER_INFO = {
-    "list path, default parameters" : (str, ""),
-    "list path, taxonomy information" : (str, None),
-    "output, histogram column width" : (int, 30), # currently ignored
-    "output, histograms" : (bool, "no"),
-    "output, log path" : (str, ""),     # ignored
-    "output, maximum valid expectation value" : (float, None),
-    "output, message" : (str, "."),     # ignored
-    "output, one sequence copy" : (bool, "no", p_ni_equal(False)),
-    "output, parameters" : (bool, "no"),
-    "output, path hashing" : (bool, "no", p_ni_equal(False)),
-    "output, path" : (str, ""), # ignored
-    "output, performance" : (bool, "no"),
-    "output, proteins" : (bool, "no"),
-    "output, results" : (('all', 'valid', 'stochastic'), "all", p_ni_equal("valid")),
-    "output, sequence path" : (str, "", p_ni_empty),
-    "output, sequences" : (bool, "no"),
-    "output, sort results by" : (('protein', 'spectrum'), "spectrum", p_ni_equal("protein")),
-    "output, spectra" : (bool, "no"),
-    "output, xsl path" : (str, ""),
-    "protein, C-terminal residue modification mass" : (float, "0.0", p_ni_equal(0)), # eliminate, tandem ni
-    "protein, N-terminal residue modification mass" : (float, "0.0", p_ni_equal(0)), # eliminate, tandem ni
-    "protein, cleavage C-terminal mass change" : (float, formula_mass("OH")),
-    "protein, cleavage N-terminal limit" : (int, "100000000", p_positive),
-    "protein, cleavage N-terminal mass change" : (float, formula_mass("H")),
-    "protein, cleavage semi" : (bool, "no", p_ni_equal(False)),
-    "protein, cleavage site" : (str, None),
-    "protein, homolog management" : (bool, "no", p_ni_equal(False)),
-    "protein, modified residue mass file" : (str, "", p_ni_empty),
-    "protein, taxon" : (str, None),
-    "refine" : (bool, "no", p_ni_equal(False)),
-    "refine, cleavage semi" : (bool, "no", p_ni_equal(False)),
-    "refine, maximum valid expectation value" : (float, None),
-    "refine, modification mass" : (fixed_mod_list, "", p_ni_empty),
-    "refine, point mutations" : (bool, "no", p_ni_equal(False)),
-    "refine, potential C-terminus modifications": (potential_mod_list, "", p_ni_empty),
-    "refine, potential N-terminus modifications": (potential_mod_list, "", p_ni_empty),
-    "refine, potential N-terminus modification position limit" : (int, 50), # nyi
-    "refine, potential modification mass" : (potential_mod_list, "", p_ni_empty),
-    "refine, potential modification motif" : (str, "", p_ni_empty),
-    "refine, sequence path" : (str, "", p_ni_empty),
-    "refine, spectrum synthesis" : (bool, "no"),
-    "refine, tic percent" : (float, 20.0, p_nonnegative), # ignored
-    "refine, unanticipated cleavage" : (bool, "no", p_ni_equal(False)),
-    "refine, use potential modifications for full refinement" : (bool, "no", p_ni_equal(False)),
-    "residue, mass regimes" : (mass_regime_list, "MONO"),
-    "residue, modification mass" : (fixed_mod_list, ""),
-    "residue, potential modification mass" : (potential_mod_list, ""),
-    "residue, potential modification motif" : (str, "", p_ni_empty),
-    "scoring, a ions" : (bool, "no", p_ni_equal(False)),
-    "scoring, b ions" : (bool, "yes", p_ni_equal(True)),
-    "scoring, c ions" : (bool, "no", p_ni_equal(False)),
-    "scoring, cyclic permutation" : (bool, "no", p_ni_equal(False)),
-    "scoring, include reverse" : (bool, "no", p_ni_equal(False)),
-    "scoring, maximum missed cleavage sites" : (int, None, p_nonnegative),
-    "scoring, maximum modification combinations searched" : (int, 0, p_nonnegative), # 0 -> no limit # FIX
-    "scoring, maximum simultaneous modifications searched" : (int, 0, p_nonnegative),
-    "scoring, minimum ion count" : (int, None, p_positive),
-    "scoring, pluggable scoring" : (bool, "no"), # ignored
-    "scoring, x ions" : (bool, "no", p_ni_equal(False)),
-    "scoring, y ions" : (bool, "yes", p_ni_equal(True)),
-    "scoring, z ions" : (bool, "no", p_ni_equal(False)),
-    "spectrum, check all charges" : (bool, "no", p_ni_equal(False)),
-    "spectrum, check all fragment charges" : (bool, "no"),
-    "spectrum, dynamic range" : (float, "100", p_positive),
-    "spectrum, fragment mass error units" : (("Daltons", "ppm"), "Daltons", p_ni_equal("Daltons")),
-    "spectrum, fragment mass error" : (float, "0.45", p_positive),
-    "spectrum, fragment mass type" : (("average", "monoisotopic"), "monoisotopic", p_ni_equal("monoisotopic")),
-    "spectrum, homology error" : (float, "4.5", p_positive), # nyi
-    "spectrum, maximum parent charge" : (int, "4", p_positive), # nyi
-    "spectrum, minimum fragment mz" : (float, "200.0", p_positive),
-    "spectrum, minimum parent m+h" : (float, "850.0", p_positive), # nyi
-    "spectrum, minimum peaks" : (int, "5", p_positive),
-    "spectrum, neutral loss mass" : (float, "0.0", p_nonnegative), # nyi
-    "spectrum, neutral loss window" : (float, "0.0", p_nonnegative), # nyi
-    "spectrum, parent monoisotopic mass error minus" : (float, None, p_negative), # *1
-    "spectrum, parent monoisotopic mass error plus" : (float, None, p_positive), # *1
-    "spectrum, parent monoisotopic mass error units" : (("Daltons", "ppm"), "Daltons", p_ni_equal("Daltons")),
-    "spectrum, parent monoisotopic mass isotope error" : (bool, "no", p_ni_equal(False)), # parent error should be <0.5Da
-    "spectrum, path" : (str, ""),
-    "spectrum, sequence batch size" : (int, 1000), # ignored
-    "spectrum, threads" : (int, 1),     # ignored
-    "spectrum, total peaks" : (int, "50", p_positive),
-    "spectrum, use conditioning" : (bool, "yes"),
-    "spectrum, use contrast angle" : (bool, "no", p_ni_equal(False)),
-    "spectrum, use neutral loss window" : (bool, "no", p_ni_equal(False)),
-    "spectrum, use noise suppression" : (bool, "yes", p_ni_equal(False)),
-}
+PARAMETER_INFO = {
+    "databases" : (str, None),
+    "decoy_locus_prefix" : (str, "SHUFFLED_"),
+    "mass_regimes" : (mass_regime_list, "MONO"),
+    "pervasive_mods" : (fixed_mod_list, ""),
+    "potential_mods" : (potential_mod_list, ""),
+    "potential_mod_limit" : (int, 2, p_nonnegative),
+    "charge_limit" : (int, 3, p_positive),
+    "check_all_fragment_charges" : (bool, False),
+    "min_peptide_length" : (int, 5, p_positive), # needed?
+    "TIC_cutoff_proportion" : (float, 0.98, p_proportion),
+    "parent_mass_tolerance" : (float, 1.25, p_nonnegative),
+    "fragment_mass_tolerance" : (float, 0.5, p_nonnegative),
+    "intensity_class_count" : (int, 3, p_positive),
+    "intensity_class_factor" : (float, 2.0, p_positive), # really > 1.0?
+    "best_result_count" : (int, 5, p_positive),
+    }
 
-def validate_parameters(parameters, parameter_info=XML_PARAMETER_INFO):
+
+def validate_parameters(parameters, parameter_info=PARAMETER_INFO):
     """Verify that parameters are valid, have valid values, and correspond to
     currently implemented functionality.  Values are converted, default values
     are filled in, and the resulting name/value dict returned.
@@ -791,25 +716,6 @@ def validate_parameters(parameters, parameter_info=XML_PARAMETER_INFO):
                 % (len(unknown_parameters),
                    pformat(sorted(list(unknown_parameters)))))
     return pmap
-
-
-def check_parameters_ad_hoc(pmap):
-    """Do some higher-level, more ad hoc checks of the input parameters."""
-
-    # FIX: this would trip the "cyclic" param (assume Daltons)
-    assert (abs(pmap["spectrum, parent monoisotopic mass error plus"]) > 0.095
-            and (abs(pmap["spectrum, parent monoisotopic mass error minus"])
-                 > 0.095)), "feature not implemented (cyclic param)"
-
-    # FIX: where should this go?
-    if pmap["spectrum, fragment mass error"] > 0.5:
-        warning("'spectrum, fragment mass error' is %s",
-                pmap["spectrum, fragment mass error"])
-
-    if (pmap["scoring, maximum simultaneous modifications searched"] < 1
-        and pmap["residue, potential modification mass"]):
-        warning("potential modifications specified, but max simultaneous mods"
-                " searched is 0, so they won't actually be searched")
 
 
 def generate_mass_bands(band_count, mass_list):
@@ -1797,100 +1703,51 @@ def zopen(filename, mode='r', compresslevel=None):
 
 def main(args=sys.argv[1:]):
     parser = optparse.OptionParser(usage=
-                                   "usage: %prog [options] <parameter-file>"
-                                   " [<ms2-file>...]",
-                                   description=__doc__)
+                                   "usage: %prog [options] <job-id>"
+                                   " <parameter-file> <ms2-file>...",
+                                   description=__doc__, version=__version__)
     pa = parser.add_option
-    pa("-o", "--output", dest="output",
-       help="destination file ['-' for stdout; default='abc.out.xml', given"
-       " 'abc.xml' as <parameter-file>]", metavar="FILE")
-    pa("-P", "--parameter", dest="parameters", action="append",
+    pa("-P", "--parameter", nargs=2, dest="parameters", action="append",
+       default=[],
        help="override a parameter in <parameter-file>, may be used multiple"
-       " times; quoting will generally be necessary", metavar="NAME:VALUE")
-    pa("--quirks-mode", action="store_true", dest="quirks_mode",
-       help="try to generate results as close as possible to those of X!Tandem"
-       " (possibly at the expense of accuracy)")
-    pa("--estimate", action="store_true", dest="estimate_only",
-       help="just estimate the time required for the search")
-    pa("--part-split", dest="part_split", type="int", help="split input into M"
-       " parts, to prepare for --part runs [NOTE: the same parameter file and"
-       " same spectrum files (in the same order) must be specified for all"
-       " --part* steps]", metavar="M")
-    pa("--part", dest="part", help="search one part, previously created with"
-       " --part-split; e.g. '1of2' and '2of2'", metavar="NofM")
-    pa("--part-merge", dest="part_merge", type="int", help="merge the"
-       " previously searched M results and continue", metavar="M")
-    default_prefix = 'greylag'
-    pa("--part-prefix", dest="part_prefix", default=default_prefix,
-       help="prefix to use for temporary part files [default='%s']"
-       % default_prefix, metavar="PREFIX")
-    pa("--compress-level", dest="compress_level", type="int",
-       help="compression level to use for compressed files created [default=1"
-       " for *.gz, 9 for *.bz2]", metavar="N")
+       " times", metavar="NAME VALUE")
+    pa("-w", "--work-slice", nargs=2, type="float", dest="work_slice",
+       help="search a subinterval [L:U) of the work space"
+       " (where 0 <= L <= U <= 1) in standalone mode", metavar="L U")
     pa("-q", "--quiet", action="store_true", dest="quiet", help="no warnings")
     pa("-p", "--show-progress", action="store_true", dest="show_progress",
        help="show running progress")
+    pa("--estimate", action="store_true", dest="estimate_only",
+       help="just estimate the time required for the search")
     pa("-v", "--verbose", action="store_true", dest="verbose",
        help="be verbose")
     pa("--copyright", action="store_true", dest="copyright",
        help="print copyright and exit")
-    pa("--version", action="store_true", dest="version",
-       help="print version and exit")
     pa("--debug", action="store_true", dest="debug",
        help="output debugging info")
     pa("--profile", action="store_true", dest="profile",
-       help="dump Python profiling output to './greylag.prof'")
+       help="dump Python profiling output to './greylag.prof.<pid>'")
     (options, args) = parser.parse_args(args=args)
 
     if options.copyright:
         print __copyright__
         sys.exit(0)
-    if options.version:
-        print __version__
-        sys.exit(0)
 
-    if (len(args) < 1
-        or not args[0].endswith('.xml')
-        or any(True for f in args[1:]
-               if not f.endswith(('.ms2', '.ms2.gz', '.ms2.bz2')))
-        or (options.part_split and options.part_split < 1)
-        or (options.part_merge and options.part_merge < 1)):
+    if len(args) < 3:
         parser.print_help()
         sys.exit(1)
 
-    if sum(1 for x in (options.part_split, options.part, options.part_merge)
-           if x != None) > 1:
-        error("specify only one of --part-split, --part and --part-merge")
+    job_id = args[0]
+    parameter_fn = args[1]
+    spectrum_fns = args[2:]
 
-    # prevent format char problems
-    if options.part_prefix and '%' in options.part_prefix:
-        error("--part-prefix may not contain '%'")
+    if (any(True for f in spectrum_fns if not f.endswith('.ms2'))
+        or (options.work_slice
+            and not (0 <= options.work_slice[0]
+                     <= options.work_slice[1] <= 1))):
+        parser.print_help()
+        sys.exit(1)
 
-    part_fn_pattern = '%s.0.%sof%s.part.%s'
-    part_fn_in_suffix = 'ms2+'
-    part_fn_out_suffix = 'out'
-    part = None                         # "2of10" -> (2, 10)
-
-    if options.part_split:
-        part_infn_pattern = (part_fn_pattern % (options.part_prefix, '%s',
-                                                options.part_split,
-                                                part_fn_in_suffix))
-    elif options.part:
-        try:
-            part = tuple(int(x) for x in options.part.split('of', 1))
-        except:
-            parser.print_help()
-            sys.exit(1)
-        if not 1 <= part[0] <= part[1]:
-            error("bad --part parameter")
-        part_infn_pattern = (part_fn_pattern % (options.part_prefix, '%s',
-                                                part[1], part_fn_in_suffix))
-        part_outfn_pattern = (part_fn_pattern % (options.part_prefix, part[0],
-                                                 part[1], part_fn_out_suffix))
-    elif options.part_merge:
-        part_outfn_pattern = (part_fn_pattern % (options.part_prefix, '%s',
-                                                 options.part_merge,
-                                                 part_fn_out_suffix))
     log_level = logging.WARNING
     if options.quiet:
         log_level = logging.ERROR
@@ -1902,91 +1759,34 @@ def main(args=sys.argv[1:]):
                         format='%(asctime)s %(levelname)s: %(message)s')
     info("starting on %s", gethostname())
 
+    # prevent format char problems
+    if '%' in job_id:
+        error("<job-id> may not contain '%'")
+
+    # check -P names for validity
+    bad_names = (set(n for n,v in options.parameters)
+                 - set(PARAMETER_INFO.keys()))
+    if bad_names:
+        error("bad -P parameter names %s" % list(bad_names))
+
     # read params
-    parameters = read_xml_parameters(args[0])
-    if options.parameters:
-        if not all((':' in p) for p in options.parameters):
-            error("bad override parameter (-P): missing colon")
-        override_parameters = dict(p.split(':', 1) for p in options.parameters)
-        parameters.update(override_parameters)
-    default_parameter_fn = parameters.get("list path, default parameters")
-    if default_parameter_fn:
-        default_parameters = read_xml_parameters(default_parameter_fn)
-        default_parameters.update(parameters)
-        parameters = default_parameters
+    cp = ConfigParser.RawConfigParser()
+    cp.optionxform = str                # be case-sensitive
+    with open(parameter_fn) as parameter_file:
+        cp.readfp(parameter_file)
+    if not cp.has_section('greylag'):
+        error("%s has no [greylag] section" % parameter_fn)
+    parameters = dict(cp.items('greylag'))
+    parameters.update(dict(options.parameters)) # command-line override
     global XTP
     XTP = validate_parameters(parameters)
-    check_parameters_ad_hoc(XTP)
 
-    if len(args) > 1:
-        spectrum_fns = args[1:]
-    else:
-        spectrum_fns = [XTP["spectrum, path"]]
-        if not spectrum_fns:
-            error("input spectrum files not specified")
-
-    taxonomy = read_taxonomy(XTP["list path, taxonomy information"])
-
-    fixed_mod_map = dict((r[3], r) for r in XTP["residue, modification mass"])
-    initialize_spectrum_parameters(options, XTP["residue, mass regimes"],
-                                   fixed_mod_map)
-
-    if options.part_split:
-        # FIX: clean this up
-        info("reading spectrum masses")
-        sp_files = [ open(fn) for fn in spectrum_fns ]
-        with contextlib.nested(*sp_files) as spf: # closes files
-            masses = cgreylag.spectrum.read_ms2_spectrum_masses([ f.fileno()
-                                                                  for f
-                                                                  in spf ])
-        info("writing %s sets of input files", options.part_split)
-        mass_bands = list(generate_mass_bands(options.part_split, masses))
-        #info("mass bands: %s", mass_bands)
-        mass_band_ubs = [ x[2] for x in mass_bands ]
-        mass_band_files = [ open(part_infn_pattern % n, 'w')
-                            for n in range(1, options.part_split+1) ]
-        with contextlib.nested(*mass_band_files) as mbf: # closes files
-            mass_band_fds = [ f.fileno() for f in mbf ]
-            for n, fn in enumerate(spectrum_fns):
-                with open(fn) as inf:
-                    cgreylag.spectrum.split_ms2_by_mass_band(inf, mass_band_fds,
-                                                             n, mass_band_ubs)
-        info("finished, wrote %s sets of input files", options.part_split)
-        return
-
-    # read spectra
-    if options.part:
-        # read from a --part-split file
-        with open(part_infn_pattern % part[0]) as partfile:
-            spectra = cgreylag.spectrum.read_spectra_from_ms2(partfile, -1)
-    else:
-        sp_files = [ open(fn) for fn in spectrum_fns ]
-        with contextlib.nested(*sp_files) as spf: # closes files
-            spectra = itertools.chain(
-                *[ cgreylag.spectrum.read_spectra_from_ms2(f, n)
-                   for n, f in enumerate(spf) ])
-    spectra = list(spectra)
-    spectra.sort(key=lambda x: x.mass)
-
-    if not spectra:
-        warning("no input spectra")
-    else:
-        info("read %s spectra (mass range %s - %s)", len(spectra),
-             spectra[0].mass, spectra[-1].mass)
-
-    # filter and normalize spectra
-    # NI: optionally using "contrast angle" (mprocess::subtract)
-    if XTP["spectrum, use conditioning"]:
-        spectra = [ s for s in spectra
-                    if s.filter_and_normalize(XTP["spectrum, minimum fragment mz"],
-                                              XTP["spectrum, dynamic range"],
-                                              XTP["spectrum, minimum peaks"],
-                                              XTP["spectrum, total peaks"]) ]
-    info("     %s spectra after filtering", len(spectra))
+    fixed_mod_map = dict((r[3], r) for r in XTP["pervasive_mods"])
+    initialize_spectrum_parameters(options, XTP["mass_regimes"], fixed_mod_map)
 
     # read sequence dbs
     # [(defline, seq, filename), ...]
-    fasta_db = list(read_fasta_files(taxonomy[XTP["protein, taxon"]]))
+    fasta_db = list(read_fasta_files(XTP["databases"].split()))
     # [(idno, offset, defline, seq, seq_filename), ...]
     db = []
     for idno, (defline, sequence, filename) in enumerate(fasta_db):
@@ -2002,73 +1802,89 @@ def main(args=sys.argv[1:]):
          db_residue_count)
     max_run_length = max(len(r[3]) for r in db)
     info("max run length is %s residues", max_run_length)
-    if max_run_length > 2**31:
+    if max_run_length > 2**31 - 1:
         error("runs longer than %s not yet supported", max_run_length)
     if not db:
         error("no database sequences")
 
-    if not options.part_merge:
-        cgreylag.spectrum.set_searchable_spectra(spectra)
-        score_statistics = cgreylag.score_stats(len(spectra))
+    # read spectrum offset indices
+    spectrum_offset_indices = []
+    for spfn in spectrum_fns:
+        with contextlib.closing(gzip.open(spfn + '.idx')) as idxf:
+            spectrum_offset_indices.append(cPickle.load(idxf))
 
-        if spectra:
-            if part:
-                del spectra             # try to release memory
+    #debug("idx: %s", spectrum_offset_indices)
 
-            # (cleavage_re, position of cleavage in cleavage_re)
-            cleavage_pattern, cleavage_pos \
-                              = cleavage_motif_re(XTP["protein, cleavage site"])
-            if cleavage_pos == None:
-                error("cleavage site '%s' is missing '|'",
-                      XTP["protein, cleavage site"])
-            cleavage_pattern = re.compile(cleavage_pattern)
+    # FIX: assume standalone mode (for now)
+    assert options.work_slice
 
-            context = cgreylag.search_context()
-            for idno, offset, defline, seq, seq_filename in db:
-                sr = cgreylag.sequence_run(idno, offset, seq,
-                         list(generate_cleavage_points(cleavage_pattern,
-                                                       cleavage_pos, seq)))
-                context.sequence_runs.append(sr)
-            context.maximum_missed_cleavage_sites \
-                = XTP["scoring, maximum missed cleavage sites"]
+    # read spectra per work slice
+    spectra = read_spectra_slice(spectrum_fns, spectrum_offset_indices,
+                                 options.work_slice)
+    spectra.sort(key=lambda x: x.mass)
 
-            search_all(options, context, score_statistics)
-        else:
-            warning("no spectra after filtering--search skipped")
-
-        if options.estimate_only:
-            print ("%.2f generic CPU hours"
-                   % (score_statistics.candidate_spectrum_count / 300.0e6))
-            return
-
-        filter_matches(score_statistics)
-
-        if part:
-            # try to release memory
-            del db
-            del fasta_db
-            cgreylag.spectrum.set_searchable_spectra([])
-
-            with contextlib.closing(zopen(part_outfn_pattern, 'w')) as partfile:
-                cPickle.dump((part, pythonize_swig_object(score_statistics)),
-                             partfile, cPickle.HIGHEST_PROTOCOL)
-            info("finished, part file written to '%s'", part_outfn_pattern)
-            return
+    if not spectra:
+        warning("no input spectra")
     else:
-        info('loading/merging %s parts' % options.part_merge)
-        with contextlib.closing(zopen(part_outfn_pattern % 1)) as partfile:
-            part0, score_statistics = cPickle.load(partfile)
-        offset = len(score_statistics.best_score)
-        for p in range(2, options.part_merge+1):
-            with contextlib.closing(zopen(part_outfn_pattern % p)) as partfile:
-                part0, score_statistics0 = cPickle.load(partfile)
-            merge_score_statistics(score_statistics, score_statistics0, offset)
-            offset += len(score_statistics0.best_score)
-        if len(score_statistics.best_score) != len(spectra):
-            error("error during part merge (expecting %s, got %s)",
-                  len(spectra), len(score_statistics.best_score))
-        info('%s candidate spectra were examined',
-             score_statistics.candidate_spectrum_count)
+        info("read %s spectra (mass range %s - %s)", len(spectra),
+             spectra[0].mass, spectra[-1].mass)
+
+    # filter and normalize spectra
+    if XTP["spectrum, use conditioning"]:
+        spectra = [ s for s in spectra
+                    if s.filter_and_normalize(XTP["spectrum, minimum fragment mz"],
+                                              XTP["spectrum, dynamic range"],
+                                              XTP["spectrum, minimum peaks"],
+                                              XTP["spectrum, total peaks"]) ]
+    info("     %s spectra after filtering", len(spectra))
+
+
+    cgreylag.spectrum.set_searchable_spectra(spectra)
+    score_statistics = cgreylag.score_stats(len(spectra))
+
+    if spectra:
+        if part:
+            del spectra             # try to release memory
+
+        # (cleavage_re, position of cleavage in cleavage_re)
+        cleavage_pattern, cleavage_pos \
+                          = cleavage_motif_re(XTP["protein, cleavage site"])
+        if cleavage_pos == None:
+            error("cleavage site '%s' is missing '|'",
+                  XTP["protein, cleavage site"])
+        cleavage_pattern = re.compile(cleavage_pattern)
+
+        context = cgreylag.search_context()
+        for idno, offset, defline, seq, seq_filename in db:
+            sr = cgreylag.sequence_run(idno, offset, seq,
+                     list(generate_cleavage_points(cleavage_pattern,
+                                                   cleavage_pos, seq)))
+            context.sequence_runs.append(sr)
+        context.maximum_missed_cleavage_sites \
+            = XTP["scoring, maximum missed cleavage sites"]
+
+        search_all(options, context, score_statistics)
+    else:
+        warning("no spectra after filtering--search skipped")
+
+    if options.estimate_only:
+        print ("%.2f generic CPU hours"
+               % (score_statistics.candidate_spectrum_count / 300.0e6))
+        return
+
+    filter_matches(score_statistics)
+
+    if part:
+        # try to release memory
+        del db
+        del fasta_db
+        cgreylag.spectrum.set_searchable_spectra([])
+
+        with contextlib.closing(zopen(part_outfn_pattern, 'w')) as partfile:
+            cPickle.dump((part, pythonize_swig_object(score_statistics)),
+                         partfile, cPickle.HIGHEST_PROTOCOL)
+        info("finished, part file written to '%s'", part_outfn_pattern)
+        return
 
     info('processing results')
 
