@@ -32,6 +32,15 @@ MILESTONE M2:
 
 TASK QUEUE
 
+* Generate an mzData input file (test-2 case?)
+** Use ReAdW
+** compare peak statistics vs Myrimatch, to confirm ballpark correctness
+
+* Try Myrimatch valgrind/callgrind
+
+* Try the MM precursor mass adjustment--much improvement?
+
+
 * X Design new command-line command/option/argument structure
 
   What are the commands and what is their invocation pattern for (a)
@@ -42,10 +51,6 @@ TASK QUEUE
 
   Try to push work out to subordinate processes, but watch I/O.
 
-* Examine Myrimatch spectrum filtering/pre-processing
-
-* Implement Myrimatch spectrum filtering/pre-processing
-
 * Examine Myrimatch theoretical spectrum generation
 ** neutral loss generation?
 
@@ -55,12 +60,9 @@ TASK QUEUE
 
 * Implement Myrimatch scoring
 
-* Generate an mzData input file (test-2 case?)
-** Use ReAdW
+* Try to cut unneeded SWIG types
 
 * Compare greylag vs Myrimatch on test-2 case
-
-* Try Myrimatch valgrind/callgrind
 
 * Evaluate performance differences
 

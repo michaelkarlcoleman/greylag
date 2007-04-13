@@ -129,16 +129,21 @@ class peak {
 public:
   double mz;
   double intensity;
+  int intensity_class;		// 0..N; -1 == unclassified
 
-  explicit peak(double mz=0, double intensity=0)
-    : mz(mz), intensity(intensity) {
+  explicit peak(double mz=0, double intensity=0, int intensity_class=-1)
+    : mz(mz), intensity(intensity), intensity_class(intensity_class) {
   }
 
   char *__repr__() const;
 
   static bool less_mz(peak x, peak y) { return x.mz < y.mz; }
+  // FIX: delete one of these
   static bool less_intensity(peak x, peak y) {
     return x.intensity < y.intensity;
+  }
+  static bool greater_intensity(peak x, peak y) {
+    return x.intensity > y.intensity;
   }
 
   static double get_mz(double mass, int charge) {
@@ -153,13 +158,11 @@ public:
 
 class spectrum {
 public:
-  double mass;
+  double mass;			// [M+H+], aka "neutral mass"?
   int charge;
-  static const int max_supported_charge = 10;
-  std::vector<peak> peaks;
-  double max_peak_intensity;
-  double sum_peak_intensity;
-  double normalization_factor;
+  static const int MAX_SUPPORTED_CHARGE = 10;
+  std::vector<peak> peaks;	// always ordered by increasing m/z!
+  std::vector<int> intensity_class_counts; // number of peaks in each class
   std::string name;
   int file_id;			// file # of spectra's source
   int id;			// unique for all spectra
@@ -168,13 +171,10 @@ public:
   // Construct an empty spectrum.
   explicit spectrum(double mass=0, int charge=0) : mass(mass), charge(charge) {
     assert(charge >= 0);
-    if (charge > max_supported_charge)
+    if (charge > MAX_SUPPORTED_CHARGE)
       throw std::invalid_argument("attempt to create a spectrum with greater"
 				  " than supported charge");
     set_id();
-    max_peak_intensity = -1;
-    sum_peak_intensity = -1;
-    normalization_factor = 1;
     file_id = -1;
     physical_id = -1;
   }
@@ -204,26 +204,14 @@ public:
 			const long offset_end);
 
 
-  // Sets max/sum_peak_intensity, according to peaks and
-  // normalization_factor.
-  void calculate_intensity_statistics() {
-    sum_peak_intensity = 0;
-    max_peak_intensity = -1;
+  // Filter peaks to limit their number according to TIC_cutoff_proportion,
+  // and to remove those too large to be fragment products.  (Peaks are
+  // assumed to be ordered by increasing mz.)
+  void filter_peaks(double TIC_cutoff_proportion,
+		    double parent_mass_tolerance, int charge_limit);
 
-    for (std::vector<peak>::const_iterator it=peaks.begin(); it != peaks.end();
-	 it++) {
-      sum_peak_intensity += it->intensity;
-      max_peak_intensity = std::max<double>(it->intensity, max_peak_intensity);
-    }
-    max_peak_intensity *= normalization_factor;
-    sum_peak_intensity *= normalization_factor;
-  }
-
-
-  // Examine this spectrum to see if it should be kept.  If so, return true
-  // and sort the peaks by mz, normalize them and limit their number.
-  bool filter_and_normalize(double minimum_fragment_mz, double dynamic_range,
-			    int minimum_peaks, int total_peaks);
+  // Classify peaks and update class_counts.
+  void classify(int intensity_class_count, double intensity_class_ratio);
 
   // Store the list of spectra that search_peptide will search against, and
   // also build spectrum_mass_index.

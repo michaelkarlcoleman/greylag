@@ -655,11 +655,13 @@ PARAMETER_INFO = {
     "charge_limit" : (int, 3, p_positive),
     "check_all_fragment_charges" : (bool, False),
     "min_peptide_length" : (int, 5, p_positive), # needed?
+    "min_parent_spectrum_mass" : (float, 0, p_nonnegative),
+    "max_parent_spectrum_mass" : (float, 10000, p_nonnegative),
     "TIC_cutoff_proportion" : (float, 0.98, p_proportion),
     "parent_mass_tolerance" : (float, 1.25, p_nonnegative),
     "fragment_mass_tolerance" : (float, 0.5, p_nonnegative),
     "intensity_class_count" : (int, 3, p_positive),
-    "intensity_class_factor" : (float, 2.0, p_positive), # really > 1.0?
+    "intensity_class_ratio" : (float, 2.0, p_positive), # really > 1.0?
     "best_result_count" : (int, 5, p_positive),
     }
 
@@ -1829,18 +1831,40 @@ def main(args=sys.argv[1:]):
         info("read %s spectra (mass range %s - %s)", len(spectra),
              spectra[0].mass, spectra[-1].mass)
 
+    def peak_statistics(spectra):
+        counts = [ len(sp.peaks) for sp in spectra ]
+        counts.sort()
+        n = len(counts)
+        return (counts[0], counts[int(round(n*0.25))],
+                counts[int(round(n*0.5))], counts[int(round(n*0.75))],
+                counts[-1], sum(counts) / float(n))
+
+    info("  stats: %s..%s..%s..%s..%s (mean=%.2f)" % peak_statistics(spectra))
+
     # filter and normalize spectra
-    if XTP["spectrum, use conditioning"]:
-        spectra = [ s for s in spectra
-                    if s.filter_and_normalize(XTP["spectrum, minimum fragment mz"],
-                                              XTP["spectrum, dynamic range"],
-                                              XTP["spectrum, minimum peaks"],
-                                              XTP["spectrum, total peaks"]) ]
-    info("     %s spectra after filtering", len(spectra))
+    for sp in spectra:
+        sp.filter_peaks(XTP["TIC_cutoff_proportion"],
+                        XTP["parent_mass_tolerance"], XTP["charge_limit"])
+        sp.classify(XTP["intensity_class_count"], XTP["intensity_class_ratio"])
+
+    min_psm = XTP["min_parent_spectrum_mass"]
+    max_psm = XTP["max_parent_spectrum_mass"]
+    # FIX: also filter by 1 + 2 + 4 rule?
+    spectra = [ sp for sp in spectra
+                if len(sp.peaks) >= 10 and min_psm <= sp.mass <= max_psm ]
+
+    info("after filtering:")
+    info("     %s spectra (mass range %s - %s)", len(spectra),
+         spectra[0].mass, spectra[-1].mass)
+    info("  stats: %s..%s..%s..%s..%s (mean=%.2f)" % peak_statistics(spectra))
+    debug("spectra 0: %s", spectra[0])
+    debug("spectra 0 peaks:\n%s", pformat(tuple(spectra[0].peaks)))
 
 
     cgreylag.spectrum.set_searchable_spectra(spectra)
     score_statistics = cgreylag.score_stats(len(spectra))
+
+    error("halt")
 
     if spectra:
         if part:

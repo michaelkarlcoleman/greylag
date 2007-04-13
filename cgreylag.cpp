@@ -58,7 +58,8 @@ parameters parameters::the;
 char *
 peak::__repr__() const {
   static char temp[128];
-  sprintf(temp, "<peak mz=%.4f intensity=%.4f>", mz, intensity);
+  sprintf(temp, "<peak mz=%.4f intensity=%.4f intensity_class=%d>",
+	  mz, intensity, intensity_class);
   return &temp[0];
 }
 
@@ -80,10 +81,8 @@ char *
 spectrum::__repr__() const {
   static char temp[1024];
   sprintf(temp,
-	  "<spectrum #%d (phys #%d) '%s' %.4f/%+d"
-	  " [%zd peaks, maxI=%f, sumI=%f]>",
-	  id, physical_id, name.c_str(), mass, charge, peaks.size(),
-	  max_peak_intensity, sum_peak_intensity);
+	  "<spectrum #%d (phys #%d) '%s' %.4f/%+d [%zd peaks]>",
+	  id, physical_id, name.c_str(), mass, charge, peaks.size());
   return &temp[0];
 }
 
@@ -130,6 +129,9 @@ check_past_end(FILE *f, const long offset_end) {
 // input.  Error checking is the most stringent in this function.  Other
 // readers can be a little looser since all ms2 files eventually get read here
 // anyway.
+
+// This is pretty hideous.  Is there a simpler way to read, reasonably
+// efficiently, catching any input error?
 
 std::vector<spectrum>
 spectrum::read_spectra_from_ms2(FILE *f, const int file_id,
@@ -252,7 +254,6 @@ spectrum::read_spectra_from_ms2(FILE *f, const int file_id,
 	spectrum::next_physical_id = std::max(spectrum::next_physical_id,
 					      sp.physical_id+1);
       }
-      sp.calculate_intensity_statistics();
       spectra.push_back(sp);
     }
     if (file_id != -1)
@@ -262,116 +263,70 @@ spectrum::read_spectra_from_ms2(FILE *f, const int file_id,
 }
 
 
-// For each *non-overlapping* group of peaks with mz within an interval of
-// (less than) length 'limit', keep only the most intense peak.  (The
-// algorithm works from the right, which matter here.)
+// Filter peaks to limit their number according to TIC_cutoff_proportion, and
+// to remove those too large to be fragment products.  (Peaks are assumed to
+// be ordered by increasing mz.)
+void
+spectrum::filter_peaks(double TIC_cutoff_proportion,
+		       double parent_mass_tolerance, int charge_limit) {
+  const parameters &CP = parameters::the;
 
-// FIX: Is this really the best approach?  The obvious alternative would be to
-// eliminate peaks so that no interval of length 'limit' has more than one
-// peak (eliminating weak peaks to make this so).
+  if (not (0 <= TIC_cutoff_proportion and TIC_cutoff_proportion <= 1)
+      or parent_mass_tolerance < 0 or charge_limit < 1)
+    throw std::invalid_argument("invalid argument value");
 
-static inline void
-remove_close_peaks(std::vector<peak> &peaks, double limit) {
-  for (std::vector<peak>::size_type i=0; i+1<peaks.size(); i++) {
-    double ub_mz = peaks[i].mz + limit;
-    while (i+1 < peaks.size() and peaks[i+1].mz < ub_mz)
-      peaks.erase(peaks.begin()
-		  + (peaks[i+1].intensity > peaks[i].intensity
-		     ? i : i+1));
-  }
+  // remove peaks too large to be fragment products
+  // (i.e., m/z > [M+H+] + H+ + parent_mass_tolerance * charge_limit)
+  // (why the extra H+??)
+  const double mz_limit = (mass + CP.proton_mass
+			   + parent_mass_tolerance * charge_limit);
+  std::vector<peak>::iterator pi;
+  for (pi=peaks.begin(); pi != peaks.end() and pi->mz <= mz_limit; pi++);
+  peaks.erase(pi, peaks.end());
+
+  // now filter by TIC
+  std::sort(peaks.begin(), peaks.end(), peak::less_intensity);
+
+  double TIC = 0;
+  for (pi=peaks.begin(); pi != peaks.end(); pi++)
+    TIC += pi->intensity;
+
+  const double i_limit = TIC * TIC_cutoff_proportion;
+  double accumulated_intensity = 0;
+  for (pi=peaks.begin();
+       pi != peaks.end() and accumulated_intensity <= i_limit; pi++)
+    accumulated_intensity += pi->intensity;
+
+  peaks.erase(pi, peaks.end());
+
+  std::sort(peaks.begin(), peaks.end(), peak::less_mz);
 }
 
 
-// Examine this spectrum to see if it should be kept.  If so, return true and
-// sort the peaks by mz, normalize them and limit their number.
-bool
-spectrum::filter_and_normalize(double minimum_fragment_mz,
-			       double dynamic_range, int minimum_peaks,
-			       int total_peaks) {
-  // "spectrum, maximum parent charge", noise suppression check,
-  // "spectrum, minimum parent m+h" not implemented
-
-  if (minimum_fragment_mz < 0 or dynamic_range <= 0 or minimum_peaks < 0
-      or total_peaks < 0)
+// Classify peaks and update class_counts.
+// FIX: hoist some of this up into Python?  use (1,2,4) as parameter
+void
+spectrum::classify(int intensity_class_count, double intensity_class_ratio) {
+  if (intensity_class_count < 1 or intensity_class_ratio <= 1.0)
     throw std::invalid_argument("invalid argument value");
 
-  // remove_isotopes
-  // >>> removes multiple entries within 0.95 Da of each other, retaining the
-  // highest value. this is necessary because of the behavior of some peak
-  // finding routines in commercial software
+  intensity_class_counts.clear();
+  intensity_class_counts.resize(intensity_class_count);
 
-  // peaks already sorted by mz upon read
-  remove_close_peaks(peaks, 0.95);
+  // e.g., 7 = 1 + 2 + 4
+  // FIX: does this fail for non-integer ratios?
+  int min_count = int((pow(intensity_class_ratio, intensity_class_count) - 1)
+		      / (intensity_class_ratio - 1));
 
-  // remove parent
-  // >>> set up m/z regions to ignore: those immediately below the m/z of the
-  // parent ion which will contain uninformative neutral loss ions, and those
-  // immediately above the parent ion m/z, which will contain the parent ion
-  // and its isotope pattern
-
-  const double parent_mz = 1.00727 + (mass - 1.00727) / charge;
-  for (std::vector<peak>::size_type i=0; i<peaks.size();)
-    if (parent_mz >= peaks[i].mz
-	? std::abs(parent_mz - peaks[i].mz) < (50.0 / charge)
-	: std::abs(parent_mz - peaks[i].mz) < (5.0 / charge))
-      peaks.erase(peaks.begin() + i);
-    else
-      i++;
-
-
-  // remove_low_masses
-  std::vector<peak>::iterator pi;
-  for (pi=peaks.begin(); pi != peaks.end() and pi->mz <= minimum_fragment_mz;
-       pi++);
-  peaks.erase(peaks.begin(), pi);
-
-
-  // normalize spectrum
-  // >>> use the dynamic range parameter to set the maximum intensity value
-  // for the spectrum.  then remove all peaks with a normalized intensity < 1
-  if (peaks.empty())
-    return false;
-  std::vector<peak>::iterator most_intense_peak
-    = std::max_element(peaks.begin(), peaks.end(), peak::less_intensity);
-  normalization_factor
-    = std::max<double>(1.0, most_intense_peak->intensity) / dynamic_range;
-  for (std::vector<peak>::iterator p=peaks.begin(); p != peaks.end(); p++)
-    p->intensity /= normalization_factor;
-  for (std::vector<peak>::size_type i=0; i<peaks.size();)
-    if (peaks[i].intensity < 1.0)
-      peaks.erase(peaks.begin() + i);
-    else
-      i++;
-
-  if (peaks.size() < (unsigned int) minimum_peaks)
-    return false;
-
-  //     # check is_noise (NYI)
-  //     # * is_noise attempts to determine if the spectrum is simply
-  //     # noise. if the spectrum
-  //     # * does not have any peaks within a window near the parent ion mass,
-  //     # it is considered
-  //     # * noise.
-  //     #limit = sp.mass / sp.charge
-  //     #if sp.charge < 3:
-  //     #    limit = sp.mass - 600.0
-  //     #if not [ True for mz, i in sp.peaks if mz > limit ]:
-  //     #    return "looks like noise"
-
-  // clean_isotopes removes peaks that are probably C13 isotopes
-  remove_close_peaks(peaks, 1.5);
-
-  // keep only the most intense peaks
-  if (peaks.size() > (unsigned int) total_peaks) {
-    std::sort(peaks.begin(), peaks.end(), peak::less_intensity);
-    peaks.erase(peaks.begin(), peaks.end() - total_peaks);
-    std::sort(peaks.begin(), peaks.end(), peak::less_mz);
+  std::sort(peaks.begin(), peaks.end(), peak::greater_intensity);
+  std::vector<peak>::iterator pi=peaks.begin();
+  for (int i_class=0; i_class<intensity_class_count; i_class++) {
+    int peaks_this_class = int((pow(intensity_class_ratio, i_class) * peaks.size()
+				/ min_count) + 0.5);
+    for (int cp=0; cp < peaks_this_class and pi != peaks.end(); cp++, pi++)
+      pi->intensity_class = i_class;
   }
-
-  // update statistics, now that we've removed some peaks
-  calculate_intensity_statistics();
-
-  return true;
+  std::sort(peaks.begin(), peaks.end(), peak::less_mz);
 }
 
 
@@ -647,10 +602,10 @@ evaluate_peptide(const search_context &context, match &m,
   int max_fragment_charge = max_candidate_charge;
   if (not CP.check_all_fragment_charges)
     max_fragment_charge = std::max<int>(1, max_candidate_charge-1);
-  assert(max_fragment_charge <= spectrum::max_supported_charge);
+  assert(max_fragment_charge <= spectrum::MAX_SUPPORTED_CHARGE);
   // e.g. +2 -> 'B' -> spectrum
   // FIX: should this be a std::vector??
-  static spectrum synth_sp[spectrum::max_supported_charge+1][ION_MAX];
+  static spectrum synth_sp[spectrum::MAX_SUPPORTED_CHARGE+1][ION_MAX];
   synthetic_spectra(synth_sp, m.peptide_sequence, mass_list,
 		    context.fragment_N_fixed_mass,
 		    context.fragment_C_fixed_mass, max_fragment_charge);
@@ -688,7 +643,7 @@ evaluate_peptide(const search_context &context, match &m,
     // incr m_tPeptideScoredCount
     // nyi: permute stuff
     // FIX
-    const int sp_ion_count = m.ion_peaks[ION_B] + m.ion_peaks[ION_Y];
+    //const int sp_ion_count = m.ion_peaks[ION_B] + m.ion_peaks[ION_Y];
     // SKIP--not MM
     //if (sp_ion_count < CP.minimum_ion_count)
     //  continue;
