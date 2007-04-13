@@ -88,7 +88,7 @@ spectrum::__repr__() const {
 
 
 
-// This is an error exit for read_spectra and filter_ms2_by_mass.
+// This is an error exit for read_spectra*.
 static inline void
 io_error(FILE *f, const char *message="") {
   if (ferrorX(f))
@@ -276,16 +276,17 @@ spectrum::filter_peaks(double TIC_cutoff_proportion,
     throw std::invalid_argument("invalid argument value");
 
   // remove peaks too large to be fragment products
-  // (i.e., m/z > [M+H+] + H+ + parent_mass_tolerance * charge_limit)
-  // (why the extra H+??)
-  const double mz_limit = (mass + CP.proton_mass
-			   + parent_mass_tolerance * charge_limit);
+  // (i.e., peak m/z > parent [M+H+] + parent_mass_tolerance * charge_limit)
+  const double peak_mz_limit = mass + parent_mass_tolerance * charge_limit;
+
   std::vector<peak>::iterator pi;
-  for (pi=peaks.begin(); pi != peaks.end() and pi->mz <= mz_limit; pi++);
+  for (pi=peaks.begin(); pi != peaks.end() and pi->mz <= peak_mz_limit; pi++);
   peaks.erase(pi, peaks.end());
 
+  // FIX: note mzLowerBound..mzUpperBound here
+
   // now filter by TIC
-  std::sort(peaks.begin(), peaks.end(), peak::less_intensity);
+  std::sort(peaks.begin(), peaks.end(), peak::greater_intensity);
 
   double TIC = 0;
   for (pi=peaks.begin(); pi != peaks.end(); pi++)
@@ -299,6 +300,7 @@ spectrum::filter_peaks(double TIC_cutoff_proportion,
 
   peaks.erase(pi, peaks.end());
 
+  // restore order
   std::sort(peaks.begin(), peaks.end(), peak::less_mz);
 }
 

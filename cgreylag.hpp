@@ -158,7 +158,7 @@ public:
 
 class spectrum {
 public:
-  double mass;			// [M+H+], aka "neutral mass"?
+  double mass;			// [M + H+], aka "neutral mass" (protonated)
   int charge;
   static const int MAX_SUPPORTED_CHARGE = 10;
   std::vector<peak> peaks;	// always ordered by increasing m/z!

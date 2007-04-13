@@ -1835,9 +1835,8 @@ def main(args=sys.argv[1:]):
         counts = [ len(sp.peaks) for sp in spectra ]
         counts.sort()
         n = len(counts)
-        return (counts[0], counts[int(round(n*0.25))],
-                counts[int(round(n*0.5))], counts[int(round(n*0.75))],
-                counts[-1], sum(counts) / float(n))
+        return (counts[0], counts[int(n*0.25)], counts[int(n*0.5)],
+                counts[int(n*0.75)], counts[-1], sum(counts) / float(n))
 
     info("  stats: %s..%s..%s..%s..%s (mean=%.2f)" % peak_statistics(spectra))
 
@@ -1860,11 +1859,10 @@ def main(args=sys.argv[1:]):
     debug("spectra 0: %s", spectra[0])
     debug("spectra 0 peaks:\n%s", pformat(tuple(spectra[0].peaks)))
 
+    error("halt")
 
     cgreylag.spectrum.set_searchable_spectra(spectra)
     score_statistics = cgreylag.score_stats(len(spectra))
-
-    error("halt")
 
     if spectra:
         if part:
@@ -1965,6 +1963,7 @@ if __name__ == '__main__':
                     stats.print_stats(50)
                     stats.sort_stats('time')
                     stats.print_stats(50)
+                    print "# profile report written to '%s'" % report_fn
                 finally:
                     try:
                         os.remove(data_fn)

@@ -32,25 +32,6 @@ MILESTONE M2:
 
 TASK QUEUE
 
-* Generate an mzData input file (test-2 case?)
-** Use ReAdW
-** compare peak statistics vs Myrimatch, to confirm ballpark correctness
-
-* Try Myrimatch valgrind/callgrind
-
-* Try the MM precursor mass adjustment--much improvement?
-
-
-* X Design new command-line command/option/argument structure
-
-  What are the commands and what is their invocation pattern for (a)
-  single-process testing, (b) multiple processes on a single host, and (c) a
-  cluster?
-
-  What are the input and output files?  (Work manifests?)
-
-  Try to push work out to subordinate processes, but watch I/O.
-
 * Examine Myrimatch theoretical spectrum generation
 ** neutral loss generation?
 
@@ -60,9 +41,14 @@ TASK QUEUE
 
 * Implement Myrimatch scoring
 
+* Implement SQT output
+** and kill xtandem output
+
 * Try to cut unneeded SWIG types
 
 * Compare greylag vs Myrimatch on test-2 case
+
+* Design and implement greylag master process (work manifests?)
 
 * Evaluate performance differences
 
@@ -77,6 +63,10 @@ TASK QUEUE
 
 = M1 =========================================================================
 
+
+* Try to generate a valid MyriMatch (bombs on boost random assertion)
+
+* Try the MM precursor mass adjustment--much improvement?  even a good idea?
 
 * Test tolerance monotonicity
 
