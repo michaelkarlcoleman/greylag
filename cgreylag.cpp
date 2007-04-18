@@ -32,6 +32,9 @@
 #include <iostream>
 
 
+//FIX
+#define inline /* */
+
 
 #ifdef __GNU__
 #define NOTHROW __attribute__ ((nothrow))
@@ -84,6 +87,25 @@ spectrum::__repr__() const {
 	  "<spectrum #%d (phys #%d) '%s' %.4f/%+d [%zd peaks]>",
 	  id, physical_id, name.c_str(), mass, charge, peaks.size());
   return &temp[0];
+}
+
+
+// FIX: does this actually help inlining?
+// Return ln of n_C_k.
+static inline double
+ln_combination_(unsigned int n, unsigned int k) NOTHROW {
+  const parameters &CP = parameters::the;
+
+  // Occasionally happens due to problems in scoring function. (FIX)
+  if (n < k)
+    return 0;
+
+  assert(0 <= k and k <= n and n < CP.ln_factorial.size());
+  return CP.ln_factorial[n] - CP.ln_factorial[k] - CP.ln_factorial[n-k];
+}
+double
+ln_combination(unsigned int n, unsigned int k) {
+  return ln_combination(n, k);
 }
 
 
@@ -269,8 +291,6 @@ spectrum::read_spectra_from_ms2(FILE *f, const int file_id,
 void
 spectrum::filter_peaks(double TIC_cutoff_proportion,
 		       double parent_mass_tolerance, int charge_limit) {
-  const parameters &CP = parameters::the;
-
   if (not (0 <= TIC_cutoff_proportion and TIC_cutoff_proportion <= 1)
       or parent_mass_tolerance < 0 or charge_limit < 1)
     throw std::invalid_argument("invalid argument value");
@@ -305,10 +325,11 @@ spectrum::filter_peaks(double TIC_cutoff_proportion,
 }
 
 
-// Classify peaks and update class_counts.
+// Classify peaks and update class_counts and peak bin counts.
 // FIX: hoist some of this up into Python?  use (1,2,4) as parameter
 void
-spectrum::classify(int intensity_class_count, double intensity_class_ratio) {
+spectrum::classify(int intensity_class_count, double intensity_class_ratio,
+		   double fragment_mass_tolerance) {
   if (intensity_class_count < 1 or intensity_class_ratio <= 1.0)
     throw std::invalid_argument("invalid argument value");
 
@@ -325,10 +346,23 @@ spectrum::classify(int intensity_class_count, double intensity_class_ratio) {
   for (int i_class=0; i_class<intensity_class_count; i_class++) {
     int peaks_this_class = int((pow(intensity_class_ratio, i_class) * peaks.size()
 				/ min_count) + 0.5);
-    for (int cp=0; cp < peaks_this_class and pi != peaks.end(); cp++, pi++)
+    for (int cp=0; cp < peaks_this_class and pi != peaks.end(); cp++, pi++) {
       pi->intensity_class = i_class;
+      intensity_class_counts[i_class]++;
+    }
   }
   std::sort(peaks.begin(), peaks.end(), peak::less_mz);
+
+  if (not peaks.empty()) {
+    min_peak_mz = peaks.front().mz;
+    max_peak_mz = peaks.back().mz;
+    total_peak_bins = (int((max_peak_mz - min_peak_mz)
+			   / (2 * fragment_mass_tolerance) + 0.5)
+		       + 1);
+    // This is the MyriMatch estimate.  Wouldn't it be better to simply count
+    // how many are empty?
+    empty_peak_bins = std::max<int>(total_peak_bins - peaks.size(), 0);
+  }
 }
 
 
@@ -342,60 +376,11 @@ spectrum::set_searchable_spectra(const std::vector<spectrum> &spectra) {
 }
 
 
-// Multiply peak intensities by residue-dependent factors to generate a more
-// realistic spectrum.  If is_XYZ, walk through the peptide sequence in
-// reverse.
-static inline void
-synthesize_ladder_intensities(std::vector<peak> &mass_ladder,
-			      const std::string &peptide_seq,
-			      const bool is_XYZ) NOTHROW {
-  assert(mass_ladder.size() == peptide_seq.size() - 1);
-  assert(mass_ladder.size() >= 2);
-
-  // An intensity boost is given for the second peptide bond/peak (*) if the
-  // N-terminal residue is 'P':
-  //      0 * 2 3 (peaks)
-  //     A P C D E
-  const int proline_bonus_position = is_XYZ ? mass_ladder.size()-2 : 1;
-  mass_ladder[proline_bonus_position].intensity = 3.0;
-  if (peptide_seq[1] == 'P')
-    mass_ladder[proline_bonus_position].intensity = 10.0;
-
-  if (0) //(CP.spectrum_synthesis)
-    for (unsigned int i=0; i<mass_ladder.size(); i++) {
-      // FIX: there must be a better way
-      const char peptide_index = is_XYZ ? mass_ladder.size()-i-1 : i;
-      switch (peptide_seq[peptide_index]) {
-      case 'D':
-	mass_ladder[i].intensity *= 5.0;
-	break;
-      case 'V':
-      case 'E':
-      case 'I':
-      case 'L':
-	mass_ladder[i].intensity *= 3.0;
-	break;
-      case 'N':
-      case 'Q':
-	mass_ladder[i].intensity *= 2.0;
-	break;
-      }
-      switch (peptide_seq[peptide_index+1]) {
-      case 'P':
-	mass_ladder[i].intensity *= 5.0;
-	break;
-      }
-    }
-}
-
-
 // Calculate peaks for a synthesized mass (not mz) ladder.
 static inline void
 get_synthetic_Y_mass_ladder(std::vector<peak> &mass_ladder,
-			    const std::string &peptide_seq,
 			    const std::vector<double> &mass_list,
 			    const double fragment_C_fixed_mass) NOTHROW {
-  assert(peptide_seq.size() == mass_list.size());
   double m = fragment_C_fixed_mass;
 
   const int ladder_size = mass_ladder.size();
@@ -403,15 +388,12 @@ get_synthetic_Y_mass_ladder(std::vector<peak> &mass_ladder,
     m += mass_list[i+1];
     mass_ladder[ladder_size-1-i] = peak(m, 1.0);
   }
-
-  synthesize_ladder_intensities(mass_ladder, peptide_seq, true);
 }
 
 
 // Calculate peaks for a synthesized mass (not mz) ladder.
 static inline void
 get_synthetic_B_mass_ladder(std::vector<peak> &mass_ladder,
-			    const std::string &peptide_seq,
 			    const std::vector<double> &mass_list,
 			    const double fragment_N_fixed_mass) NOTHROW {
   double m = fragment_N_fixed_mass;
@@ -421,155 +403,168 @@ get_synthetic_B_mass_ladder(std::vector<peak> &mass_ladder,
     m += mass_list[i];
     mass_ladder[i] = peak(m, 1.0);
   }
-
-  synthesize_ladder_intensities(mass_ladder, peptide_seq, false);
 }
 
 
+// Generate synthetic spectra for a set of charges.  Only the charge and peaks
+// of these spectra are initialized.
 static inline void
-synthetic_spectra(spectrum synth_sp[/* max_fragment_charge+1 */][ION_MAX],
-		  const std::string &peptide_seq,
+synthetic_spectra(spectrum synth_sp[/* max_fragment_charge+1 */],
 		  const std::vector<double> &mass_list,
 		  const double fragment_N_fixed_mass,
 		  const double fragment_C_fixed_mass,
 		  const double max_fragment_charge) NOTHROW {
   std::vector<peak> mass_ladder(mass_list.size()-1);
 
-  for (ion ion_type=ION_MIN; ion_type<ION_MAX; ion_type++) {
-    switch (ion_type) {
-    case ION_Y:
-      get_synthetic_Y_mass_ladder(mass_ladder, peptide_seq, mass_list,
-				  fragment_C_fixed_mass);
-      break;
-    case ION_B:
-      get_synthetic_B_mass_ladder(mass_ladder, peptide_seq, mass_list,
-				  fragment_N_fixed_mass);
-      break;
-    default:
-      assert(false);
-    }
+  for (int charge=1; charge<=max_fragment_charge; charge++) {
+    spectrum &sp = synth_sp[charge];
+    //sp.mass = fragment_peptide_mass;
+    sp.charge = charge;
+    sp.peaks.resize(mass_ladder.size() * (ION_MAX-ION_MIN));
+    std::vector<peak>::size_type pi=0;
 
-    //for (unsigned int i=0; i<mass_ladder.size(); i++)
-    //  std::cerr << "ladder step " << peptide_seq[i] << " " << mass_ladder[i].mz << std::endl;
+    for (ion ion_type=ION_MIN; ion_type<ION_MAX; ion_type++) {
+      switch (ion_type) {
+      case ION_Y:
+	get_synthetic_Y_mass_ladder(mass_ladder, mass_list,
+				    fragment_C_fixed_mass);
+	break;
+      case ION_B:
+	get_synthetic_B_mass_ladder(mass_ladder, mass_list,
+				    fragment_N_fixed_mass);
+	break;
+      default:
+	assert(false);
+      }
 
-    for (int charge=1; charge<=max_fragment_charge; charge++) {
-      spectrum &sp = synth_sp[charge][ion_type];
-      //sp.mass = fragment_peptide_mass;
-      sp.charge = charge;
-      sp.peaks.resize(mass_ladder.size());
       for (std::vector<peak>::size_type i=0; i<mass_ladder.size(); i++) {
-	sp.peaks[i].intensity = mass_ladder[i].intensity;
-	sp.peaks[i].mz = peak::get_mz(mass_ladder[i].mz, charge);
+	sp.peaks[pi++].mz = peak::get_mz(mass_ladder[i].mz, charge);
       }
     }
+    std::sort(sp.peaks.begin(), sp.peaks.end(), peak::less_mz);
   }
 }
 
 
-// Return the similarity score between this spectrum and that, and also a
-// count of common peaks in *peak_count.
-
-// xtandem quantizes mz values into bins of width fragment_mass_error first,
-// and adds a bin on either side.  This makes the effective fragment mass
-// error for each peak an arbitrary value between 1x and 2x the parameter,
-// based on quantization of that peak.  If quirks_mode is on, we'll try to
-// emulate this behavior.
+// Return the MyriMatch-style score of a (real) spectrum (x) versus a
+// theoretical spectrum (y) generated from a peptide candidate.
+//
+// FIX: This code seems complicated.  Is the MyriMatch idea of using maps (or
+// better yet, sets) for peak lists simpler?  As fast or faster?
+//
+// This is the innermost loop, so it's worthwhile to optimize this some.
+// FIX: Should some of these vectors be arrays?
 static inline double
-score_similarity_(const spectrum &x, const spectrum &y,
-		  int *peak_count) NOTHROW {
-  const double frag_err = parameters::the.fragment_mass_error;
-  const bool quirks_mode = 0; //parameters::the.quirks_mode;
-  const double error_limit = quirks_mode ? frag_err*1.5 : frag_err;
+score_spectrum(const spectrum &x, const spectrum &y) NOTHROW {
+  const parameters &CP = parameters::the;
+  assert (not x.peaks.empty() and not y.peaks.empty());	// FIX
 
-  double score = 0;
-  *peak_count = 0;
+  std::vector<double> peak_best_delta(y.peaks.size(),
+				      CP.fragment_mass_tolerance);
+  std::vector<int> peak_best_class(y.peaks.size(), -1);
+
   std::vector<peak>::const_iterator x_it = x.peaks.begin();
   std::vector<peak>::const_iterator y_it = y.peaks.begin();
 
+  // Iterate over all closest pairs of peaks, collecting info on the class of
+  // the best (meaning closest mz) real peak matching each theoretical peak
+  // (for real/theoretical peak pairs that are no farther apart than
+  // fragment_mass_tolerance).
+  int y_index = 0;
   while (x_it != x.peaks.end() and y_it != y.peaks.end()) {
-    double x_mz = x_it->mz, y_mz = y_it->mz;
-    if (quirks_mode) {
-      const float ffe = frag_err;
-      x_mz = int(static_cast<float>(x_mz) / ffe) * ffe;
-      y_mz = int(static_cast<float>(y_mz) / ffe) * ffe;
-    }
-    // in quirks mode, must be within one frag_err-wide bin
-    const double delta = y_mz - x_mz;
-    if (std::abs(delta) < error_limit) {
-      *peak_count += 1;
-      score += (x_it->intensity * y_it->intensity);
-      //std::cerr << "hit " << x_mz << " vs " << y_mz << ", i = " << x_it->intensity * y_it->intensity << std::endl;
+    const double delta = y_it->mz - x_it->mz;
+    if (std::abs(delta) <= peak_best_delta[y_index]) {
+      peak_best_class[y_index] = x_it->intensity_class;
+      peak_best_delta[y_index] = std::abs(delta);
     }
     if (delta > 0)
       x_it++;
-    else
+    else {
       y_it++;
+      y_index++;
+    }
   }
+
+  assert(CP.intensity_class_count < INT_MAX);
+  std::vector<unsigned> peak_hit_histogram(CP.intensity_class_count);
+  std::vector<int>::const_iterator b_it;
+  for (b_it = peak_best_class.begin(); b_it != peak_best_class.end(); b_it++)
+    if (*b_it >= 0) {
+      assert(*b_it < static_cast<int>(peak_hit_histogram.size()));
+      peak_hit_histogram[*b_it] += 1;
+    }
+
+  // How many theoretical peaks overlap the real peak range?
+  int valid_theoretical_peaks = 0;
+  for (y_it = y.peaks.begin(); y_it != y.peaks.end(); y_it++)
+    if (x.min_peak_mz - CP.fragment_mass_tolerance <= y_it->mz
+	and y_it->mz <= x.max_peak_mz + CP.fragment_mass_tolerance)
+      valid_theoretical_peaks++;
+
+  // How many valid theoretical peaks were misses?
+  const int peak_misses = (valid_theoretical_peaks
+			   - accumulate(peak_hit_histogram.begin(),
+					peak_hit_histogram.end(), 0));
+#if 0
+  for (unsigned int i=0; i<peak_hit_histogram.size(); i++)
+    if (x.intensity_class_counts[i] < peak_hit_histogram[i])
+      std::cerr << i << " C(" << x.intensity_class_counts[i] << ", "
+		<< peak_hit_histogram[i] << ")" << std::endl;
+  if (x.empty_peak_bins < peak_misses)
+    std::cerr << "M C(" << x.empty_peak_bins << ", " << peak_misses << ")"
+	      << std::endl;
+  if (x.total_peak_bins < valid_theoretical_peaks)
+    std::cerr << "T C(" << x.total_peak_bins << ", " << valid_theoretical_peaks
+	      << ")" << std::endl;
+#endif
+
+#if 0
+  for (unsigned int i=0; i<peak_hit_histogram.size(); i++)
+    std::cerr << i << " C(" << x.intensity_class_counts[i] << ", "
+	      << peak_hit_histogram[i] << ")" << std::endl;
+  std::cerr << "C(" << x.empty_peak_bins << ", " << peak_misses << ")"
+	    << std::endl;
+  std::cerr << "C(" << x.total_peak_bins << ", " << valid_theoretical_peaks
+	    << ")" << std::endl;
+  std::cerr << std::endl;
+#endif
+
+  assert(peak_misses >= 0);
+
+  double score = 0.0;
+  for (unsigned int i=0; i<peak_hit_histogram.size(); i++)
+    score += ln_combination_(x.intensity_class_counts[i],
+			     peak_hit_histogram[i]);
+  score += ln_combination_(x.empty_peak_bins, peak_misses);
+  score -= ln_combination_(x.total_peak_bins, valid_theoretical_peaks);
 
   return score;
 }
 
 
-double
-spectrum::score_similarity(const spectrum &x, const spectrum &y, int
-			   *peak_count) {
-  return score_similarity_(x, y, peak_count);
-}
+// Return the score of the specified spectrum against a group of synthetic
+// fragment spectra.
 
-
-// IDEA: could we combine all these spectra and just do the correlation once?
-
-// Score the specified spectrum against a group of synthetic fragment
-// spectra.
-static inline void
-score_spectrum(double &hyper_score, double &convolution_score,
-	       std::vector<double> &ion_scores, std::vector<int> &ion_peaks,
-	       spectrum synth_sp[/* max_fragment_charge+1 */][ION_MAX],
-	       const int spectrum_id, const int max_fragment_charge) NOTHROW {
-  const parameters &CP = parameters::the;
-  const spectrum sp = spectrum::searchable_spectra[spectrum_id];
-  const int spectrum_charge = sp.charge;
-  hyper_score = 1.0;
-  convolution_score = 0;
-
-  for (ion ion_type=ION_MIN; ion_type<ION_MAX; ion_type++) {
-    int i_peaks = 0;
-    double i_scores = 0.0;
-    const int charge_limit = std::max<int>(1, spectrum_charge-1);
-    for (int charge=1; charge<=charge_limit; charge++) {
-      assert(charge <= max_fragment_charge);
-
-      // convolution score is just sum over charges/ions
-      // hyperscore is product of p! over charges/ions (where p is corr peak
-      // count) times the convolution score (clipped to FLT_MAX)
-      // > blurred!
-      int common_peak_count;	// FIX!
-      double conv_score = score_similarity_(synth_sp[charge][ion_type],
-					    sp, &common_peak_count);
-      i_peaks += common_peak_count;
-      i_scores += conv_score;
-      hyper_score *= CP.factorial[common_peak_count];
-      convolution_score += conv_score;
-    }
-
-    ion_peaks[ion_type] = i_peaks;
-    ion_scores[ion_type] = i_scores;
-  }
-  hyper_score *= convolution_score;
-}
-
-
-// FIX: does this actually help inlining?
-// returns log-scaled hyperscore
+// For +1 and +2 precursors, this does what MyriMatch does.  For +3 (and
+// above), this currently takes the sum of +1b/+1y or +2b/+2y, which may or
+// may not make much sense.  (Wouldn't it be better to take the max of +1b/+2y
+// or +2b/+1y?)
+// FIX: implement MM smart +3 model, and/or come up with something better.
 static inline double
-scale_hyperscore_(double hyper_score) NOTHROW {
-  assert(hyper_score >= 0);	// otherwise check for EDOM, ERANGE
-  if (hyper_score == 0)
-    return -DBL_MAX;		// FIX: this shouldn't be reached?
-  return 4 * std::log10(hyper_score);
+score_spectrum_over_charges(spectrum synth_sp[/* max_fragment_charge+1 */],
+			    const int spectrum_id,
+			    const int max_fragment_charge) NOTHROW {
+  const spectrum sp = spectrum::searchable_spectra[spectrum_id];
+
+  double best_score = score_spectrum(sp, synth_sp[1]);
+
+  const int charge_limit = std::max<int>(1, sp.charge-1);
+  for (int charge=2; charge<=charge_limit; charge++) {
+    assert(charge <= max_fragment_charge);
+    best_score += score_spectrum(sp, synth_sp[charge]);
+  }
+  return best_score;
 }
-double
-scale_hyperscore(double hyper_score) { return scale_hyperscore_(hyper_score); }
 
 
 struct mass_trace_list {
@@ -601,15 +596,12 @@ evaluate_peptide(const search_context &context, match &m,
 		      spectrum::searchable_spectra[it->second].charge);
   assert(max_candidate_charge >= 1);
 
-  int max_fragment_charge = max_candidate_charge;
-  if (not CP.check_all_fragment_charges)
-    max_fragment_charge = std::max<int>(1, max_candidate_charge-1);
+  const int max_fragment_charge = std::max<int>(1, max_candidate_charge-1);
   assert(max_fragment_charge <= spectrum::MAX_SUPPORTED_CHARGE);
   // e.g. +2 -> 'B' -> spectrum
   // FIX: should this be a std::vector??
-  static spectrum synth_sp[spectrum::MAX_SUPPORTED_CHARGE+1][ION_MAX];
-  synthetic_spectra(synth_sp, m.peptide_sequence, mass_list,
-		    context.fragment_N_fixed_mass,
+  static spectrum synth_sp[spectrum::MAX_SUPPORTED_CHARGE+1];
+  synthetic_spectra(synth_sp, mass_list, context.fragment_N_fixed_mass,
 		    context.fragment_C_fixed_mass, max_fragment_charge);
 
   for (spmi_c_it candidate_it = candidate_spectra_info_begin;
@@ -620,83 +612,33 @@ evaluate_peptide(const search_context &context, match &m,
       continue;
 
     //std::cerr << "sp " << m.spectrum_index << std::endl;
-    score_spectrum(m.hyper_score, m.convolution_score, m.ion_scores,
-		   m.ion_peaks, synth_sp, m.spectrum_index,
-		   max_fragment_charge);
-    //std::cerr << "score " << m.convolution_score << std::endl;
-    if (m.convolution_score <= 2.0)
+    m.score = score_spectrum_over_charges(synth_sp, m.spectrum_index,
+					  max_fragment_charge);
+    //std::cerr << "score " << m.score << std::endl;
+
+    // Is this score good enough to be in the best score list?  (Better scores
+    // are more negative.)
+    if (m.score >= stats.best_matches[m.spectrum_index].back().score)
       continue;
 
-    ////std::cerr << "histod: " << m.spectrum_index << " " << m.peptide_sequence
-    //<< " " << m.peptide_mass << " " <<
-    //spectrum::searchable_spectra[m.spectrum_index].mass << std::endl;
-
-    // update spectrum histograms
-    std::vector<int> &hh = stats.hyperscore_histogram[m.spectrum_index];
-    int binned_scaled_hyper_score = int(0.5 + scale_hyperscore_(m.hyper_score));
-    assert(binned_scaled_hyper_score >= 0);
-    // FIX
-    if (static_cast<int>(hh.size())-1 < binned_scaled_hyper_score) {
-      assert(hh.size() < INT_MAX/2);
-      hh.resize(std::max<unsigned int>(binned_scaled_hyper_score+1,
-				       2*hh.size()));
-    }
-    hh[binned_scaled_hyper_score] += 1;
-    // incr m_tPeptideScoredCount
-    // nyi: permute stuff
-    // FIX
-    //const int sp_ion_count = m.ion_peaks[ION_B] + m.ion_peaks[ION_Y];
-    // SKIP--not MM
-    //if (sp_ion_count < CP.minimum_ion_count)
-    //  continue;
-    const bool has_b_and_y = m.ion_peaks[ION_B] and m.ion_peaks[ION_Y];
-    if (not has_b_and_y)
-      continue;
-
-    // check that parent masses are within error range (isotope ni) already
-    // done above (why does xtandem do it here?  something to do with isotope
-    // jitter?)  if check fails, only eligible for 2nd-best record
-
-    // Remember all of the highest-hyper-scoring matches against each
-    // spectrum.  These might be in multiple domains (pos, length, mods) in
-    // multiple proteins.
-
-    // To avoid the problems that xtandem has with inexact float-point
-    // calculations, we consider hyperscores within the "epsilon ratio" to be
-    // "equal".  The best_match vector will need to be re-screened against
-    // this ratio, because it may finally contain entries which don't meet our
-    // criterion.  (We don't take the time to get it exactly right here,
-    // because we will often end up discarding these later anyway.)
-
-    const double current_ratio = (m.hyper_score
-				  / stats.best_score[m.spectrum_index]);
-
-    const bool quirks_mode = false;
-    if (quirks_mode and (m.hyper_score < stats.best_score[m.spectrum_index])
-	or (not quirks_mode
-	    and (current_ratio < CP.epsilon_ratio))) {
-      // This isn't a best score, so see if it's a second-best score.
-      if (m.hyper_score > stats.second_best_score[m.spectrum_index])
-	stats.second_best_score[m.spectrum_index] = m.hyper_score;
-      continue;
-    }
-    if (quirks_mode and (m.hyper_score > stats.best_score[m.spectrum_index])
-	or (not quirks_mode
-	    and (current_ratio > (1/CP.epsilon_ratio)))) {
-      // This score is significantly better, so forget previous matches.
-      stats.improved_candidates += 1;
-      //if (stats.best_match[m.spectrum_index].empty()) why doesn't this work?
-      if (stats.best_score[m.spectrum_index] == 100.0)
-	stats.spectra_with_candidates += 1;
-      stats.best_score[m.spectrum_index] = m.hyper_score;
-      stats.best_match[m.spectrum_index].clear();
-    }
-    // Now remember this match because it's at least as good as those
-    // previously seen.
+    // We're saving this match, so remember the mass trace info, too.
     m.mass_trace.clear();
     for (const mass_trace_list *p=mtlp; p; p=p->next)
       m.mass_trace.push_back(p->item);
-    stats.best_match[m.spectrum_index].push_back(m);
+
+    // Is this match the first candidate for this spectrum?
+    if (stats.best_matches[m.spectrum_index].front().score == 0)
+      stats.spectra_with_candidates += 1;
+
+    // Insert this match in the correct position.
+    int i;
+    for (i=stats.best_matches[m.spectrum_index].size() - 2; i>=0; i--)
+      if (stats.best_matches[m.spectrum_index][i].score <= m.score)
+	break;
+      else
+	stats.best_matches[m.spectrum_index][i+1]
+	  = stats.best_matches[m.spectrum_index][i];
+    stats.best_matches[m.spectrum_index][i+1] = m;
   }
 }
 
@@ -717,12 +659,6 @@ choose_residue_mod(const search_context &context, match &m,
 		   const unsigned next_position_to_consider) NOTHROW {
   assert(remaining_positions_to_choose
 	 <= m.peptide_sequence.size() - next_position_to_consider);
-
-  // SKIP--no MM
-  //if (CP.maximum_modification_combinations_searched
-  //    and (stats.combinations_searched
-  //         >= CP.maximum_modification_combinations_searched))
-  //  return;
 
   if (remaining_positions_to_choose == 0) {
     stats.combinations_searched += 1;
@@ -800,6 +736,7 @@ search_run(const search_context &context, const sequence_run &sequence_run,
 
   const std::string &run_sequence = sequence_run.sequence;
   const std::vector<int> &cleavage_points = sequence_run.cleavage_points;
+  assert(cleavage_points.size() >= 2); // endpoints assumed always present
 
   // This match will be passed inward and used to record information that we
   // need to remember about a match when we finally see one.  At that point, a
@@ -849,6 +786,8 @@ search_run(const search_context &context, const sequence_run &sequence_run,
 
       double sp_mass_lb = p_mass + CP.parent_monoisotopic_mass_error_minus;
       double sp_mass_ub = p_mass + CP.parent_monoisotopic_mass_error_plus;
+
+      //std::cerr << "lb..ub: " << sp_mass_lb << ".." << sp_mass_ub << std::endl;
 
       const spmi_c_it candidate_spectra_info_begin
 	= spectrum::spectrum_mass_index.lower_bound(sp_mass_lb);
@@ -908,8 +847,7 @@ spectrum::search_runs(const search_context &context, score_stats &stats) {
     if (CP.show_progress)
       std::cerr << i+1 << " of " << no_runs << " sequences, "
 		<< stats.candidate_spectrum_count << " cand for "
-		<< stats.spectra_with_candidates << " sp, "
-		<< stats.improved_candidates << "++\r" << std::flush;
+		<< stats.spectra_with_candidates << " sp\r" << std::flush;
   }
 
   if (CP.show_progress)

@@ -49,10 +49,7 @@ public:
   bool estimate_only;		// just estimate work required
   bool show_progress;		// running progress on stderr
 
-  // scores within this ratio are considered "equal"
-  double epsilon_ratio;
-
-  std::vector<double> factorial; // factorial[n] == n!
+  std::vector<double> ln_factorial; // factorial[n] == ln(n!)
 
   // deuterium not (yet) implemented
   double proton_mass;
@@ -61,14 +58,13 @@ public:
   std::vector<mass_regime_parameters> fragment_mass_regime;
 
   // from XTP
-  double parent_monoisotopic_mass_error_plus;
-  double parent_monoisotopic_mass_error_minus;
-  double fragment_mass_error;
+  double parent_monoisotopic_mass_error_plus; // XXX
+  double parent_monoisotopic_mass_error_minus; // XXX
+
   int minimum_peptide_length;
 
-  bool check_all_fragment_charges;
-
-  unsigned int maximum_simultaneous_modifications_searched;
+  double fragment_mass_tolerance;
+  int intensity_class_count;
 
   static parameters the;
 };
@@ -81,12 +77,17 @@ public:
   std::string sequence;
   std::vector<int> cleavage_points;
 
-  explicit sequence_run() { }
-  explicit sequence_run(const int sequence_index, const int sequence_offset,
-			const std::string sequence,
-			const std::vector<int> cleavage_points)
+  sequence_run() { }
+  sequence_run(const int sequence_index, const int sequence_offset,
+	       const std::string sequence, std::vector<int> cleavage_points)
     : sequence_index(sequence_index), sequence_offset(sequence_offset),
       sequence(sequence), cleavage_points(cleavage_points) {
+    // FIX
+    // generate non-specific cleavage points
+    assert(sequence.size() < INT_MAX);
+    if (this->cleavage_points.empty())
+      for (int i=0; i<=static_cast<int>(sequence.size()); i++)
+	this->cleavage_points.push_back(i);
   }
 };
 
@@ -162,7 +163,20 @@ public:
   int charge;
   static const int MAX_SUPPORTED_CHARGE = 10;
   std::vector<peak> peaks;	// always ordered by increasing m/z!
+
   std::vector<int> intensity_class_counts; // number of peaks in each class
+
+  // This is the mz range of peaks, but with a buffer on each end of size
+  // fragment_mass_tolerance.
+  double min_peak_mz;
+  double max_peak_mz;
+
+  // This is the total number of bins, 2*fragment_tolerance mz wide in peak
+  // range.  So, for example, if the fragment tolerance is 1 and the min and
+  // max mz are 200 and 1800, total peak bins would be 800.
+  int total_peak_bins;
+  int empty_peak_bins;	      // number of bins that aren't occupied by a peak
+
   std::string name;
   int file_id;			// file # of spectra's source
   int id;			// unique for all spectra
@@ -174,6 +188,8 @@ public:
     if (charge > MAX_SUPPORTED_CHARGE)
       throw std::invalid_argument("attempt to create a spectrum with greater"
 				  " than supported charge");
+    min_peak_mz = max_peak_mz = 0.0;
+    total_peak_bins = empty_peak_bins = 0;
     set_id();
     file_id = -1;
     physical_id = -1;
@@ -211,7 +227,8 @@ public:
 		    double parent_mass_tolerance, int charge_limit);
 
   // Classify peaks and update class_counts.
-  void classify(int intensity_class_count, double intensity_class_ratio);
+  void classify(int intensity_class_count, double intensity_class_ratio,
+		double fragment_mass_tolerance);
 
   // Store the list of spectra that search_peptide will search against, and
   // also build spectrum_mass_index.
@@ -220,10 +237,6 @@ public:
   // Search sequence runs for matches according to the context against the
   // spectra.  Updates score_stats and the number of candidate spectra found.
   static void search_runs(const search_context &context, score_stats &stats);
-
-  // exposed for tinkering
-  static double score_similarity(const spectrum &x, const spectrum &y,
-				 int *peak_count);
 
   // conceptually these are 'protected:', but we're taking it easy here
 public:
@@ -251,11 +264,7 @@ struct mass_trace_item {
 // FIX: Are any of these fields unneeded?
 class match {
 public:
-  double hyper_score;
-  double convolution_score;
-  // FIX: what would be better for these next two?
-  std::vector<double> ion_scores;
-  std::vector<int> ion_peaks;
+  double score;
   int missed_cleavage_count;
   int spectrum_index;
   int peptide_begin;
@@ -266,13 +275,10 @@ public:
   int sequence_offset;
   std::vector<mass_trace_item> mass_trace;
 
-  match() : hyper_score(-1), convolution_score(-1), missed_cleavage_count(-1),
-	    spectrum_index(-1), peptide_begin(-1), parent_peptide_mass(-1),
-	    sequence_index(-1), sequence_offset(-1) {
-    ion_scores.resize(ION_MAX);
-    ion_peaks.resize(ION_MAX);
+  match() : score(0), missed_cleavage_count(-1), spectrum_index(-1),
+	    peptide_begin(-1), parent_peptide_mass(-1), sequence_index(-1),
+	    sequence_offset(-1) {
   }
-
 };
 
 
@@ -280,34 +286,30 @@ public:
 // some statistics.  Essentially, it holds the results of the search process.
 class score_stats {
 public:
-  explicit score_stats(int n) : candidate_spectrum_count(0),
-				spectra_with_candidates(0),
-				improved_candidates(0),
-				combinations_searched(0) {
-    hyperscore_histogram.resize(n);
-    best_score.resize(n, 100.0);
-    second_best_score.resize(n, 100.0);
-    best_match.resize(n);
+  score_stats(int spectrum_count, int best_result_count)
+    : candidate_spectrum_count(0), spectra_with_candidates(0),
+      combinations_searched(0) {
+    best_matches.resize(spectrum_count);
+    assert(best_result_count >= 1);
+    for (int i=0; i<spectrum_count; i++)
+      best_matches[i].resize(best_result_count);
   }
 
-  // spectrum index -> (scaled, binned hyperscore -> count)
-  std::vector< std::vector<int> > hyperscore_histogram;
-  // spectrum index -> best_hyperscore (and 2nd best, respectively)
-  std::vector<double> best_score;
-  std::vector<double> second_best_score;
-  // spectrum index -> [ <match info>, ... ]
-  std::vector< std::vector<match> > best_match;
+  // spectrum index -> list of match (only top N matches per spectrum) The
+  // best match lists are of fixed length (typically 5), and ordered
+  // best-first.  Trailing entries with score 0 are null matches (to simplify
+  // the code).
+  std::vector< std::vector<match> > best_matches;
 
-  // statistics for reporting
+  // Statistics:
+  // How many times was a spectrum scored against a peptide?
   unsigned long long candidate_spectrum_count; // may be > 2^32
-  unsigned long spectra_with_candidates;
-  unsigned long long improved_candidates;
-  // to implement something like xtandem's search limit
-  int combinations_searched;
+  // How many spectra have at a non-zero best score?
+  int spectra_with_candidates;
+  // How many different mod combinations were searched? (e.g., A*ABC and AA*BC
+  // are two distinct combinations)
+  int combinations_searched;	// FIX: could be > 2^31?
 };
 
-
-// returns log-scaled hyperscore
-double scale_hyperscore(double hyper_score);
 
 #endif

@@ -20,6 +20,7 @@ MILESTONE M1:
 * Good first impression
 * Basic correctness
 * Handles at least LCQ input
+* Nonspecific cleavage only?
 * Generates SQT output, usable in our pipeline, at least for non-N15 runs
 * Decent performance/efficiency on our clusters
 
@@ -32,17 +33,18 @@ MILESTONE M2:
 
 TASK QUEUE
 
-* Examine Myrimatch theoretical spectrum generation
-** neutral loss generation?
+* merge identical best matches!
 
-* Implement Myrimatch theoretical spectrum generation
+* Implement SQT output program
 
-* Examine Myrimatch scoring
+* Compare greylag output to SEQUEST on test-myrimatch example
+** also compare against MyriMatch
+*** do a non-specific run with the existing binary
 
-* Implement Myrimatch scoring
+* X Implement Myrimatch scoring
+** try it
 
-* Implement SQT output
-** and kill xtandem output
+* zap inline define
 
 * Try to cut unneeded SWIG types
 
@@ -56,13 +58,17 @@ TASK QUEUE
 
 * Design and implement SQT fileset merger
 
+* Update docstrings
 * Update test cases
 
+* Look for more dead code to remove
 
-* For non-specific cleavage, don't generate cleavage points!  VERY SLOW!
+* Redo cleavage point code (enzyme and non-specific)
 
 = M1 =========================================================================
 
+* Implement MM smart +3 model?
+** Is it better?
 
 * Try to generate a valid MyriMatch (bombs on boost random assertion)
 
