@@ -70,6 +70,7 @@ def print_spectrum(f, spectrum, sp_best_matches):
     rank_map = dict(zip(best_scores, range(1,len(best_scores)+1)))
 
     best_score = sp_best_matches[0]['score']
+    prev_score, prev_sequence = None, None
     for match in sp_best_matches:
         score = match['score']
         if score == 0:
@@ -77,10 +78,18 @@ def print_spectrum(f, spectrum, sp_best_matches):
         rank = rank_map[score]
         score_delta = (best_score - score) / best_score
 
-        print >> f, '\t'.join(str(v) for v in
-                              ["M", rank, rank, match['predicted_parent_mass'],
-                               round(score_delta, 4), round(score, 4), 0, 0, 0,
-                               match['peptide_sequence'], 'U'])
+        # This is a temporary way of stripping duplicates.  It only works if
+        # they are adjacent (which will only rarely be false?).
+        if score != prev_score or match['peptide_sequence'] != prev_sequence:
+            # Note: scores, being log probability, are non-positive, but we
+            # flip the sign in the SQT output
+            print >> f, '\t'.join(str(v) for v in
+                                  ["M", rank, rank,
+                                   match['predicted_parent_mass'],
+                                   round(score_delta, 4), round(-score, 4), 0,
+                                   0, 0, "-.%s.-" % match['peptide_sequence'],
+                                   'U'])
+        prev_score, prev_sequence = score, match['peptide_sequence']
 
         print >> f, 'L\t%s\t%s' % (match['sequence_name'],
                                    match['peptide_begin'])
