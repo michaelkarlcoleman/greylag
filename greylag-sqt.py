@@ -85,9 +85,11 @@ def print_spectrum(f, spectrum, sp_best_matches):
             # flip the sign in the SQT output
             print >> f, '\t'.join(str(v) for v in
                                   ["M", rank, rank,
-                                   match['predicted_parent_mass'],
+                                   round(match['predicted_parent_mass'], 5),
                                    round(score_delta, 4), round(-score, 4), 0,
-                                   0, 0, "-.%s.-" % match['peptide_sequence'],
+                                   # 1 of 2 ions found--keep DTASelect happy
+                                   1, 2,
+                                   "-.%s.-" % match['peptide_sequence'],
                                    'U'])
         prev_score, prev_sequence = score, match['peptide_sequence']
 
@@ -128,19 +130,25 @@ def main(args=sys.argv[1:]):
     spectrum_fns = r['spectrum files']
     assert len(spectrum_fns) == len(set(spectrum_fns)) # check uniqueness
 
-    for spectrum_fn in spectrum_fns:
+    spectra = r['spectra']
+    best_matches = r['matches']['best_matches']
+    assert len(spectra) == len(best_matches)
+
+    # order spectra and best_matches by (filename, spectrum name)
+    def filename_specname_order(sm):
+        return r['spectrum files'][sm[0]['file_id']], sm[0]['name']
+
+    spec_match = zip(spectra, best_matches)
+    spec_match.sort(key=filename_specname_order)
+
+    for spectrum_n, spectrum_fn in enumerate(spectrum_fns):
         assert os.path.dirname(spectrum_fn) == ''
         sqt_fn = os.path.splitext(spectrum_fn)[0] + '.sqt'
         with open(sqt_fn, 'w') as sqtf:
-
             print_header(sqtf, r)
-
-            spectra = r['spectra']
-            best_matches = r['matches']['best_matches']
-            assert len(spectra) == len(best_matches)
-
-            for spectrum, best_match in zip(spectra, best_matches):
-                print_spectrum(sqtf, spectrum, best_match)
+            for spectrum, best_match in spec_match:
+                if spectrum['file_id'] == spectrum_n:
+                    print_spectrum(sqtf, spectrum, best_match)
 
 
 if __name__ == '__main__':
