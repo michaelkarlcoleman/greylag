@@ -25,15 +25,11 @@
 #include <climits>
 #include <cstdlib>
 #include <cmath>
+#include <iostream>
 #include <numeric>
 #include <set>
 #include <stdexcept>
 
-#include <iostream>
-
-
-//FIX
-#define inline /* */
 
 
 #ifdef __GNU__
@@ -56,6 +52,7 @@
 
 
 parameters parameters::the;
+const parameters &CP = parameters::the;
 
 
 char *
@@ -94,8 +91,6 @@ spectrum::__repr__() const {
 // Return ln of n_C_k.
 static inline double
 ln_combination_(unsigned int n, unsigned int k) NOTHROW {
-  const parameters &CP = parameters::the;
-
   // Occasionally happens due to problems in scoring function. (FIX)
   if (n < k)
     return 0;
@@ -308,11 +303,11 @@ spectrum::filter_peaks(double TIC_cutoff_proportion,
   // now filter by TIC
   std::sort(peaks.begin(), peaks.end(), peak::greater_intensity);
 
-  double TIC = 0;
+  total_ion_current = 0;
   for (pi=peaks.begin(); pi != peaks.end(); pi++)
-    TIC += pi->intensity;
+    total_ion_current += pi->intensity;
 
-  const double i_limit = TIC * TIC_cutoff_proportion;
+  const double i_limit = total_ion_current * TIC_cutoff_proportion;
   double accumulated_intensity = 0;
   for (pi=peaks.begin();
        pi != peaks.end() and accumulated_intensity <= i_limit; pi++)
@@ -354,11 +349,10 @@ spectrum::classify(int intensity_class_count, double intensity_class_ratio,
   std::sort(peaks.begin(), peaks.end(), peak::less_mz);
 
   if (not peaks.empty()) {
-    min_peak_mz = peaks.front().mz;
-    max_peak_mz = peaks.back().mz;
+    min_peak_mz = peaks.front().mz - CP.fragment_mass_tolerance;
+    max_peak_mz = peaks.back().mz + CP.fragment_mass_tolerance;
     total_peak_bins = (int((max_peak_mz - min_peak_mz)
-			   / (2 * fragment_mass_tolerance) + 0.5)
-		       + 1);
+			   / (2 * fragment_mass_tolerance) + 0.5));
     // This is the MyriMatch estimate.  Wouldn't it be better to simply count
     // how many are empty?
     empty_peak_bins = std::max<int>(total_peak_bins - peaks.size(), 0);
@@ -456,7 +450,6 @@ synthetic_spectra(spectrum synth_sp[/* max_fragment_charge+1 */],
 // FIX: Should some of these vectors be arrays?
 static inline double
 score_spectrum(const spectrum &x, const spectrum &y) NOTHROW {
-  const parameters &CP = parameters::the;
   assert (not x.peaks.empty() and not y.peaks.empty());	// FIX
 
   std::vector<double> peak_best_delta(y.peaks.size(),
@@ -497,8 +490,7 @@ score_spectrum(const spectrum &x, const spectrum &y) NOTHROW {
   // How many theoretical peaks overlap the real peak range?
   int valid_theoretical_peaks = 0;
   for (y_it = y.peaks.begin(); y_it != y.peaks.end(); y_it++)
-    if (x.min_peak_mz - CP.fragment_mass_tolerance <= y_it->mz
-	and y_it->mz <= x.max_peak_mz + CP.fragment_mass_tolerance)
+    if (x.min_peak_mz <= y_it->mz and y_it->mz <= x.max_peak_mz)
       valid_theoretical_peaks++;
 
   // How many valid theoretical peaks were misses?
@@ -552,10 +544,8 @@ score_spectrum(const spectrum &x, const spectrum &y) NOTHROW {
 // FIX: implement MM smart +3 model, and/or come up with something better.
 static inline double
 score_spectrum_over_charges(spectrum synth_sp[/* max_fragment_charge+1 */],
-			    const int spectrum_id,
+			    const spectrum &sp,
 			    const int max_fragment_charge) NOTHROW {
-  const spectrum sp = spectrum::searchable_spectra[spectrum_id];
-
   double best_score = score_spectrum(sp, synth_sp[1]);
 
   const int charge_limit = std::max<int>(1, sp.charge-1);
@@ -585,7 +575,6 @@ evaluate_peptide(const search_context &context, match &m,
 		 const spmi_c_it &candidate_spectra_info_begin,
 		 const spmi_c_it &candidate_spectra_info_end,
 		 score_stats &stats) NOTHROW {
-  const parameters &CP = parameters::the;
   assert(m.peptide_sequence.size() == mass_list.size());
 
   int max_candidate_charge = 0;
@@ -607,13 +596,15 @@ evaluate_peptide(const search_context &context, match &m,
   for (spmi_c_it candidate_it = candidate_spectra_info_begin;
        candidate_it != candidate_spectra_info_end; candidate_it++) {
     m.spectrum_index = candidate_it->second;
+    spectrum &sp = spectrum::searchable_spectra[m.spectrum_index];
+
+    sp.comparisons += 1;
     stats.candidate_spectrum_count += 1;
     if (CP.estimate_only)
       continue;
 
     //std::cerr << "sp " << m.spectrum_index << std::endl;
-    m.score = score_spectrum_over_charges(synth_sp, m.spectrum_index,
-					  max_fragment_charge);
+    m.score = score_spectrum_over_charges(synth_sp, sp, max_fragment_charge);
     //std::cerr << "score " << m.score << std::endl;
 
     // Is this score good enough to be in the best score list?  (Better scores
@@ -728,7 +719,6 @@ update_p_mass(double &p_mass, int &p_begin, int begin_index, int sign,
 void inline
 search_run(const search_context &context, const sequence_run &sequence_run,
 	   score_stats &stats) {
-  const parameters &CP = parameters::the;
   const int min_peptide_length = std::max<int>(CP.minimum_peptide_length,
 					       context.mod_count);
   const std::vector<double> &fixed_parent_mass \
@@ -742,8 +732,7 @@ search_run(const search_context &context, const sequence_run &sequence_run,
   // need to remember about a match when we finally see one.  At that point, a
   // copy of this match will be saved.
   match m;			// FIX: move inward?
-  m.sequence_index = sequence_run.sequence_index;
-  m.sequence_offset = sequence_run.sequence_offset;
+  m.sequence_name = sequence_run.name;
 
   assert(context.delta_bag_delta.size()
 	 == context.delta_bag_count.size());
@@ -760,7 +749,8 @@ search_run(const search_context &context, const sequence_run &sequence_run,
 
   // FIX: optimize the non-specific cleavage case?
   for (unsigned int begin=0; begin<cleavage_points.size()-1; begin++) {
-    const int begin_index = m.peptide_begin = cleavage_points[begin];
+    const int begin_index = cleavage_points[begin];
+    m.peptide_begin = begin_index + sequence_run.sequence_offset;
     if (not context.pca_residues.empty())
       if (context.pca_residues.find(run_sequence[begin_index])
 	  == std::string::npos)
@@ -814,8 +804,7 @@ search_run(const search_context &context, const sequence_run &sequence_run,
 	continue;
       }
 
-      m.parent_peptide_mass = p_mass;
-      //m.fragment_peptide_mass = ???;  unneeded???
+      m.predicted_parent_mass = p_mass;
 
       m.peptide_sequence.assign(run_sequence, begin_index, peptide_size);
 
@@ -838,8 +827,6 @@ search_run(const search_context &context, const sequence_run &sequence_run,
 // spectra.  Updates score_stats and the number of candidate spectra found.
 void
 spectrum::search_runs(const search_context &context, score_stats &stats) {
-  const parameters &CP = parameters::the;
-
   const int no_runs = context.sequence_runs.size();
   for (int i=0; i<no_runs; i++) {
     search_run(context, context.sequence_runs[i], stats);

@@ -33,9 +33,16 @@ MILESTONE M2:
 
 TASK QUEUE
 
-* merge identical best matches!
+* Implement SQT output program (greylag-sqt)
+** R lines to document mass regimes
+** A lines for each M line to document regime (index of R) and residue mods
+** Try to keep back compatibility by grepping out A/R lines
 
-* Implement SQT output program
+* Steps to enforce consistency
+** spectrum index files should contain ms2 file size (cheap check)
+** DB: assume (check?) entries have unique names and never change (
+***names unique even across multiple dbs
+
 
 * Compare greylag output to SEQUEST on test-myrimatch example
 ** also compare against MyriMatch
@@ -44,7 +51,7 @@ TASK QUEUE
 * X Implement Myrimatch scoring
 ** try it
 
-* zap inline define
+* Make the pickle a dict instead of a vector in spec index
 
 * Try to cut unneeded SWIG types
 
@@ -80,6 +87,10 @@ TASK QUEUE
 * Examine DBValidate
 ** Design similar statistical evaluation
 ** Look at what we do here (paper)
+
+
+* Implement redundant DB peptide masking.
+** This will obviate the need to detect identical best matches.
 
 
 * Add isotope jitter feature, for Orbitrap.

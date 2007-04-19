@@ -746,20 +746,13 @@ def generate_mass_bands(band_count, mass_list):
     yield band_count, lb, round(mass_list[-1]+1)
 
 
-class struct:
-    "generic struct class used by pythonize_swig_object"
-
-    def __repr__(self):
-        return 'struct({%s})' % ', '.join('%r: %r' % kv
-                                          for kv
-                                          in sorted(self.__dict__.items()))
-
-
-def pythonize_swig_object(o, skip_methods=[]):
-    """Creates a pure Python copy of a SWIG object, so that it can be
-    easily pickled, or printed (for debugging purposes).  If provided,
-    'skip_methods' is a list of methods not to include--this is a hack to
-    avoid infinite recursion.
+def pythonize_swig_object(o, only_fields=None, skip_fields=[]):
+    """Creates a pure Python copy of a SWIG object, so that it can be easily
+    pickled, or printed (for debugging purposes).  Each SWIG object is
+    pythonized as a dictionary, for convenience.  If provided, 'only_fields',
+    limits the copy to the list of fields specified.  Otherwise,
+    'skip_fields' if given is a list of methods not to include (this helps
+    avoid infinite recursion).
 
     >>> pprint(pythonize_swig_object(cgreylag.score_stats(3)))
     struct({'best_match': [[], [], []], 'best_score': [100.0, 100.0, 100.0], 'candidate_spectrum_count': 0, 'combinations_searched': 0, 'hyperscore_histogram': [[], [], []], 'improved_candidates': 0, 'second_best_score': [100.0, 100.0, 100.0], 'spectra_with_candidates': 0})
@@ -773,12 +766,15 @@ def pythonize_swig_object(o, skip_methods=[]):
     except TypeError:
         pass
     else:
-        return list(pythonize_swig_object(x) for x in o)
+        return list(pythonize_swig_object(x, only_fields, skip_fields)
+                    for x in o)
     if hasattr(o, '__swig_getmethods__'):
-        s = struct()
+        s = {}
         for a in o.__swig_getmethods__:
-            if a not in skip_methods:
-                setattr(s, a, pythonize_swig_object(getattr(o, a)))
+            if (only_fields != None and a in only_fields
+                or only_fields == None and a not in skip_fields):
+                s[a] = pythonize_swig_object(getattr(o, a), only_fields,
+                                             skip_fields)
         return s
     return o
 
@@ -1162,6 +1158,12 @@ def main(args=sys.argv[1:]):
     if '%' in job_id:
         error("<job-id> may not contain '%'")
 
+    # check spectrum basename uniqueness, as corresponding sqt files will be
+    # in a single directory
+    base_spectrum_fns = [ os.path.basename(fn) for fn in spectrum_fns ]
+    if len(base_spectrum_fns) != len(set(base_spectrum_fns)):
+        error("base spectrum filenames must be unique")
+
     # check -P names for validity
     bad_names = (set(n for n,v in options.parameters)
                  - set(PARAMETER_INFO.keys()))
@@ -1185,7 +1187,8 @@ def main(args=sys.argv[1:]):
 
     # read sequence dbs
     # [(defline, seq, filename), ...]
-    fasta_db = list(read_fasta_files(XTP["databases"].split()))
+    databases = XTP["databases"].split()
+    fasta_db = list(read_fasta_files(databases))
     # [(idno, offset, defline, seq, seq_filename), ...]
     db = []
     for idno, (defline, sequence, filename) in enumerate(fasta_db):
@@ -1256,8 +1259,6 @@ def main(args=sys.argv[1:]):
          spectra[0].mass, spectra[-1].mass)
     info("  peak stats: %s..%s..%s..%s..%s (mean=%.2f)"
          % peak_statistics(spectra))
-    debug("spectra 0: %s", spectra[0])
-    debug("spectra 0 peaks:\n%s", pformat(tuple(spectra[0].peaks)))
 
     cgreylag.spectrum.set_searchable_spectra(spectra)
     score_statistics = cgreylag.score_stats(len(spectra),
@@ -1281,7 +1282,8 @@ def main(args=sys.argv[1:]):
             if cleavage_motif != "[X]|[X]":
                 cp = list(generate_cleavage_points(cleavage_pattern,
                                                    cleavage_pos, seq))
-            sr = cgreylag.sequence_run(idno, offset, seq, cp)
+            locus_name = defline.split(None, 1)[0]
+            sr = cgreylag.sequence_run(idno, offset, seq, cp, locus_name)
             context.sequence_runs.append(sr)
         context.maximum_missed_cleavage_sites = 1000000000 # FIX
 
@@ -1295,18 +1297,28 @@ def main(args=sys.argv[1:]):
                % (score_statistics.candidate_spectrum_count / 300.0e6))
         return
 
-    # release memory
-    del db
-    del fasta_db
-    cgreylag.spectrum.set_searchable_spectra([])
-
     # FIX!
     info("writing result file")
     result_fn = 'test.result.gz'
     py_score_statistics = pythonize_swig_object(score_statistics)
-    debug("score_statistics:\n%s", pformat(py_score_statistics))
+
+    # only put spectrum info that's actually needed into the result file
+    spectrum_metadata_fields = set(['name', 'file_id', 'mass', 'charge',
+                                    'total_ion_current', 'comparisons'])
+    spectrum_metadata = \
+        pythonize_swig_object(cgreylag.cvar.spectrum_searchable_spectra,
+                              only_fields=spectrum_metadata_fields)
+
     with contextlib.closing(zopen(result_fn, 'w')) as result_file:
-        cPickle.dump((0, 0, py_score_statistics), result_file,
+        cPickle.dump({ 'matches' : py_score_statistics,
+                       'spectra' : spectrum_metadata,
+                       'spectrum files' : base_spectrum_fns,
+                       'databases' : databases,
+                       'parameters' : XTP,
+                       'mass regime atomic masses' : MASS_REGIME_ATOMIC_MASSES,
+                       'proton mass' : PROTON_MASS,
+                       'argv' : sys.argv },
+                     result_file,
                      cPickle.HIGHEST_PROTOCOL)
     info("finished, result file written to '%s'", result_fn)
 

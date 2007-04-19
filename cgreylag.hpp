@@ -72,16 +72,19 @@ public:
 
 class sequence_run {
 public:
-  int sequence_index;		// index of this sequence in the database
+  int sequence_index;		// index of this sequence in the database FIX:nn
   int sequence_offset;		// offset of this run's start in sequence
   std::string sequence;
   std::vector<int> cleavage_points;
+  std::string name;		// e.g., initial defline word
 
   sequence_run() { }
   sequence_run(const int sequence_index, const int sequence_offset,
-	       const std::string sequence, std::vector<int> cleavage_points)
+	       const std::string sequence, std::vector<int> cleavage_points,
+	       const std::string name)
     : sequence_index(sequence_index), sequence_offset(sequence_offset),
-      sequence(sequence), cleavage_points(cleavage_points) {
+      sequence(sequence), cleavage_points(cleavage_points),
+      name(name) {
     // FIX
     // generate non-specific cleavage points
     assert(sequence.size() < INT_MAX);
@@ -171,6 +174,8 @@ public:
   double min_peak_mz;
   double max_peak_mz;
 
+  double total_ion_current;
+
   // This is the total number of bins, 2*fragment_tolerance mz wide in peak
   // range.  So, for example, if the fragment tolerance is 1 and the min and
   // max mz are 200 and 1800, total peak bins would be 800.
@@ -182,17 +187,20 @@ public:
   int id;			// unique for all spectra
   int physical_id;		// FIX: unneeded?
 
+  unsigned long comparisons;	// times scored against theoretical spectra
+
   // Construct an empty spectrum.
-  explicit spectrum(double mass=0, int charge=0) : mass(mass), charge(charge) {
+  explicit spectrum(double mass=0,
+		    int charge=0) : mass(mass), charge(charge), min_peak_mz(0),
+				    max_peak_mz(0), total_ion_current(0),
+				    total_peak_bins(0), empty_peak_bins(0),
+				    file_id(-1), physical_id(-1),
+				    comparisons(0) {
     assert(charge >= 0);
     if (charge > MAX_SUPPORTED_CHARGE)
       throw std::invalid_argument("attempt to create a spectrum with greater"
 				  " than supported charge");
-    min_peak_mz = max_peak_mz = 0.0;
-    total_peak_bins = empty_peak_bins = 0;
     set_id();
-    file_id = -1;
-    physical_id = -1;
   }
 
   char *__repr__() const;
@@ -265,19 +273,16 @@ struct mass_trace_item {
 class match {
 public:
   double score;
-  int missed_cleavage_count;
+  int missed_cleavage_count;	// FIX: unneeded
   int spectrum_index;
-  int peptide_begin;
+  int peptide_begin;		// not run-relative
   std::string peptide_sequence;
-  double parent_peptide_mass;
-  //double fragment_peptide_mass;
-  int sequence_index;
-  int sequence_offset;
+  double predicted_parent_mass;
+  std::string sequence_name;
   std::vector<mass_trace_item> mass_trace;
 
   match() : score(0), missed_cleavage_count(-1), spectrum_index(-1),
-	    peptide_begin(-1), parent_peptide_mass(-1), sequence_index(-1),
-	    sequence_offset(-1) {
+	    peptide_begin(-1), predicted_parent_mass(0) {
   }
 };
 
