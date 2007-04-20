@@ -70,7 +70,6 @@ def print_spectrum(f, spectrum, sp_best_matches):
     rank_map = dict(zip(best_scores, range(1,len(best_scores)+1)))
 
     best_score = sp_best_matches[0]['score']
-    prev_score, prev_sequence = None, None
     for match in sp_best_matches:
         score = match['score']
         if score == 0:
@@ -78,23 +77,20 @@ def print_spectrum(f, spectrum, sp_best_matches):
         rank = rank_map[score]
         score_delta = (best_score - score) / best_score
 
-        # This is a temporary way of stripping duplicates.  It only works if
-        # they are adjacent (which will only rarely be false?).
-        if score != prev_score or match['peptide_sequence'] != prev_sequence:
-            # Note: scores, being log probability, are non-positive, but we
-            # flip the sign in the SQT output
-            print >> f, '\t'.join(str(v) for v in
-                                  ["M", rank, rank,
-                                   round(match['predicted_parent_mass'], 5),
-                                   round(score_delta, 4), round(-score, 4), 0,
-                                   # 1 of 2 ions found--keep DTASelect happy
-                                   1, 2,
-                                   "-.%s.-" % match['peptide_sequence'],
-                                   'U'])
-        prev_score, prev_sequence = score, match['peptide_sequence']
+        # Note: scores, being log probability, are non-positive, but we
+        # flip the sign in the SQT output
+        print >> f, '\t'.join(str(v) for v in
+                              ["M", rank, rank,
+                               round(match['predicted_parent_mass'], 5),
+                               round(score_delta, 4), round(-score, 4), 0,
+                               # 1 of 2 ions found--keep DTASelect happy
+                               1, 2,
+                               "-.%s.-" % match['peptide_sequence'], 'U'])
 
-        print >> f, 'L\t%s\t%s' % (match['sequence_name'],
-                                   match['peptide_begin'])
+        assert len(match['sequence_name']) == len(match['peptide_begin'])
+        for sn, pb in zip(match['sequence_name'], match['peptide_begin']):
+            print >> f, 'L\t%s\t%s' % (sn, pb)
+
 
 def main(args=sys.argv[1:]):
     parser = optparse.OptionParser(usage=

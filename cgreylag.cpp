@@ -565,6 +565,11 @@ struct mass_trace_list {
 };
 
 
+// fuzzy comparison might not be necessary, but it's safer
+static inline bool
+score_equal(double s1, double s2) { return std::abs(s1-s2) < 1e-6; }
+
+
 // Search for matches of this particular peptide modification variation
 // against the spectra.  Updates score_stats and returns the number of
 // candidate spectra found.
@@ -606,9 +611,10 @@ evaluate_peptide(const search_context &context, match &m,
     m.score = score_spectrum_over_charges(synth_sp, sp, max_fragment_charge);
     //std::cerr << "score " << m.score << std::endl;
 
+    std::vector<match> &sp_best_matches = stats.best_matches[m.spectrum_index];
     // Is this score good enough to be in the best score list?  (Better scores
     // are more negative.)
-    if (m.score >= stats.best_matches[m.spectrum_index].back().score)
+    if (m.score > sp_best_matches.back().score)
       continue;
 
     // We're saving this match, so remember the mass trace info, too.
@@ -616,19 +622,24 @@ evaluate_peptide(const search_context &context, match &m,
     for (const mass_trace_list *p=mtlp; p; p=p->next)
       m.mass_trace.push_back(p->item);
 
-    // Is this match the first candidate for this spectrum?
-    if (stats.best_matches[m.spectrum_index].front().score == 0)
-      stats.spectra_with_candidates += 1;
+    // If this is duplicate, just append to the existing match and return
+    // FIX: does comparison of mass trace work for all cases?
+    for (std::vector<match>::reverse_iterator rit
+	   = sp_best_matches.rbegin(); rit != sp_best_matches.rend(); rit++)
+      if (score_equal(rit->score, m.score)
+	  and rit->peptide_sequence == m.peptide_sequence
+	  and rit->mass_trace == m.mass_trace) {
+	rit->peptide_begin.push_back(m.peptide_begin[0]);
+	rit->sequence_name.push_back(m.sequence_name[0]);
+	return;
+      }
 
-    // Insert this match in the correct position.
-    int i;
-    for (i=stats.best_matches[m.spectrum_index].size() - 2; i>=0; i--)
-      if (stats.best_matches[m.spectrum_index][i].score <= m.score)
-	break;
-      else
-	stats.best_matches[m.spectrum_index][i+1]
-	  = stats.best_matches[m.spectrum_index][i];
-    stats.best_matches[m.spectrum_index][i+1] = m;
+    // Otherwise, insert this match in the correct position
+    assert(sp_best_matches.size() >= 1);
+    std::vector<match>::reverse_iterator rit = sp_best_matches.rbegin();
+    for (;rit+1 != sp_best_matches.rend() and (rit+1)->score > m.score; rit++)
+      *rit = *(rit+1);
+    *rit = m;
   }
 }
 
@@ -728,8 +739,11 @@ search_run(const search_context &context, const sequence_run &sequence_run,
   // This match will be passed inward and used to record information that we
   // need to remember about a match when we finally see one.  At that point, a
   // copy of this match will be saved.
-  match m;			// FIX: move inward?
-  m.sequence_name = sequence_run.name;
+  // FIX: can this be done better?
+  match m;
+  m.sequence_name.push_back(sequence_run.name);
+  m.peptide_begin.push_back(0);
+  int &peptide_begin = m.peptide_begin[0];
 
   assert(context.delta_bag_delta.size()
 	 == context.delta_bag_count.size());
@@ -747,7 +761,7 @@ search_run(const search_context &context, const sequence_run &sequence_run,
   // FIX: optimize the non-specific cleavage case?
   for (unsigned int begin=0; begin<cleavage_points.size()-1; begin++) {
     const int begin_index = cleavage_points[begin];
-    m.peptide_begin = begin_index + sequence_run.sequence_offset;
+    peptide_begin = begin_index + sequence_run.sequence_offset;
     if (not context.pca_residues.empty())
       if (context.pca_residues.find(run_sequence[begin_index])
 	  == std::string::npos)

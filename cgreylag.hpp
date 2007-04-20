@@ -21,6 +21,7 @@
 #define CGREYLAG_H
 
 #include <cassert>
+#include <cmath>
 #include <cstdio>
 #include <map>
 #include <vector>
@@ -264,6 +265,13 @@ struct mass_trace_item {
   int position;
   double delta;
   int id;			// FIX
+
+  // grrrr
+  bool operator==(const mass_trace_item &x) const {
+    return this->position == x.position
+      and this->delta == x.delta
+      and this->id == x.id;
+  }
 };
 
 
@@ -275,14 +283,17 @@ public:
   double score;
   int missed_cleavage_count;	// FIX: unneeded
   int spectrum_index;
-  int peptide_begin;		// not run-relative
   std::string peptide_sequence;
   double predicted_parent_mass;
-  std::string sequence_name;
   std::vector<mass_trace_item> mass_trace;
 
+  // these are vectors of results for storing peptides found in multiple
+  // sequence locations
+  std::vector<int> peptide_begin; // absolute position within locus
+  std::vector<std::string> sequence_name;
+
   match() : score(0), missed_cleavage_count(-1), spectrum_index(-1),
-	    peptide_begin(-1), predicted_parent_mass(0) {
+	    predicted_parent_mass(0) {
   }
 };
 

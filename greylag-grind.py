@@ -353,40 +353,47 @@ def generate_cleavage_points(cleavage_re, cleavage_pos, sequence):
 
 AA_SEQUENCE = re.compile(r'[ARNDCQEGHILKMFPSTWYV]+')
 
-def split_sequence_into_aa_runs(idno, defline, sequence, filename):
-    """Returns a tuple (idno, start, defline, seq, filename) for each
-    contiguous run of residues in sequence, where 'start' is the position of
-    'seq' in 'sequence'.
+def split_sequence_into_aa_runs(idno, locusname, defline, sequence, filename):
+    """Returns a tuple (idno, start, locusname, defline, seq, filename) for
+    each contiguous run of residues in sequence, where 'start' is the position
+    of 'seq' in 'sequence'.
 
-    >>> pprint(split_sequence_into_aa_runs(123, 'defline', 'STSS*DEFABA',
-    ...                                    'filename'))
-    [(123, 0, 'defline', 'STSS', 'filename'),
-     (123, 5, 'defline', 'DEFA', 'filename'),
-     (123, 10, 'defline', 'A', 'filename')]
+    >>> pprint(split_sequence_into_aa_runs(123, 'ln', 'ln defline',
+    ...                                    'STSS*DEFABA', 'filename'))
+    [(123, 0, 'ln defline', 'STSS', 'filename'),
+     (123, 5, 'ln defline', 'DEFA', 'filename'),
+     (123, 10, 'ln defline', 'A', 'filename')]
 
     """
-    return [ (idno, m.start(), defline, m.group(), filename)
+    return [ (idno, m.start(), locusname, defline, m.group(), filename)
              for n, m in enumerate(AA_SEQUENCE.finditer(sequence)) ]
 
 
 def read_fasta_files(filenames):
-    """Yield (defline, sequence, filename) tuples as read from FASTA files
-    (uppercasing sequence)."""
-    defline = None
+    """Yield (locusname, defline, sequence, filename) tuples as read from
+    FASTA files (uppercasing sequence)."""
+
+    loci_seen = set()
+    locusname, defline = None, None
     seqs = []
     for line in fileinput.input(filenames):
         line = line.strip()
         if line[:1] == '>':
             if defline != None:
-                yield (defline, ''.join(seqs), fileinput.filename())
+                yield (locusname, defline, ''.join(seqs), fileinput.filename())
             elif seqs:
                 fileerror("bad format: line precedes initial defline")
             defline = line[1:]
+            locusname = defline.split(None, 1)[0]
+            if locusname in loci_seen:
+                error("locus name '%s' is not unique in the search database(s)"
+                      % locusname)
+            loci_seen.add(locusname)
             seqs = []
         else:
             seqs.append(line.upper())
     if defline:
-        yield (defline, ''.join(seqs), fileinput.filename())
+        yield (locusname, defline, ''.join(seqs), fileinput.filename())
 
 
 def read_spectra_slice(spectrum_fns, offset_indices, slice):
@@ -1184,19 +1191,15 @@ def main(args=sys.argv[1:]):
     initialize_spectrum_parameters(options, XTP["mass_regimes"], fixed_mod_map)
 
     # read sequence dbs
-    # [(defline, seq, filename), ...]
     databases = XTP["databases"].split()
+    # [(locusname, defline, seq, filename), ...]
     fasta_db = list(read_fasta_files(databases))
-    # [(idno, offset, defline, seq, seq_filename), ...]
+    # [(idno, offset, locusname, defline, seq, seq_filename), ...]
     db = []
-    for idno, (defline, sequence, filename) in enumerate(fasta_db):
-        db.extend(split_sequence_into_aa_runs(idno, defline, sequence,
-                                              filename))
+    for idno, (locusname, defline, sequence, filename) in enumerate(fasta_db):
+        db.extend(split_sequence_into_aa_runs(idno, locusname, defline,
+                                              sequence, filename))
     db_residue_count = sum(len(dbi[3]) for dbi in db)
-
-    # (idno, offset) -> (defline, run_seq, filename)
-    db_info = dict(((idno, offset), (defline, seq, filename))
-                   for idno, offset, defline, seq, filename in db)
 
     info("read %s sequences (%s runs, %s residues)", len(fasta_db), len(db),
          db_residue_count)
@@ -1278,18 +1281,12 @@ def main(args=sys.argv[1:]):
         cleavage_pattern = re.compile(cleavage_pattern)
 
         context = cgreylag.search_context()
-        loci_seen = set()
-        for idno, offset, defline, seq, seq_filename in db:
+        for idno, offset, locusname, defline, seq, seq_filename in db:
             cp = []
             if cleavage_motif != "[X]|[X]":
                 cp = list(generate_cleavage_points(cleavage_pattern,
                                                    cleavage_pos, seq))
-            locus_name = defline.split(None, 1)[0]
-            if locus_name in loci_seen:
-                error("locus name '%s' is not unique in the search database(s)"
-                      % locus_name)
-            loci_seen.add(locus_name)
-            sr = cgreylag.sequence_run(idno, offset, seq, cp, locus_name)
+            sr = cgreylag.sequence_run(idno, offset, seq, cp, locusname)
             context.sequence_runs.append(sr)
         context.maximum_missed_cleavage_sites = 1000000000 # FIX
 

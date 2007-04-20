@@ -37,10 +37,6 @@ TASK QUEUE
 * MINI-GOAL: basic greylag-process usable on our cluster (no mods)
 
 
-* Need to figure out how to properly merge duplicate peptides within grind
-
-  There always needs to be a second-best score in order to have a DeltCN!
-
 * Implement SQT output program (greylag-sqt)
 ** R lines to document mass regimes
 ** A lines for each M line to document regime (index of R) and residue mods
@@ -68,6 +64,9 @@ TASK QUEUE
 * Look for more dead code to remove
 
 * Redo cleavage point code (enzyme and non-specific)
+
+* Basic optimization
+
 
 = M1 =========================================================================
 
