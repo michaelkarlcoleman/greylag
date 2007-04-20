@@ -33,6 +33,18 @@ MILESTONE M2:
 
 TASK QUEUE
 
+* MINI-GOAL: Get something working that can be tested against MM/SEQUEST
+* MINI-GOAL: basic greylag-process usable on our cluster (no mods)
+
+
+* Fix parent mass tolerance scaling
+** parent_mass_tolerance_1
+** parent_mass_tolerance_max
+
+* Need to figure out how to properly merge duplicate peptides within grind
+
+  There always needs to be a second-best score in order to have a DeltCN!
+
 * Implement SQT output program (greylag-sqt)
 ** R lines to document mass regimes
 ** A lines for each M line to document regime (index of R) and residue mods
@@ -47,9 +59,6 @@ TASK QUEUE
 * Compare greylag output to SEQUEST on test-myrimatch example
 ** also compare against MyriMatch
 *** do a non-specific run with the existing binary
-
-* X Implement Myrimatch scoring
-** try it
 
 * Make the pickle a dict instead of a vector in spec index
 
@@ -89,10 +98,6 @@ TASK QUEUE
 ** Look at what we do here (paper)
 
 
-* Implement redundant DB peptide masking.
-** This will obviate the need to detect identical best matches.
-
-
 * Add isotope jitter feature, for Orbitrap.
 
   xtandem considers one C13 if MH>1000, and one/two C13 if MH>1500.  Should we
@@ -105,21 +110,23 @@ TASK QUEUE
 * Implement MyriMatch deisotoping?
 
 
-
 * Figure out how to handle multiple residue mods (delta, isotope, etc)
 
+* Clean up [,] (N/C-terminal) mass regime calculations
+
+* Pass through the C++ code looking for counts that could conceivably overflow
+** Fix or add assertions
 
 * Add duplicate peptide masking optimization
-
-
+** This will obviate the need to detect identical best matches at search time?
+** Fix redundant peptide reporting
 
 
 * Time a real mod search vs SEQUEST (and xtandem?), is time reasonable?
   MAKE SURE PARAMS ARE COMPARABLE!  Ballpark correctness?
 
-* Create DTASelect.txt output, either directly or by conversion from XML
-  output.  (This seems to be sufficient to support most or all DTASelect
-  output.)
+* Create direct DTASelect.txt output?
+  (This seems to be sufficient to support most or all DTASelect output.)
 
 * Make a tool to compare greylag vs SEQUEST results by spectrum.  Want gross
   statistics--how many id's are the same, different, missing, etc.  For each
@@ -139,6 +146,10 @@ TASK QUEUE
 * Make --estimate work correctly over cluster.  (Currently takes 6 hours to
   estimate 60--is this worthwhile?  Could we simply estimate one bag and
   multiply by the number of bags??)
+
+* Better shuffling than current model.
+
+* Useful to scale fragment tolerance by charge, too?
 
 * Have --estimate generate a spectrum work count file (*.est?) that can be
   used by --part-split to generate evenly sized parts.  (Check that file is
