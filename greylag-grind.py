@@ -270,8 +270,9 @@ def initialize_spectrum_parameters(options, mass_regimes, fixed_mod_map):
             if CP.fragment_mass_regime[rn].fixed_residue_mass[ord(r)] < 1.0:
                 raise ValueError('bogus parent mass specification for %s' % r)
 
-    CP.parent_monoisotopic_mass_error_plus = XTP["parent_mass_tolerance"] # XXX
-    CP.parent_monoisotopic_mass_error_minus = -XTP["parent_mass_tolerance"] # XXX
+    CP.parent_mass_tolerance_1 = XTP["parent_mz_tolerance"]
+    CP.parent_mass_tolerance_max = (XTP["parent_mz_tolerance"]
+                                    * XTP["charge_limit"])
 
     CP.fragment_mass_tolerance = XTP["fragment_mass_tolerance"]
     CP.intensity_class_count = XTP["intensity_class_count"]
@@ -279,7 +280,6 @@ def initialize_spectrum_parameters(options, mass_regimes, fixed_mod_map):
     CP.minimum_peptide_length = XTP["min_peptide_length"]
 
     # CP.ln_factorial[n] == ln(n!)
-    # FIX: is there a better way to estimate this?
     CP.ln_factorial.resize(int(XTP["max_parent_spectrum_mass"]
                                / XTP["fragment_mass_tolerance"] + 100), 0.0)
     for n in range(2, len(CP.ln_factorial)):
@@ -287,8 +287,6 @@ def initialize_spectrum_parameters(options, mass_regimes, fixed_mod_map):
 
     CP.estimate_only = bool(options.estimate_only)
     CP.show_progress = bool(options.show_progress)
-
-    #debug("CP: %s", pythonize_swig_object(CP, ['the']))
 
 
 def cleavage_motif_re(motif):
@@ -656,7 +654,7 @@ PARAMETER_INFO = {
     "min_parent_spectrum_mass" : (float, 0, p_nonnegative),
     "max_parent_spectrum_mass" : (float, 10000, p_nonnegative),
     "TIC_cutoff_proportion" : (float, 0.98, p_proportion),
-    "parent_mass_tolerance" : (float, 1.25, p_nonnegative),
+    "parent_mz_tolerance" : (float, 1.25, p_nonnegative),
     "fragment_mass_tolerance" : (float, 0.5, p_nonnegative),
     "intensity_class_count" : (int, 3, p_positive),
     "intensity_class_ratio" : (float, 2.0, p_positive), # really > 1.0?
@@ -1244,7 +1242,7 @@ def main(args=sys.argv[1:]):
     # filter and normalize spectra
     for sp in spectra:
         sp.filter_peaks(XTP["TIC_cutoff_proportion"],
-                        XTP["parent_mass_tolerance"], XTP["charge_limit"])
+                        CP.parent_mass_tolerance_max)
         sp.classify(XTP["intensity_class_count"], XTP["intensity_class_ratio"],
                     XTP["fragment_mass_tolerance"])
 

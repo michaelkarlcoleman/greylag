@@ -37,10 +37,6 @@ TASK QUEUE
 * MINI-GOAL: basic greylag-process usable on our cluster (no mods)
 
 
-* Fix parent mass tolerance scaling
-** parent_mass_tolerance_1
-** parent_mass_tolerance_max
-
 * Need to figure out how to properly merge duplicate peptides within grind
 
   There always needs to be a second-best score in order to have a DeltCN!

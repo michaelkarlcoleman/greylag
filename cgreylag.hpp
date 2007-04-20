@@ -58,8 +58,8 @@ public:
   std::vector<mass_regime_parameters> fragment_mass_regime;
 
   // from XTP
-  double parent_monoisotopic_mass_error_plus; // XXX
-  double parent_monoisotopic_mass_error_minus; // XXX
+  double parent_mass_tolerance_1; // for +1
+  double parent_mass_tolerance_max; // for +N (typically +3)
 
   int minimum_peptide_length;
 
@@ -232,7 +232,7 @@ public:
   // and to remove those too large to be fragment products.  (Peaks are
   // assumed to be ordered by increasing mz.)
   void filter_peaks(double TIC_cutoff_proportion,
-		    double parent_mass_tolerance, int charge_limit);
+		    double parent_mass_tolerance_max);
 
   // Classify peaks and update class_counts.
   void classify(int intensity_class_count, double intensity_class_ratio,

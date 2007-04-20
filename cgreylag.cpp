@@ -285,14 +285,14 @@ spectrum::read_spectra_from_ms2(FILE *f, const int file_id,
 // be ordered by increasing mz.)
 void
 spectrum::filter_peaks(double TIC_cutoff_proportion,
-		       double parent_mass_tolerance, int charge_limit) {
+		       double parent_mass_tolerance_max) {
   if (not (0 <= TIC_cutoff_proportion and TIC_cutoff_proportion <= 1)
-      or parent_mass_tolerance < 0 or charge_limit < 1)
+      or parent_mass_tolerance_max < 0)
     throw std::invalid_argument("invalid argument value");
 
   // remove peaks too large to be fragment products
   // (i.e., peak m/z > parent [M+H+] + parent_mass_tolerance * charge_limit)
-  const double peak_mz_limit = mass + parent_mass_tolerance * charge_limit;
+  const double peak_mz_limit = mass + parent_mass_tolerance_max;
 
   std::vector<peak>::iterator pi;
   for (pi=peaks.begin(); pi != peaks.end() and pi->mz <= peak_mz_limit; pi++);
@@ -572,17 +572,17 @@ static inline void
 evaluate_peptide(const search_context &context, match &m,
 		 const mass_trace_list *mtlp,
 		 const std::vector<double> &mass_list,
-		 const spmi_c_it &candidate_spectra_info_begin,
-		 const spmi_c_it &candidate_spectra_info_end,
+		 const std::vector<std::vector<spectrum>::size_type>
+		     &candidate_spectra,
 		 score_stats &stats) NOTHROW {
   assert(m.peptide_sequence.size() == mass_list.size());
 
   int max_candidate_charge = 0;
-  for (spmi_c_it it=candidate_spectra_info_begin;
-       it != candidate_spectra_info_end; it++)
+  typedef std::vector<std::vector<spectrum>::size_type>::const_iterator c_it;
+  for (c_it it=candidate_spectra.begin(); it != candidate_spectra.end(); it++)
     max_candidate_charge
       = std::max<int>(max_candidate_charge,
-		      spectrum::searchable_spectra[it->second].charge);
+		      spectrum::searchable_spectra[*it].charge);
   assert(max_candidate_charge >= 1);
 
   const int max_fragment_charge = std::max<int>(1, max_candidate_charge-1);
@@ -593,9 +593,8 @@ evaluate_peptide(const search_context &context, match &m,
   synthetic_spectra(synth_sp, mass_list, context.fragment_N_fixed_mass,
 		    context.fragment_C_fixed_mass, max_fragment_charge);
 
-  for (spmi_c_it candidate_it = candidate_spectra_info_begin;
-       candidate_it != candidate_spectra_info_end; candidate_it++) {
-    m.spectrum_index = candidate_it->second;
+  for (c_it it=candidate_spectra.begin(); it != candidate_spectra.end(); it++) {
+    m.spectrum_index = *it;
     spectrum &sp = spectrum::searchable_spectra[m.spectrum_index];
 
     sp.comparisons += 1;
@@ -642,8 +641,8 @@ evaluate_peptide(const search_context &context, match &m,
 static inline void
 choose_residue_mod(const search_context &context, match &m,
 		   const mass_trace_list *mtlp, std::vector<double> &mass_list,
-		   const spmi_c_it &candidate_spectra_info_begin,
-		   const spmi_c_it &candidate_spectra_info_end,
+		   const std::vector<std::vector<spectrum>::size_type>
+		       &candidate_spectra,
 		   score_stats &stats,
 		   std::vector<int> &db_remaining,
 		   const unsigned remaining_positions_to_choose,
@@ -653,8 +652,7 @@ choose_residue_mod(const search_context &context, match &m,
 
   if (remaining_positions_to_choose == 0) {
     stats.combinations_searched += 1;
-    evaluate_peptide(context, m, mtlp, mass_list, candidate_spectra_info_begin,
-		     candidate_spectra_info_end, stats);
+    evaluate_peptide(context, m, mtlp, mass_list, candidate_spectra, stats);
   } else {
     mass_trace_list mtl(mtlp);
 
@@ -675,9 +673,8 @@ choose_residue_mod(const search_context &context, match &m,
 	db_remaining[db_index] -= 1;
 	mass_list[i] = save_pos_mass + context.delta_bag_delta[db_index];
 	mtl.item.delta = context.delta_bag_delta[db_index];
-	choose_residue_mod(context, m, &mtl, mass_list,
-			   candidate_spectra_info_begin,
-			   candidate_spectra_info_end, stats, db_remaining,
+	choose_residue_mod(context, m, &mtl, mass_list, candidate_spectra,
+			   stats, db_remaining,
 			   remaining_positions_to_choose-1, i+1);
 	db_remaining[db_index] += 1;
       }
@@ -773,11 +770,18 @@ search_run(const search_context &context, const sequence_run &sequence_run,
 		    fixed_parent_mass);
       //std::cerr << "peptide: " << std::string(run_sequence, begin_index, peptide_size) << " p_mass: " << p_mass << std::endl;
 
+      // We'd like to consider only the spectra whose masses are within the
+      // tolerance range of theoretical mass of the peptide (p_mass).
+      // Unfortunately, the tolerance range of each spectrum depends on its
+      // charge, since the tolerance is specified in m/z units.  Furthermore,
+      // when deciding how to adjust begin/end to generate the next peptide,
+      // we need to be conservative, as a high-charge spectrum may come into
+      // range, even though only +1 spectra are currently in-range.  So, we
+      // first screen using the maximum tolerance range, then check the actual
+      // spectra below.
 
-      double sp_mass_lb = p_mass + CP.parent_monoisotopic_mass_error_minus;
-      double sp_mass_ub = p_mass + CP.parent_monoisotopic_mass_error_plus;
-
-      //std::cerr << "lb..ub: " << sp_mass_lb << ".." << sp_mass_ub << std::endl;
+      const double sp_mass_lb = p_mass - CP.parent_mass_tolerance_max;
+      const double sp_mass_ub = p_mass + CP.parent_mass_tolerance_max;
 
       const spmi_c_it candidate_spectra_info_begin
 	= spectrum::spectrum_mass_index.lower_bound(sp_mass_lb);
@@ -804,20 +808,29 @@ search_run(const search_context &context, const sequence_run &sequence_run,
 	continue;
       }
 
-      m.predicted_parent_mass = p_mass;
+      // Now generate the list of candidate spectra that are actually
+      // in-range, considering the charge of each spectrum.
+      std::vector<std::vector<spectrum>::size_type> candidate_spectra_0;
+      for (spmi_c_it it=candidate_spectra_info_begin;
+	   it != candidate_spectra_info_end; it++) {
+	const spectrum &csp = spectrum::searchable_spectra[it->second];
+	if (std::abs(csp.mass - p_mass) <= (csp.charge
+					    * CP.parent_mass_tolerance_1))
+	  candidate_spectra_0.push_back(it->second);
+      }
+      if (candidate_spectra_0.empty())
+	continue;
 
+      m.predicted_parent_mass = p_mass;
       m.peptide_sequence.assign(run_sequence, begin_index, peptide_size);
 
       std::vector<double> mass_list(peptide_size);
-      for (std::vector<double>::size_type i=0; i<m.peptide_sequence.size();
-	   i++)
+      for (std::vector<double>::size_type i=0; i<m.peptide_sequence.size(); i++)
 	mass_list[i] = (CP.fragment_mass_regime[context.mass_regime_index]
 			.fixed_residue_mass[m.peptide_sequence[i]]);
 
-      choose_residue_mod(context, m, NULL, mass_list,
-			 candidate_spectra_info_begin,
-			 candidate_spectra_info_end, stats, db_remaining,
-			 context.mod_count, 0);
+      choose_residue_mod(context, m, NULL, mass_list, candidate_spectra_0,
+			 stats, db_remaining, context.mod_count, 0);
     }
   }
 }
