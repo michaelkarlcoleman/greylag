@@ -1278,12 +1278,17 @@ def main(args=sys.argv[1:]):
         cleavage_pattern = re.compile(cleavage_pattern)
 
         context = cgreylag.search_context()
+        loci_seen = set()
         for idno, offset, defline, seq, seq_filename in db:
             cp = []
             if cleavage_motif != "[X]|[X]":
                 cp = list(generate_cleavage_points(cleavage_pattern,
                                                    cleavage_pos, seq))
             locus_name = defline.split(None, 1)[0]
+            if locus_name in loci_seen:
+                error("locus name '%s' is not unique in the search database(s)"
+                      % locus_name)
+            loci_seen.add(locus_name)
             sr = cgreylag.sequence_run(idno, offset, seq, cp, locus_name)
             context.sequence_runs.append(sr)
         context.maximum_missed_cleavage_sites = 1000000000 # FIX
