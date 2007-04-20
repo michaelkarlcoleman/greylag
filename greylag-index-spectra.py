@@ -33,6 +33,7 @@ import contextlib
 import cPickle
 import gzip
 import optparse
+import os.path
 import re
 import sys
 
@@ -78,7 +79,9 @@ def main(args=sys.argv[1:]):
             if specnames != sorted(specnames):
                 error("spectra must be ordered by name")
             offsets = [ m.start() for m in ms ]
-            cPickle.dump(offsets, idx, cPickle.HIGHEST_PROTOCOL)
+            cPickle.dump({ 'offsets' : offsets,
+                           'file size' : os.path.getsize(fn) },
+                         idx, cPickle.HIGHEST_PROTOCOL)
 
 
 if __name__ == '__main__':

@@ -1210,10 +1210,13 @@ def main(args=sys.argv[1:]):
     # read spectrum offset indices
     spectrum_offset_indices = []
     for spfn in spectrum_fns:
-        with contextlib.closing(gzip.open(spfn + '.idx')) as idxf:
-            spectrum_offset_indices.append(cPickle.load(idxf))
-
-    #debug("idx: %s", spectrum_offset_indices)
+        idxfn = spfn + '.idx'
+        with contextlib.closing(gzip.open(idxfn)) as idxf:
+            idx = cPickle.load(idxf)
+            # try to verify that index matches spectrum file
+            if idx['file size'] != os.path.getsize(spfn):
+                error("index '%s' needs rebuilding" % idxfn)
+            spectrum_offset_indices.append(idx['offsets'])
 
     # FIX: assume standalone mode (for now)
     assert options.work_slice
