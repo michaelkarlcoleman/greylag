@@ -10,15 +10,15 @@ import subprocess
 
 from nose.tools import *
 
-from greylag import *
+from greylag_grind import *
 
 
 # parallel job processes
 CPUS = 4
 
 # program locations
-GREYLAG_PROGRAM = '../greylag.py'
-GREYLAGMP_PROGRAM = '../greylag-mp.py'
+GREYLAG_PROGRAM = '../greylag_grind.py'
+GREYLAGMP_PROGRAM = '../greylag.py'
 
 # temporary output file
 GREYLAG_OUTPUT = 'tmp-greylag-out.xml'

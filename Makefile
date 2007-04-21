@@ -68,11 +68,11 @@ _$(MODULE).so : $(MODULE).o $(MODULE)_wrap.o
 
 
 pycheck::
-	PYTHONVER=$(PYTHONVER) pychecker --limit 1000 greylag-grind.py
+	PYTHONVER=$(PYTHONVER) pychecker --limit 1000 greylag_grind.py
 
 # summary C++ modules symbols used by main script
 modsyms::
-	@sed -n -e 's/^.*\(cgreylag\.[a-zA-Z0-9_.]*\).*$$/\1/p' greylag-grind.py \
+	@sed -n -e 's/^.*\(cgreylag\.[a-zA-Z0-9_.]*\).*$$/\1/p' greylag_grind.py \
 		| sort | uniq -c
 
 tags :: TAGS
@@ -84,7 +84,7 @@ install::
 	[ -d $(DEST) ] || install -d $(DEST)
 	install -p _$(MODULE).so $(DEST)
 	install -p --mode=444 $(MODULE).py $(DEST)
-	install -p greylag-grind.py $(DEST)
+	install -p greylag_grind.py $(DEST)
 	install -p greylag-mp.py $(DEST)
 
 clean::
