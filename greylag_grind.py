@@ -1095,17 +1095,11 @@ def abbrev_defline(s):
     return ab
 
 
-def zopen(filename, mode='r', compresslevel=None):
+def zopen(filename, mode='r', compresslevel=9):
     """Open a filename as with 'open', but using compression if indicated by
-    the filename suffix.  The compression level defaults to 1 for .gz files
-    and 9 for .bz2 files (presumably bzip2 will only be used if size matters
-    much more than compression time)."""
+    the filename suffix."""
     if filename.endswith('.gz'):
-        import gzip
-        return gzip.GzipFile(filename, mode, compresslevel or 1)
-    elif filename.endswith('.bz2'):
-        import bz2
-        return bz2.BZ2File(filename, mode, compresslevel or 9)
+        return gzip.GzipFile(filename, mode, compresslevel)
     else:
         return open(filename, mode)
 
