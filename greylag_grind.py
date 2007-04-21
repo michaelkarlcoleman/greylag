@@ -360,9 +360,9 @@ def split_sequence_into_aa_runs(idno, locusname, defline, sequence, filename):
 
     >>> pprint(split_sequence_into_aa_runs(123, 'ln', 'ln defline',
     ...                                    'STSS*DEFABA', 'filename'))
-    [(123, 0, 'ln defline', 'STSS', 'filename'),
-     (123, 5, 'ln defline', 'DEFA', 'filename'),
-     (123, 10, 'ln defline', 'A', 'filename')]
+    [(123, 0, 'ln', 'ln defline', 'STSS', 'filename'),
+     (123, 5, 'ln', 'ln defline', 'DEFA', 'filename'),
+     (123, 10, 'ln', 'ln defline', 'A', 'filename')]
 
     """
     return [ (idno, m.start(), locusname, defline, m.group(), filename)
@@ -759,8 +759,17 @@ def pythonize_swig_object(o, only_fields=None, skip_fields=[]):
     'skip_fields' if given is a list of methods not to include (this helps
     avoid infinite recursion).
 
-    >>> pprint(pythonize_swig_object(cgreylag.score_stats(3)))
-    struct({'best_match': [[], [], []], 'best_score': [100.0, 100.0, 100.0], 'candidate_spectrum_count': 0, 'combinations_searched': 0, 'hyperscore_histogram': [[], [], []], 'improved_candidates': 0, 'second_best_score': [100.0, 100.0, 100.0], 'spectra_with_candidates': 0})
+    >>> pprint(pythonize_swig_object(cgreylag.score_stats(1, 1)))
+    {'best_matches': [[{'mass_trace': [],
+                        'missed_cleavage_count': -1,
+                        'peptide_begin': [],
+                        'peptide_sequence': '',
+                        'predicted_parent_mass': 0.0,
+                        'score': 0.0,
+                        'sequence_name': [],
+                        'spectrum_index': -1}]],
+     'candidate_spectrum_count': 0,
+     'combinations_searched': 0}
 
     """
 
