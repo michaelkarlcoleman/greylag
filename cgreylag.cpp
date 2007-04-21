@@ -860,8 +860,8 @@ spectrum::search_runs(const search_context &context, score_stats &stats) {
 
     if (CP.show_progress)
       std::cerr << i+1 << " of " << no_runs << " sequences, "
-		<< stats.candidate_spectrum_count << " cand for "
-		<< stats.spectra_with_candidates << " sp\r" << std::flush;
+		<< stats.candidate_spectrum_count << " candidates\r"
+		<< std::flush;
   }
 
   if (CP.show_progress)

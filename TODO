@@ -37,10 +37,12 @@ TASK QUEUE
 * MINI-GOAL: basic greylag-process usable on our cluster (no mods)
 
 
-* Implement SQT output program (greylag-sqt)
-** R lines to document mass regimes
-** A lines for each M line to document regime (index of R) and residue mods
-** Try to keep back compatibility by grepping out A/R lines
+* Design and implement SQT fileset merger
+
+* Get greylag-process script running
+
+* Basic optimization
+* Evaluate performance differences
 
 * Compare greylag output to SEQUEST on test-myrimatch example
 ** also compare against MyriMatch
@@ -52,12 +54,6 @@ TASK QUEUE
 
 * Design and implement greylag master process (work manifests?)
 
-* Evaluate performance differences
-
-* Basic test of DTASelect compatibility
-
-* Design and implement SQT fileset merger
-
 * Update docstrings
 * Update test cases
 
@@ -65,7 +61,11 @@ TASK QUEUE
 
 * Redo cleavage point code (enzyme and non-specific)
 
-* Basic optimization
+* Mod/regime info in SQT output program (greylag-sqt)
+** R lines to document mass regimes
+** A lines for each M line to document regime (index of R) and residue mods
+** Try to keep back compatibility by grepping out A/R lines
+
 
 
 = M1 =========================================================================
