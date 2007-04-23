@@ -2,7 +2,7 @@
 
 '''This program does the actual work to search mass spectra against a sequence
 database.  <job-id> is a unique identifier used as a prefix for work and
-output directories.  The <parameter-file> contains program options.  The
+output directories.  The <configuration-file> contains program options.  The
 spectra are in <ms2-file>s; greylag-index-spectra must already have been run
 on them.
 
@@ -1128,7 +1128,7 @@ def results_dump(score_statistics, searchable_spectra):
 def main(args=sys.argv[1:]):
     parser = optparse.OptionParser(usage=
                                    "usage: %prog [options] <job-id>"
-                                   " <parameter-file> <ms2-file>...",
+                                   " <configuration-file> <ms2-file>...",
                                    description=__doc__, version=__version__)
     pa = parser.add_option
     pa("-P", "--parameter", nargs=2, dest="parameters", action="append",
@@ -1162,7 +1162,7 @@ def main(args=sys.argv[1:]):
         sys.exit(1)
 
     job_id = args[0]
-    parameter_fn = args[1]
+    configuration_fn = args[1]
     spectrum_fns = args[2:]
 
     if (any(True for f in spectrum_fns if not f.endswith('.ms2'))
@@ -1202,10 +1202,10 @@ def main(args=sys.argv[1:]):
     # read params
     cp = ConfigParser.RawConfigParser()
     cp.optionxform = str                # be case-sensitive
-    with open(parameter_fn) as parameter_file:
-        cp.readfp(parameter_file)
+    with open(configuration_fn) as configuration_file:
+        cp.readfp(configuration_file)
     if not cp.has_section('greylag'):
-        error("%s has no [greylag] section" % parameter_fn)
+        error("%s has no [greylag] section" % configuration_fn)
     parameters = dict(cp.items('greylag'))
     parameters.update(dict(options.parameters)) # command-line override
     global XTP
