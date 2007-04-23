@@ -723,34 +723,6 @@ def validate_parameters(parameters, parameter_info=PARAMETER_INFO):
     return pmap
 
 
-def generate_mass_bands(band_count, mass_list):
-    """Yield (n, mass_lb, mass_ub) for each mass band, where n ranges from 1
-    to band_count.  To generate the bands, the mass list (which is assumed
-    already sorted by mass) is evenly partitioned into bands with masses in
-    the range [mass_lb, mass_ub).
-
-    >>> list(generate_mass_bands(1, [ float(x) for x in range(100) ]))
-    [(1, 0.0, 100.0)]
-    >>> list(generate_mass_bands(4, [ float(x) for x in range(100) ]))
-    [(1, 0.0, 25.0), (2, 25.0, 50.0), (3, 50.0, 75.0), (4, 75.0, 100.0)]
-    >>> list(generate_mass_bands(3, [ float(x) for x in range(100) ]))
-    [(1, 0.0, 34.0), (2, 34.0, 68.0), (3, 68.0, 100.0)]
-
-    """
-    assert band_count > 0 and mass_list
-    assert sorted(mass_list) == list(mass_list)
-    band_size = int(math.ceil(float(len(mass_list)) / band_count))
-    lb = mass_list[0]
-    for bn in range(1, band_count):
-        i = min(bn*band_size, len(mass_list)-1)
-        ub = mass_list[i]
-        yield bn, lb, ub
-        lb = ub
-    # Since the upper bound is exclusive, we add a little slop to make sure
-    # the last spectrum is included.
-    yield band_count, lb, round(mass_list[-1]+1)
-
-
 def pythonize_swig_object(o, only_fields=None, skip_fields=[]):
     """Creates a pure Python copy of a SWIG object, so that it can be easily
     pickled, or printed (for debugging purposes).  Each SWIG object is
@@ -1057,53 +1029,6 @@ def get_suffix_sequence(end_pos, run_offset, sequence):
     return s
 
 
-def clean_string(v):
-    """Strip and collapse internal whitespace.
-
-    >>> clean_string(' one   two ')
-    'one two'
-
-    """
-    if not v:
-        return v
-    return re.sub(r'[\s]+', ' ', v.strip())
-
-
-def clean_defline(s):
-    """Return the given string with tabs replaced by spaces and control
-    and non-ASCII characters removed, then stripped.
-
-    >>> tab=chr(9); clean_defline(' one' + tab + ' two three\001four ')
-    'one  two threefour'
-
-    """
-    return re.sub(r'[^ -~]', '', s.replace('\t', ' ')).strip()
-
-
-def abbrev_defline(s):
-    """Return an abbreviated version of the defline--about 80 characters.
-
-    >>> abbrev_defline('words ' * 10)
-    'words words words words words words words words words words '
-    >>> abbrev_defline('words ' * 20)
-    'words words words words words words words words words words words words words words...'
-
-    """
-    ab = re.match(r'.{,80}\S{,170}', s).group(0)
-    if len(ab) < len(s):
-        ab += '...'
-    return ab
-
-
-def zopen(filename, mode='r', compresslevel=9):
-    """Open a filename as with 'open', but using compression if indicated by
-    the filename suffix."""
-    if filename.endswith('.gz'):
-        return gzip.GzipFile(filename, mode, compresslevel)
-    else:
-        return open(filename, mode)
-
-
 def results_dump(score_statistics, searchable_spectra):
     """Return a result dict mapping spectrum names to (spectrum_metadata,
     best_matches) pairs.  (Unneeded fields are stripped.)
@@ -1253,12 +1178,6 @@ def main(args=sys.argv[1:]):
                                  options.work_slice)
     spectra.sort(key=lambda x: x.mass)
 
-    if not spectra:
-        warning("no input spectra")
-    else:
-        info("read %s spectra (mass range %s - %s)", len(spectra),
-             spectra[0].mass, spectra[-1].mass)
-
     def peak_statistics(spectra):
         counts = [ len(sp.peaks) for sp in spectra ]
         counts.sort()
@@ -1266,8 +1185,13 @@ def main(args=sys.argv[1:]):
         return (counts[0], counts[int(n*0.25)], counts[int(n*0.5)],
                 counts[int(n*0.75)], counts[-1], sum(counts) / float(n))
 
-    info("  peak stats: %s..%s..%s..%s..%s (mean=%.2f)"
-         % peak_statistics(spectra))
+    if spectra:
+        info("read %s spectra (mass range %s - %s)", len(spectra),
+             spectra[0].mass, spectra[-1].mass)
+        info("  peak stats: %s..%s..%s..%s..%s (mean=%.2f)"
+             % peak_statistics(spectra))
+    else:
+        warning("no input spectra")
 
     # filter and normalize spectra
     for sp in spectra:
@@ -1282,11 +1206,12 @@ def main(args=sys.argv[1:]):
     spectra = [ sp for sp in spectra
                 if len(sp.peaks) >= 10 and min_psm <= sp.mass <= max_psm ]
 
-    info("after filtering:")
-    info("     %s spectra (mass range %s - %s)", len(spectra),
-         spectra[0].mass, spectra[-1].mass)
-    info("  peak stats: %s..%s..%s..%s..%s (mean=%.2f)"
-         % peak_statistics(spectra))
+    if spectra:
+        info("after filtering:")
+        info("     %s spectra (mass range %s - %s)", len(spectra),
+             spectra[0].mass, spectra[-1].mass)
+        info("  peak stats: %s..%s..%s..%s..%s (mean=%.2f)"
+             % peak_statistics(spectra))
 
     cgreylag.spectrum.set_searchable_spectra(spectra)
     score_statistics = cgreylag.score_stats(len(spectra),
@@ -1324,10 +1249,10 @@ def main(args=sys.argv[1:]):
                % (score_statistics.candidate_spectrum_count / 300.0e6))
         return
 
-    # FIX!
     info("writing result file")
-    result_fn = 'test.result.gz'
-    with contextlib.closing(zopen(result_fn, 'w')) as result_file:
+    # FIX: this is only for standalone mode
+    result_fn = 'grind_%s-%s.gwr' % options.work_slice
+    with contextlib.closing(gzip.open(result_fn, 'w')) as result_file:
         d = { 'version' : __version__,
               'matches' : results_dump(score_statistics,
                                        cgreylag.cvar.spectrum_searchable_spectra),
