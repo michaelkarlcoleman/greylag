@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2.5
 
 '''Merge a set of greylag search result files, producing a search result file
 that summarizes the best matches found.
