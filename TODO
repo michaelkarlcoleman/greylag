@@ -37,18 +37,16 @@ TASK QUEUE
 * MINI-GOAL: basic greylag-process usable on our cluster (no mods)
 
 
-* Get greylag-process script running
+* Compare greylag/SEQUEST/MM on test-myrimatch example (non-specific)
+** whole file
+** Note: SEQUEST parent tolerance differs
+
+* Look at memory usage
 
 * Basic optimization
-* Evaluate performance differences
-
-* Compare greylag output to SEQUEST on test-myrimatch example
-** also compare against MyriMatch
-*** do a non-specific run with the existing binary
+* Evaluate performance differences vs SEQUEST/MM/Xtandem?
 
 * Try to cut unneeded SWIG types
-
-* Compare greylag vs Myrimatch on test-2 case
 
 * Design and implement greylag master process (work manifests?)
 
@@ -64,6 +62,9 @@ TASK QUEUE
 ** A lines for each M line to document regime (index of R) and residue mods
 ** Try to keep back compatibility by grepping out A/R lines
 
+* greylag-solo
+
+* update estimate factor
 
 
 = M1 =========================================================================
@@ -93,6 +94,9 @@ TASK QUEUE
 * Implement MyriMatch charge-calling algorithm?
 
 * Implement MyriMatch deisotoping?
+
+
+* Look more closely at specific MM vs GL match diffs.
 
 
 * Figure out how to handle multiple residue mods (delta, isotope, etc)
