@@ -1,0 +1,23 @@
+#!/usr/bin/env python
+
+"""
+Given two arguments SGE_TASK_ID SGE_TASK_LAST, return the corresponding work
+slice, suitable for greylag-grind's -w flag.
+
+For example, 'greylag-sge-slice 20 456' prints '0.04167 0.04386'.
+
+"""
+
+import sys
+
+N = int(sys.argv[1])
+M = int(sys.argv[2])
+
+assert 1 <= N <= M
+
+s = 1.0 / M
+w0 = (N-1) * s
+w1 = N * s
+if N == M:
+    w1 = 1.0                            # forestall rounding issues
+print "%.5f %.5f" % (w0, w1)

@@ -5,27 +5,23 @@
 # This directory is assumed to be shared across all cluster nodes
 SHAREDTMPDIR=/clusterfs/home/proteomics/tmp
 
-# greylag lives here
-greylag=greylag
-
-# options passed to all greylag invocations
-#greylag_options="-v --quirks-mode"
+# options passed to all greylag-grind invocations
 greylag_options="-v"
 
 # Divide this run into this many parts.  This should probably be at least 5x
-# the number of cluster nodes available.  Currently, the fixed overhead cost
-# for each part is pretty small (10-20 seconds?).
-PARTS=1000
+# the number of cluster nodes available.  At the moment, this must be an exact
+# power of ten.
+PARTS=${GREYLAG_PARTS:-1000}
 
 
 p=`basename $0`
 
 usage() {
     cat <<EOF 1>&2
-usage: $p [-l] <greylag-params.xml> [ <ms2-file> ... ]
+usage: $p [-l] <greylag.conf> <ms2-file> [ <ms2-file>... ]
 
-Process a set of ms2 files as specified by the given params file (which must
-end in '.xml' and should probably be in the current directory).
+Process a set of ms2 files as specified by the given configuration file (which
+must end in '.conf' and should probably be in the current directory).
 
 If the '-l' flag is given, stdout and stderr will be redirected to a
 corresponding '.log' file.
@@ -35,7 +31,7 @@ EOF
 }
 
 err() {
-    echo 1>&2 "$p: $@"
+    echo 1>&2 "$(date '+%b %e %H:%M:%S') $p: $@"
 }
 
 die() {
@@ -53,16 +49,16 @@ if [ $# -lt 2 ]; then
     usage
 fi
 
-params="$1"
+config="$1"
 
-rm -f ${params%.xml}.done-*
+rm -f ${config%.conf}.done-*
 
-case "$params" in
-    *.xml) true;;
-    *) die "parameter filename must end in '*.xml'";;
+case "$config" in
+    *.conf) true;;
+    *) die "parameter filename must end in '*.conf'";;
 esac
 
-jobname=$(basename $params .xml)
+jobname=$(basename $config .conf)
 
 shift
 for f in "$@"; do
@@ -70,12 +66,12 @@ for f in "$@"; do
 	die "file '$f' must be in the current working directory"
     fi
     case "$f" in
-	*.ms2 | *.ms2.gz | *.ms2.bz2) true;;
-	*) die "argument file '$f' should end in '.ms2' (or '.ms2.{gz,bz2}')";;
+	*.ms2) true;;
+	*) die "argument file '$f' should end in '.ms2'";;
     esac
 done
 
-[ -e $params ] || die "'$params' not found"
+[ -e $config ] || die "'$config' not found"
 
 if ! ls -ld . | egrep -q '^drwxrws'; then
     chmod g+rwxs . || err "attempt to make this directory group writable failed"
@@ -86,7 +82,7 @@ fi
 # parameter file, which would produce output to the same file, wasting
 # resources and causing confusion.
 
-lockfile="$PWD/$jobname.lock"
+lockfile="$jobname.lock"
 trap "rm -f $lockfile" EXIT
 ln -s $$ $lockfile 2>/dev/null || true
 lockpid=$(ls -ld $lockfile | sed -e 's/^.*> //')
@@ -114,17 +110,17 @@ shared_d=$SHAREDTMPDIR/greylag-$(date +%s)-$$ # unique
 
 mkdir $shared_d || die "'mkdir $shared_d' failed!"
 
-cp -p "$params" $shared_d/ || die "params cp failed!"
+cp -p "$config" $shared_d/ || die "config cp failed!"
 
+err set up work directory, recreating indices if necessary
 for f in "$@"; do
-    case "$f" in
-	*.gz) zcat < "$f" > "$shared_d/$f" || die "ms2 zcat failed";;
-	*.bz2) bzcat < "$f" > "$shared_d/$f" || die "ms2 zcat failed";;
-	*) ln -s "$PWD/$f" $shared_d/ || die "ms2 ln -s failed";;
-    esac
+    idx="$f.idx"
+    if ! [ -e "$idx" -a "$idx" -nt "$f" ]; then
+	greylag-index-spectra "$f" \
+	    || die "greylag-index-spectra failed"
+    fi
+    cp -p "$f" "$idx" $shared_d/ || die "ms2/idx cp failed"
 done
-
-results="$jobname.out.xml.gz"
 
 jobbasedir=$(basename $PWD)
 
@@ -137,63 +133,45 @@ pushd $shared_d > /dev/null || die "pushd failed!"
 #cat <<EOF
 #job name: $jobname
 #shared dir: $shared_d
-#params: $params
+#config: $config
 #ms2: $@
 #EOF
 #ls -l $shared_d/
 
-err round 0 setup
 
-# Use of *.ms2 implies that there are no such files here except for the ones
-# we just created.  Fix?
-# [NB: the ms2 arguments must be given in the same order each time!]
+err search
 
-# split ms2 files (on master, for now)
-$greylag $greylag_options \
-    -o "$results" \
-    --part-split=$PARTS \
-    "$params" *.ms2 \
-    || die "round 0 setup on master failed"
+# It's important that the same ms2 arguments be given (in the same order) each
+# time.
 
-err round 0 processing
-
-# The -pe option is currently a hack to try to stop multiple jobs from being
-# run on the same node.
-
-# first do parts on nodes
-qsub -sync y -r y -b y -cwd -V -hard -l mem_free=250M \
+qsub -sync y -r y -b y -cwd -V -hard -l virtual_free=250M \
     -q all.q \
     -t 1-$PARTS \
     -N "greylag-$jobbasedir-$jobname-$$" \
-    -e 'round-1.$TASK_ID.err' \
-    -o 'round-1.$TASK_ID.out' \
-    $greylag $greylag_options \
-    -o "$results" \
-    --part='${SGE_TASK_ID}of${SGE_TASK_LAST}' \
-    "$params" *.ms2
+    -e 'grind.$TASK_ID.err' \
+    -o 'grind.$TASK_ID.out' \
+    greylag-grind $greylag_options \
+    --work-slice '$(greylag-sge-slice ${SGE_TASK_ID} ${SGE_TASK_LAST})' \
+    id "$config" "$@"
 qsub_status=$?
-cat $(ls -1 round-1.*.{out,err} | sort -t . -k 2n,3) /dev/null
+cat $(ls -1 grind.*.{out,err} | sort -t . -k 2n,3) /dev/null
 if [ "$qsub_status" != 0 ]; then
-    die "round 0 on nodes failed"
+    die "grind on nodes failed"
 fi
-
-err round 0 merge
-
-# now merge results (on master, for now)
-$greylag $greylag_options \
-    -o "$results" \
-    --part-merge=$PARTS \
-    "$params" *.ms2 \
-    || die "round 0 merge on master failed"
 
 popd > /dev/null || die "popd failed!"
 #########################################################################
 
-if ! [ -e $shared_d/"$results" ]; then
-    die 'no results file present after processing--job failed?'
-fi
+# now merge results (on master, for now)
 
-cp -p $shared_d/"$results" . || die "cp failed!"
+err merge results
+
+greylag-merge $shared_d/*.gwr "$jobname.gwr" \
+    || die "merge failed"
+
+err write sqt files
+
+greylag-sqt "$jobname.gwr" || die "sqt write failed"
 
 # for now, don't do this
 #rm -fr "$shared_d" $lockfile
