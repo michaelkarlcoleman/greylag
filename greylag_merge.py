@@ -55,8 +55,8 @@ def check_consistency(r0, r1):
     if k0 != k1:
         warn("mismatched keys: %s" % (k0 ^ k1))
 
-    merge_keys = set(['matches', 'spectra'])
-    for k in k0 - merge_keys:
+    varying_keys = set(['matches', 'total comparisons', 'argv'])
+    for k in k0 - varying_keys:
         if r0[k] != r1.get(k):
             warn("search context differs: %s (%s vs %s)" % (k, r0[k], r1[k]))
 
