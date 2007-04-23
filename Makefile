@@ -84,8 +84,11 @@ install::
 	[ -d $(DEST) ] || install -d $(DEST)
 	install -p _$(MODULE).so $(DEST)
 	install -p --mode=444 $(MODULE).py $(DEST)
-	install -p greylag_grind.py $(DEST)
-	install -p greylag-mp.py $(DEST)
+	install -p greylag_grind.py $(DEST)/greylag-grind
+	install -p greylag_index_spectra.py $(DEST)/greylag-index-spectra
+	install -p greylag_merge.py $(DEST)/greylag-merge
+	install -p greylag_sqt.py $(DEST)/greylag-sqt
+
 
 clean::
 	-rm -f $(MODULE).py $(MODULE)_wrap.cpp $(MODULE).o $(MODULE)_wrap.o \
