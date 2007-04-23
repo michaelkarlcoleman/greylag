@@ -1104,6 +1104,27 @@ def zopen(filename, mode='r', compresslevel=9):
         return open(filename, mode)
 
 
+def results_dump(score_statistics, searchable_spectra):
+    """Return a result dict mapping spectrum names to (spectrum_metadata,
+    best_matches) pairs.  (Unneeded fields are stripped.)
+    """
+
+    r = {}
+    spectrum_metadata_fs = set(['name', 'file_id', 'mass', 'charge',
+                                'total_ion_current', 'comparisons'])
+    py_s_spectra = pythonize_swig_object(searchable_spectra,
+                                         only_fields=spectrum_metadata_fs)
+    py_matches = pythonize_swig_object(score_statistics.best_matches,
+                                       skip_fields=['spectrum_index'])
+    assert len(py_s_spectra) == len(py_matches)
+
+    for sp_metadata, sp_matches in zip(py_s_spectra, py_matches):
+        assert sp_metadata['name'] not in r, "duplicate spectrum name"
+        r[sp_metadata['name']] = (sp_metadata, sp_matches)
+
+    return r
+
+
 def main(args=sys.argv[1:]):
     parser = optparse.OptionParser(usage=
                                    "usage: %prog [options] <job-id>"
@@ -1306,26 +1327,18 @@ def main(args=sys.argv[1:]):
     # FIX!
     info("writing result file")
     result_fn = 'test.result.gz'
-    py_score_statistics = pythonize_swig_object(score_statistics)
-
-    # only put spectrum info that's actually needed into the result file
-    spectrum_metadata_fields = set(['name', 'file_id', 'mass', 'charge',
-                                    'total_ion_current', 'comparisons'])
-    spectrum_metadata = \
-        pythonize_swig_object(cgreylag.cvar.spectrum_searchable_spectra,
-                              only_fields=spectrum_metadata_fields)
-
     with contextlib.closing(zopen(result_fn, 'w')) as result_file:
-        cPickle.dump({ 'matches' : py_score_statistics,
-                       'spectra' : spectrum_metadata,
-                       'spectrum files' : base_spectrum_fns,
-                       'databases' : databases,
-                       'parameters' : XTP,
-                       'mass regime atomic masses' : MASS_REGIME_ATOMIC_MASSES,
-                       'proton mass' : PROTON_MASS,
-                       'argv' : sys.argv },
-                     result_file,
-                     cPickle.HIGHEST_PROTOCOL)
+        d = { 'version' : __version__,
+              'matches' : results_dump(score_statistics,
+                                       cgreylag.cvar.spectrum_searchable_spectra),
+              'total comparisons' : score_statistics.candidate_spectrum_count,
+              'spectrum files' : base_spectrum_fns,
+              'databases' : databases,
+              'parameters' : XTP,
+              'mass regime atomic masses' : MASS_REGIME_ATOMIC_MASSES,
+              'proton mass' : PROTON_MASS,
+              'argv' : sys.argv }
+        cPickle.dump(d, result_file, cPickle.HIGHEST_PROTOCOL)
     info("finished, result file written to '%s'", result_fn)
 
 

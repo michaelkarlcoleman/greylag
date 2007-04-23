@@ -37,8 +37,6 @@ TASK QUEUE
 * MINI-GOAL: basic greylag-process usable on our cluster (no mods)
 
 
-* Design and implement SQT fileset merger
-
 * Get greylag-process script running
 
 * Basic optimization

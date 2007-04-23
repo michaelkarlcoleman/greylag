@@ -57,7 +57,10 @@ def print_header(f, r):
     # H       DiffMod TNA*=+2.0
 
 
-def print_spectrum(f, spectrum, sp_best_matches):
+def print_spectrum(f, sp_matches):
+    """Print the lines associated with the given spectrum."""
+    spectrum, sp_best_matches = sp_matches
+
     scan_low, scan_high, _rest = spectrum['name'].split('.', 2)
     print >> f, '\t'.join(str(v) for v in
                           ["S", scan_low, scan_high, spectrum['charge'], 0,
@@ -69,7 +72,7 @@ def print_spectrum(f, spectrum, sp_best_matches):
     # score -> rank
     rank_map = dict(zip(best_scores, range(1,len(best_scores)+1)))
 
-    best_score = sp_best_matches[0]['score']
+    best_score = best_scores[0]
     for match in sp_best_matches:
         score = match['score']
         if score == 0:
@@ -126,25 +129,24 @@ def main(args=sys.argv[1:]):
     spectrum_fns = r['spectrum files']
     assert len(spectrum_fns) == len(set(spectrum_fns)) # check uniqueness
 
-    spectra = r['spectra']
-    best_matches = r['matches']['best_matches']
-    assert len(spectra) == len(best_matches)
+    matches = r['matches'].items()
 
-    # order spectra and best_matches by (filename, spectrum name)
-    def filename_specname_order(sm):
-        return r['spectrum files'][sm[0]['file_id']], sm[0]['name']
+    # order matches by (spectrum filename, spectrum name)
+    def filename_specname_order(m):
 
-    spec_match = zip(spectra, best_matches)
-    spec_match.sort(key=filename_specname_order)
+        sp = m[1][0]
+        return sp['file_id'], sp['name']
+
+    matches.sort(key=filename_specname_order)
 
     for spectrum_n, spectrum_fn in enumerate(spectrum_fns):
         assert os.path.dirname(spectrum_fn) == ''
         sqt_fn = os.path.splitext(spectrum_fn)[0] + '.sqt'
         with open(sqt_fn, 'w') as sqtf:
             print_header(sqtf, r)
-            for spectrum, best_match in spec_match:
-                if spectrum['file_id'] == spectrum_n:
-                    print_spectrum(sqtf, spectrum, best_match)
+            for match in matches:
+                if match[1][0]['file_id'] == spectrum_n:
+                    print_spectrum(sqtf, match[1])
 
 
 if __name__ == '__main__':
