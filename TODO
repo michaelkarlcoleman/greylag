@@ -37,21 +37,21 @@ TASK QUEUE
 * MINI-GOAL: basic greylag-process usable on our cluster (no mods)
 
 
+* Basic optimization
+** look at callgrind output
+
+* update estimate factor
+
+* Update docstrings
+* Update test cases
+
 * Compare greylag/SEQUEST/MM on test-myrimatch example (non-specific)
 ** whole file
 ** Note: SEQUEST parent tolerance differs
 
-* Look at memory usage
-
-* Basic optimization
 * Evaluate performance differences vs SEQUEST/MM/Xtandem?
 
-* Try to cut unneeded SWIG types
-
 * Design and implement greylag master process (work manifests?)
-
-* Update docstrings
-* Update test cases
 
 * Look for more dead code to remove
 
@@ -62,12 +62,16 @@ TASK QUEUE
 ** A lines for each M line to document regime (index of R) and residue mods
 ** Try to keep back compatibility by grepping out A/R lines
 
-* greylag-solo
-
-* update estimate factor
+* Look at memory usage
+** maybe avoid spectrum name copies
+** maybe avoid locus name copies
+** instead of copying db sequences, use Python's?
+** kill off cleavage point lists (4M?)
 
 
 = M1 =========================================================================
+
+* greylag-solo
 
 * Implement MM smart +3 model?
 ** Is it better?
@@ -109,6 +113,8 @@ TASK QUEUE
 * Add duplicate peptide masking optimization
 ** This will obviate the need to detect identical best matches at search time?
 ** Fix redundant peptide reporting
+
+* Make sure greylag is 64-bit clean.
 
 
 * Time a real mod search vs SEQUEST (and xtandem?), is time reasonable?

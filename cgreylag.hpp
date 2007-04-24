@@ -281,7 +281,6 @@ struct mass_trace_item {
 class match {
 public:
   double score;
-  int missed_cleavage_count;	// FIX: unneeded
   int spectrum_index;
   std::string peptide_sequence;
   double predicted_parent_mass;
@@ -292,9 +291,7 @@ public:
   std::vector<int> peptide_begin; // absolute position within locus
   std::vector<std::string> sequence_name;
 
-  match() : score(0), missed_cleavage_count(-1), spectrum_index(-1),
-	    predicted_parent_mass(0) {
-  }
+  match() : score(0), spectrum_index(-1), predicted_parent_mass(0) { }
 };
 
 

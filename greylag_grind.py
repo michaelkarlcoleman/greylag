@@ -42,15 +42,13 @@ __version__ = "0.0"
 
 
 import ConfigParser
-from collections import defaultdict
 import contextlib
 import cPickle
 import fileinput
 import gzip
-import itertools
 import logging
 from logging import debug, info, warning
-import math                             #??
+import math
 import optparse
 import os
 from pprint import pprint, pformat
@@ -733,7 +731,6 @@ def pythonize_swig_object(o, only_fields=None, skip_fields=[]):
 
     >>> pprint(pythonize_swig_object(cgreylag.score_stats(1, 1)))
     {'best_matches': [[{'mass_trace': [],
-                        'missed_cleavage_count': -1,
                         'peptide_begin': [],
                         'peptide_sequence': '',
                         'predicted_parent_mass': 0.0,
@@ -1176,6 +1173,7 @@ def main(args=sys.argv[1:]):
     # read spectra per work slice
     spectra = read_spectra_slice(spectrum_fns, spectrum_offset_indices,
                                  options.work_slice)
+    del spectrum_offset_indices
     spectra.sort(key=lambda x: x.mass)
 
     def peak_statistics(spectra):

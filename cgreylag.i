@@ -20,10 +20,6 @@
 %module cgreylag
 
 
-// Declare this read-only, to suppress a warning about a possible memory leak.
-%immutable mass_trace_item::description;
-
-
 %feature("autodoc");
 
 %{
@@ -72,7 +68,6 @@
 %template(vector_vector_int) std::vector< std::vector<int> >;
 %template(vector_vector_double) std::vector< std::vector<double> >;
 %template(vector_vector_match) std::vector< std::vector<match> >;
-%template(vector_vector_vector_double) std::vector< std::vector< std::vector<double> > >;
 
 
 %include std_pair.i
@@ -89,17 +84,6 @@
 
 %template(multimap_double_vector_size_type)
     std::multimap<double, std::vector<spectrum>::size_type>;
-
-// currently unused
-//%template(pair_char_int) std::pair<char, int>;
-//%template(pair_char_double) std::pair<char, double>;
-
-//%template(map_char_int) std::map<char, int>;
-//%template(map_char_double) std::map<char, double>;
-
-
-%include "typemaps.i"
-%apply int *OUTPUT { int *peak_count };
 
 
 %include file.i

@@ -497,30 +497,6 @@ score_spectrum(const spectrum &x, const spectrum &y) NOTHROW {
   const int peak_misses = (valid_theoretical_peaks
 			   - accumulate(peak_hit_histogram.begin(),
 					peak_hit_histogram.end(), 0));
-#if 0
-  for (unsigned int i=0; i<peak_hit_histogram.size(); i++)
-    if (x.intensity_class_counts[i] < peak_hit_histogram[i])
-      std::cerr << i << " C(" << x.intensity_class_counts[i] << ", "
-		<< peak_hit_histogram[i] << ")" << std::endl;
-  if (x.empty_peak_bins < peak_misses)
-    std::cerr << "M C(" << x.empty_peak_bins << ", " << peak_misses << ")"
-	      << std::endl;
-  if (x.total_peak_bins < valid_theoretical_peaks)
-    std::cerr << "T C(" << x.total_peak_bins << ", " << valid_theoretical_peaks
-	      << ")" << std::endl;
-#endif
-
-#if 0
-  for (unsigned int i=0; i<peak_hit_histogram.size(); i++)
-    std::cerr << i << " C(" << x.intensity_class_counts[i] << ", "
-	      << peak_hit_histogram[i] << ")" << std::endl;
-  std::cerr << "C(" << x.empty_peak_bins << ", " << peak_misses << ")"
-	    << std::endl;
-  std::cerr << "C(" << x.total_peak_bins << ", " << valid_theoretical_peaks
-	    << ")" << std::endl;
-  std::cerr << std::endl;
-#endif
-
   assert(peak_misses >= 0);
 
   double score = 0.0;
@@ -770,8 +746,8 @@ search_run(const search_context &context, const sequence_run &sequence_run,
 		  fixed_parent_mass);
     unsigned int end = std::max<unsigned int>(begin + 1, next_end);
     for (; end<cleavage_points.size(); end++) {
-      m.missed_cleavage_count = end - begin - 1;
-      if (m.missed_cleavage_count > context.maximum_missed_cleavage_sites)
+      const int missed_cleavage_count = end - begin - 1;
+      if (missed_cleavage_count > context.maximum_missed_cleavage_sites)
 	break;
 
       const int end_index = cleavage_points[end];
