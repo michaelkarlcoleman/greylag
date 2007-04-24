@@ -11,7 +11,7 @@ greylag_options="-v"
 # Divide this run into this many parts.  This should probably be at least 5x
 # the number of cluster nodes available.  At the moment, this must be an exact
 # power of ten.
-PARTS=${GREYLAG_PARTS:-1000}
+PARTS=${GREYLAG_PARTS:-3000}
 
 
 p=`basename $0`
@@ -154,9 +154,13 @@ qsub -sync y -r y -b y -S /bin/bash -cwd -V -hard -l virtual_free=250M \
     --work-slice '$(greylag-sge-slice ${SGE_TASK_ID} ${SGE_TASK_LAST})' \
     id "$config" "$@"
 qsub_status=$?
-cat $(ls -1 grind.*.{out,err} | sort -t . -k 2n,3) /dev/null
+cat $(find . -name 'grind-*.out' -o -name 'grind-*.err' | sort -t . -k 2n,3) /dev/null
 if [ "$qsub_status" != 0 ]; then
     die "grind on nodes failed"
+fi
+
+if [ "$(find . -name '*.gwr' | wc -l)" != $PARTS ]; then
+    die "SGE/grind on nodes failed"
 fi
 
 popd > /dev/null || die "popd failed!"
