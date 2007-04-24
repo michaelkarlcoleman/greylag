@@ -1,4 +1,4 @@
-#!/usr/bin/env python2.5
+#!/usr/bin/env greylag-python
 
 '''Create a trivial index giving the starting point of each spectrum, as a
    byte offset from the file beginning.  (The index is stored in Python pickle

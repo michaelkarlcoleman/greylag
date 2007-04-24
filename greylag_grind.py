@@ -1,4 +1,4 @@
-#!/usr/bin/env python2.5
+#!/usr/bin/env greylag-python
 
 '''This program does the actual work to search mass spectra against a sequence
 database.  <job-id> is a unique identifier used as a prefix for work and
