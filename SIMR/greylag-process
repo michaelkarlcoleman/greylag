@@ -170,7 +170,7 @@ popd > /dev/null || die "popd failed!"
 
 err merge results
 
-greylag-merge $shared_d/*.gwr "$jobname.gwr" \
+find $shared_d -name '*.gwr' | greylag-merge --files-on-stdin "$jobname.gwr" \
     || die "merge failed"
 
 err write sqt files

@@ -98,10 +98,13 @@ def merge_matches(m0, m1):
 
 def main(args=sys.argv[1:]):
     parser = optparse.OptionParser(usage=
-                                   "usage: %prog [options] <result-file>..."
+                                   "usage: %prog [options] [<result-file>...]"
                                    " <output-result-file>",
                                    description=__doc__, version=__version__)
     pa = parser.add_option
+    pa("-f", "--files-on-stdin", action="store_true", dest="files_on_stdin",
+       help="read filenames to be merged from stdin, one per line, instead of"
+       " from the command-line.")
     pa("-v", "--verbose", action="store_true", dest="verbose",
        help="be verbose")
     pa("--copyright", action="store_true", dest="copyright",
@@ -112,12 +115,22 @@ def main(args=sys.argv[1:]):
         print __copyright__
         sys.exit(0)
 
-    if len(args) < 2:
-        parser.print_help()
-        sys.exit(1)
+    if options.files_on_stdin:
+        if len(args) != 1:
+            parser.print_help()
+            sys.exit(1)
+        filenames = [ l.strip() for l in sys.stdin ]
+        if len(filenames) < 1:
+            error("--files-on-stdin given, but stdin was empty")
+        result_fn_0 = filenames[0]
+        result_fn_1_N = filenames[1:]
+    else:
+        if len(args) < 2:
+            parser.print_help()
+            sys.exit(1)
+        result_fn_0 = args[0]
+        result_fn_1_N = args[1:-1]
 
-    result_fn_0 = args[0]
-    result_fn_1_N = args[1:-1]
     output_fn = args[-1]
 
     # spectrum name -> match list/spectrum info
