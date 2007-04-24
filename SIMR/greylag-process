@@ -144,7 +144,7 @@ err search
 # It's important that the same ms2 arguments be given (in the same order) each
 # time.
 
-qsub -sync y -r y -b y -cwd -V -hard -l virtual_free=250M \
+qsub -sync y -r y -b y -S /bin/bash -cwd -V -hard -l virtual_free=250M \
     -q all.q \
     -t 1-$PARTS \
     -N "greylag-$jobbasedir-$jobname-$$" \
