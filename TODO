@@ -39,15 +39,16 @@ TASK QUEUE
 
 * Basic optimization
 ** look at callgrind output
+*** search_run
+** maybe de-STL things
+*** use an mz list instead of a theoretical spectrum
+** cleavage point code
+
 
 * update estimate factor
 
 * Update docstrings
 * Update test cases
-
-* Compare greylag/SEQUEST/MM on test-myrimatch example (non-specific)
-** whole file
-** Note: SEQUEST parent tolerance differs
 
 * Evaluate performance differences vs SEQUEST/MM/Xtandem?
 
@@ -67,6 +68,10 @@ TASK QUEUE
 ** maybe avoid locus name copies
 ** instead of copying db sequences, use Python's?
 ** kill off cleavage point lists (4M?)
+
+* Compare greylag/SEQUEST/MM on test-myrimatch example (non-specific)
+** look at MM (whole file)
+** Note: SEQUEST parent tolerance differs
 
 
 = M1 =========================================================================
