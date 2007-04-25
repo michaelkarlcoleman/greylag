@@ -408,34 +408,34 @@ synthetic_spectra(spectrum synth_sp[/* max_fragment_charge+1 */],
 		  const double fragment_N_fixed_mass,
 		  const double fragment_C_fixed_mass,
 		  const double max_fragment_charge) NOTHROW {
-  std::vector<peak> mass_ladder(mass_list.size()-1);
+  std::vector<peak> Y_mass_ladder(mass_list.size()-1);
+  std::vector<peak> B_mass_ladder(mass_list.size()-1);
 
   for (int charge=1; charge<=max_fragment_charge; charge++) {
     spectrum &sp = synth_sp[charge];
-    //sp.mass = fragment_peptide_mass;
-    sp.charge = charge;
-    sp.peaks.resize(mass_ladder.size() * (ION_MAX-ION_MIN));
-    std::vector<peak>::size_type pi=0;
+    sp.peaks.resize(Y_mass_ladder.size() * 2);
 
-    for (ion ion_type=ION_MIN; ion_type<ION_MAX; ion_type++) {
-      switch (ion_type) {
-      case ION_Y:
-	get_synthetic_Y_mass_ladder(mass_ladder, mass_list,
-				    fragment_C_fixed_mass);
-	break;
-      case ION_B:
-	get_synthetic_B_mass_ladder(mass_ladder, mass_list,
-				    fragment_N_fixed_mass);
-	break;
-      default:
-	assert(false);
-      }
+    get_synthetic_Y_mass_ladder(Y_mass_ladder, mass_list,
+				fragment_C_fixed_mass);
+    get_synthetic_B_mass_ladder(B_mass_ladder, mass_list,
+				fragment_N_fixed_mass);
 
-      for (std::vector<peak>::size_type i=0; i<mass_ladder.size(); i++) {
-	sp.peaks[pi++].mz = peak::get_mz(mass_ladder[i].mz, charge);
-      }
-    }
-    std::sort(sp.peaks.begin(), sp.peaks.end(), peak::less_mz);
+    std::vector<peak>::const_iterator y_it=Y_mass_ladder.begin();
+    std::vector<peak>::const_iterator b_it=B_mass_ladder.begin();
+    std::vector<peak>::iterator p_it=sp.peaks.begin();
+
+    // merge the two (already sorted) mass lists, converting them to mz values
+    // in the process
+    while (y_it != Y_mass_ladder.end() and b_it != B_mass_ladder.end())
+      if (y_it->mz < b_it->mz)
+	(p_it++)->mz = peak::get_mz((y_it++)->mz, charge);
+      else
+	(p_it++)->mz = peak::get_mz((b_it++)->mz, charge);
+    while (y_it != Y_mass_ladder.end())
+      (p_it++)->mz = peak::get_mz((y_it++)->mz, charge);
+    while (b_it != B_mass_ladder.end())
+      (p_it++)->mz = peak::get_mz((b_it++)->mz, charge);
+    assert(p_it == sp.peaks.end());
   }
 }
 
@@ -721,8 +721,7 @@ search_run(const search_context &context, const sequence_run &sequence_run,
   m.peptide_begin.push_back(0);
   int &peptide_begin = m.peptide_begin[0];
 
-  assert(context.delta_bag_delta.size()
-	 == context.delta_bag_count.size());
+  assert(context.delta_bag_delta.size() == context.delta_bag_count.size());
   // counts remaining as mod positions are chosen
   std::vector<int> db_remaining = context.delta_bag_count;
 
@@ -738,10 +737,23 @@ search_run(const search_context &context, const sequence_run &sequence_run,
   for (unsigned int begin=0; begin<cleavage_points.size()-1; begin++) {
     const int begin_index = cleavage_points[begin];
     peptide_begin = begin_index + sequence_run.sequence_offset;
-    if (not context.pca_residues.empty())
-      if (context.pca_residues.find(run_sequence[begin_index])
-	  == std::string::npos)
-	continue;
+
+    // If pca_residues specified, require one of them to be the peptide
+    // N-terminal residue
+    switch (context.pca_residues.size()) {
+    case 0:
+      break;
+    case 2:
+      if (context.pca_residues[1] == run_sequence[begin_index])
+	break;
+    case 1:
+      if (context.pca_residues[0] == run_sequence[begin_index])
+	break;
+      continue;
+    default:
+      assert(false);
+    }
+
     update_p_mass(p_mass, p_begin, begin_index, -1, run_sequence,
 		  fixed_parent_mass);
     unsigned int end = std::max<unsigned int>(begin + 1, next_end);
@@ -777,7 +789,6 @@ search_run(const search_context &context, const sequence_run &sequence_run,
 	= spectrum::spectrum_mass_index.lower_bound(sp_mass_lb);
       if (candidate_spectra_info_begin == spectrum::spectrum_mass_index.end()) {
 	// spectrum masses all too low to match peptide (peptide too long)
-	//std::cerr << "peptide: sp low" << std::endl;
 	break;
       }
 
@@ -786,7 +797,6 @@ search_run(const search_context &context, const sequence_run &sequence_run,
       if (candidate_spectra_info_end == spectrum::spectrum_mass_index.begin()) {
 	// spectrum masses all too high to match peptide
 	// (peptide is too short, so increase end, if possible, else return)
-	//std::cerr << "peptide: sp high" << std::endl;
 	if (end == cleavage_points.size() - 1)
 	  return;
 	next_end = end;
@@ -794,7 +804,6 @@ search_run(const search_context &context, const sequence_run &sequence_run,
       }
       if (candidate_spectra_info_begin == candidate_spectra_info_end) {
 	// no spectrum with close-enough parent mass
-	//std::cerr << "peptide: sp none nearby" << std::endl;
 	continue;
       }
 
