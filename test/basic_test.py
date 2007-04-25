@@ -7,7 +7,7 @@ import contextlib
 
 from nose.tools import *
 
-from greylag import *
+from greylag_grind import *
 
 
 def same_atoms_test():
