@@ -4,10 +4,12 @@
 from __future__ import with_statement
 
 import contextlib
+from pprint import pprint
 
 from nose.tools import *
 
 from greylag_grind import *
+
 
 
 def same_atoms_test():
@@ -26,28 +28,35 @@ class formula_mass_test:
 class read_fasta_files_test:
     def simple_test_0(self):
         found = list(read_fasta_files(['test/scary.fa']))
-        wanted = [('ugly test fasta file', '', 'test/scary.fa'),
-                  ('', 'ABC', 'test/scary.fa'),
-                  ('1', 'STALEMATING', 'test/scary.fa'),
-                  (' foo', 'AARDVARKS AARDVARKSAARDVARKS', 'test/scary.fa'),
-                  ('gi|1234| bleah', 'SISTERLIKE', 'test/scary.fa'),
-                  ('gi|1234| bleah', 'SISTER*LIKE', 'test/scary.fa'),
-                  ('control-A here: [\x01]', '& HERE: [\x01]', 'test/scary.fa'),
-                  ('no final newline after F', 'ARF', 'test/scary.fa')]
+        wanted = [('ugly', 'ugly test fasta file', '', 'test/scary.fa'),
+                  ('1', '1', 'STALEMATING', 'test/scary.fa'),
+                  ('foo', ' foo', 'AARDVARKS AARDVARKSAARDVARKS', 'test/scary.fa'),
+                  ('gi|1234|', 'gi|1234| bleah', 'SISTERLIKE', 'test/scary.fa'),
+                  ('gi|12345|', 'gi|12345| bleah', 'SISTER*LIKE', 'test/scary.fa'),
+                  ('control-A', 'control-A here: [\x01]', '& HERE: [\x01]', 'test/scary.fa'),
+                  ('no', 'no final newline after F', 'ARF', 'test/scary.fa')]
         assert found == wanted
 
+    @raises(Exception)
+    def bad_test_empty_locusname(self):
+        found = list(read_fasta_files(['test/bogus-0.fa']))
 
-def read_taxonomy_test():
-    found = sorted(read_taxonomy('test/test-taxonomy.xml').items())
-    wanted = [('label', ['labeled.fa']),
-              ('multiple', ['one.fa', 'two.fa', 'three.fa']),
-              ('simple.fa', ['simple.fa'])]
-    assert found == wanted
+    @raises(Exception)
+    def bad_test_duplicate_locusnames(self):
+        found = list(read_fasta_files(['test/bogus-1.fa']))
 
 
-class read_xml_parameters_test:
-    def empty_test(self):
-        assert [] == read_xml_parameters('test/empty-params.xml').items()
+# def read_taxonomy_test():
+#     found = sorted(read_taxonomy('test/test-taxonomy.xml').items())
+#     wanted = [('label', ['labeled.fa']),
+#               ('multiple', ['one.fa', 'two.fa', 'three.fa']),
+#               ('simple.fa', ['simple.fa'])]
+#     assert found == wanted
+
+
+# class read_xml_parameters_test:
+#     def empty_test(self):
+#         assert [] == read_xml_parameters('test/empty-params.xml').items()
 
 
 class mass_regime_part_test:
@@ -192,8 +201,8 @@ class potential_mod_list_test:
         potential_mod_list('(((80@STY;12@C)))(')
 
 
-def XML_PARAMETER_INFO_test():
-    for k, v in XML_PARAMETER_INFO.iteritems():
+def PARAMETER_INFO_test():
+    for k, v in PARAMETER_INFO.iteritems():
         kv = "%s: %s" % (k, v)
         assert isinstance(k, str)
         assert isinstance(v, tuple)
@@ -208,20 +217,6 @@ def XML_PARAMETER_INFO_test():
             assert v[1] == None or isinstance(v[1], str), kv
         else:
             assert False, kv
-
-
-class zopen_test:
-    def read_check(self, filename):
-        with contextlib.closing(zopen(filename)) as f:
-            data = f.read()
-        assert data == 'data\n'
-
-    def plain_test(self):
-        self.read_check('test/data')
-    def gz_test(self):
-        self.read_check('test/data.gz')
-    def bz2_test(self):
-        self.read_check('test/data.bz2')
 
 
 class swig_sanity_test:
@@ -246,22 +241,22 @@ def reset_spectrum_ids():
 class external_type_test:
     def peak_repr_test(self):
         x = cgreylag.peak()
-        assert repr(x) == '<peak mz=0.0000 intensity=0.0000>'
+        assert repr(x) == '<peak mz=0.0000 intensity=0.0000 intensity_class=-1>'
         x = cgreylag.peak(1234.56, 112233)
-        assert repr(x) == '<peak mz=1234.5600 intensity=112233.0000>'
+        assert repr(x) == '<peak mz=1234.5600 intensity=112233.0000 intensity_class=-1>'
 
     def spectrum_repr_test(self):
         reset_spectrum_ids()
         x = cgreylag.spectrum()
-        assert repr(x) == "<spectrum #0 (phys #-1) '' 0.0000/+0 [0 peaks, maxI=-1.000000, sumI=-1.000000]>"
+        assert repr(x) == "<spectrum #0 (phys #-1) '' 0.0000/+0 [0 peaks]>"
         x = cgreylag.spectrum(1234.12, 2)
-        assert repr(x) == "<spectrum #1 (phys #-1) '' 1234.1200/+2 [0 peaks, maxI=-1.000000, sumI=-1.000000]>"
+        assert repr(x) == "<spectrum #1 (phys #-1) '' 1234.1200/+2 [0 peaks]>"
 
     def set_peaks_from_matrix_test(self):
         reset_spectrum_ids()
         x = cgreylag.spectrum()
         x.set_peaks_from_matrix([(1.0,2.0), (3.5,4.5), (5.0,6.0)])
-        assert repr(x) == "<spectrum #0 (phys #-1) '' 0.0000/+0 [3 peaks, maxI=-1.000000, sumI=-1.000000]>"
+        assert repr(x) == "<spectrum #0 (phys #-1) '' 0.0000/+0 [3 peaks]>"
 
 
 
@@ -270,23 +265,17 @@ class spectrum_test:
         reset_spectrum_ids()
         FILEID = 8
         with open('test/simple.ms2') as f:
-            x = cgreylag.spectrum.read_spectra_from_ms2(f, FILEID)
+            x = cgreylag.spectrum.read_spectra_from_ms2(f, FILEID, 0, -1)
         assert len(x) == 6
-        wanted = ("<spectrum #0 (phys #0) '0002.0002.2' 2096.1000/+2 [356 peaks, maxI=2475458.000000, sumI=19305560.000000]>",
-                  "<spectrum #1 (phys #0) '0002.0002.3' 3143.6600/+3 [356 peaks, maxI=2475458.000000, sumI=19305560.000000]>",
-                  "<spectrum #2 (phys #1) '0003.0003.2' 2307.4200/+2 [160 peaks, maxI=13492.000000, sumI=535952.000000]>",
-                  "<spectrum #3 (phys #1) '0003.0003.3' 3460.6000/+3 [160 peaks, maxI=13492.000000, sumI=535952.000000]>",
-                  "<spectrum #4 (phys #2) '0006.0006.2' 2057.9100/+2 [410 peaks, maxI=689515.000000, sumI=4639641.000000]>",
-                  "<spectrum #5 (phys #2) '0006.0006.3' 3086.2400/+3 [410 peaks, maxI=689515.000000, sumI=4639641.000000]>")
+        wanted = ("<spectrum #0 (phys #0) '0002.0002.2' 2096.1000/+2 [356 peaks]>",
+                  "<spectrum #1 (phys #0) '0002.0002.3' 3143.6600/+3 [356 peaks]>",
+                  "<spectrum #2 (phys #1) '0003.0003.2' 2307.4200/+2 [160 peaks]>",
+                  "<spectrum #3 (phys #1) '0003.0003.3' 3460.6000/+3 [160 peaks]>",
+                  "<spectrum #4 (phys #2) '0006.0006.2' 2057.9100/+2 [410 peaks]>",
+                  "<spectrum #5 (phys #2) '0006.0006.3' 3086.2400/+3 [410 peaks]>")
         for n, sp in enumerate(x):
             assert repr(sp) == wanted[n], "checking %s" % n
             assert sp.file_id == FILEID
-
-    @raises(RuntimeError)
-    def ms2_instead_of_ms2_plus_test(self):
-        reset_spectrum_ids()
-        with open('test/simple.ms2') as f:
-            x = cgreylag.spectrum.read_spectra_from_ms2(f, -1)
 
 
 class read_spectra_test:
@@ -305,14 +294,14 @@ class read_spectra_test:
         reset_spectrum_ids()
         self.create_ms2(contents, final_newline)
         with open(self.F) as f:
-            return cgreylag.spectrum.read_spectra_from_ms2(f, 1)
+            return cgreylag.spectrum.read_spectra_from_ms2(f, 1, 0, -1)
 
     def test_empty(self):
         assert len(self.read_ms2([''], False)) == 0
 
     def test_wordy_name(self):
         lines = [':blah blah blah', '1234.5 1', '123 456']
-        wanted = "(<spectrum #0 (phys #0) 'blah blah blah' 1234.5000/+1 [1 peaks, maxI=456.000000, sumI=456.000000]>,)"
+        wanted = "(<spectrum #0 (phys #0) 'blah blah blah' 1234.5000/+1 [1 peaks]>,)"
         assert wanted == repr(self.read_ms2(lines))
 
     @raises(RuntimeError)
@@ -395,32 +384,41 @@ class read_spectra_test:
     def test_bad_blank_2(self):
         self.read_ms2([':0002.0002.2', '1234.5 2', '', '123 456'])
 
-    def test_read_masses_0(self):
-        ms = cgreylag.spectrum.read_ms2_spectrum_masses(())
-        assert ms == ()
+#     def test_read_masses_0(self):
+#         ms = cgreylag.spectrum.read_ms2_spectrum_masses(())
+#         assert ms == ()
 
-    def test_read_masses_1(self):
-        self.create_ms2([':', '10234.5 2', '123 456',
-                         ':', '30234.5 2', '123 456',
-                         ':', '20234.5 2', '123 456',])
-        with open(self.F) as f:
-            fn = f.fileno()
-            ms = cgreylag.spectrum.read_ms2_spectrum_masses((fn,))
-        assert ms == (10234.5, 20234.5, 30234.5)
+#     def test_read_masses_1(self):
+#         self.create_ms2([':', '10234.5 2', '123 456',
+#                          ':', '30234.5 2', '123 456',
+#                          ':', '20234.5 2', '123 456',])
+#         with open(self.F) as f:
+#             fn = f.fileno()
+#             ms = cgreylag.spectrum.read_ms2_spectrum_masses((fn,))
+#         assert ms == (10234.5, 20234.5, 30234.5)
 
-    def test_read_masses_2(self):
-        self.create_ms2([':', '102.5 2', '123 456',
-                         ':', '302.5 2', '123 456',
-                         ':', '202.5 2', '123 456',])
-        with open(self.F) as f1:
-            fn1 = f1.fileno()
-            with open(self.F) as f2:
-                fn2 = f2.fileno()
-                ms = cgreylag.spectrum.read_ms2_spectrum_masses((fn1, fn2))
-                assert ms == (102.5, 102.5, 202.5, 202.5, 302.5, 302.5)
+#     def test_read_masses_2(self):
+#         self.create_ms2([':', '102.5 2', '123 456',
+#                          ':', '302.5 2', '123 456',
+#                          ':', '202.5 2', '123 456',])
+#         with open(self.F) as f1:
+#             fn1 = f1.fileno()
+#             with open(self.F) as f2:
+#                 fn2 = f2.fileno()
+#                 ms = cgreylag.spectrum.read_ms2_spectrum_masses((fn1, fn2))
+#                 assert ms == (102.5, 102.5, 202.5, 202.5, 302.5, 302.5)
 
     def teardown(self):
         os.remove(self.F)
 
 
 # FIX: more cgreylag testing to do here
+
+
+
+
+class gzip_test:
+    def read_check(self, filename):
+        with contextlib.closing(gzip.open('test/data.gz')) as f:
+            data = f.read()
+        assert data == 'data\n'

@@ -72,9 +72,10 @@ except:
 
 def error(s, *args):
     "fatal error"
-    logging.error(s, *args)
+    # if we're unit testing, just throw an exception
     if __name__ != "__main__":
-        raise Exception("(fatal error, but unit testing, so not exiting)")
+        raise Exception((s + " (fatal error)") % args)
+    logging.error(s, *args)
     sys.exit(1)
 
 
@@ -374,6 +375,12 @@ def read_fasta_files(filenames):
     loci_seen = set()
     locusname, defline = None, None
     seqs = []
+
+    # reset fileinput first, in case it's been called before
+    try:
+        fileinput.close()
+    except RuntimeError:
+        pass
     for line in fileinput.input(filenames):
         line = line.strip()
         if line[:1] == '>':
@@ -382,7 +389,10 @@ def read_fasta_files(filenames):
             elif seqs:
                 fileerror("bad format: line precedes initial defline")
             defline = line[1:]
-            locusname = defline.split(None, 1)[0]
+            locusname_rest = defline.split(None, 1)
+            if not locusname_rest:
+                error("empty locus name not allowed")
+            locusname = locusname_rest[0]
             if locusname in loci_seen:
                 error("locus name '%s' is not unique in the search database(s)"
                       % locusname)
@@ -1049,7 +1059,7 @@ def results_dump(score_statistics, searchable_spectra):
 
 def main(args=sys.argv[1:]):
     parser = optparse.OptionParser(usage=
-                                   "usage: %prog [options] <job-id>"
+                                   "usage: %prog [options]"
                                    " <configuration-file> <ms2-file>...",
                                    description=__doc__, version=__version__)
     pa = parser.add_option
@@ -1060,6 +1070,8 @@ def main(args=sys.argv[1:]):
     pa("-w", "--work-slice", nargs=2, type="float", dest="work_slice",
        help="search a subinterval [L:U) of the work space"
        " (where 0 <= L <= U <= 1) in standalone mode", metavar="L U")
+    pa("--job-id", dest="job_id", default="unknown",
+       help="used to generate unique output filenames [default 'unknown']")
     pa("-q", "--quiet", action="store_true", dest="quiet", help="no warnings")
     pa("-p", "--show-progress", action="store_true", dest="show_progress",
        help="show running progress")
@@ -1079,13 +1091,12 @@ def main(args=sys.argv[1:]):
         print __copyright__
         sys.exit(0)
 
-    if len(args) < 3:
+    if len(args) < 2:
         parser.print_help()
         sys.exit(1)
 
-    job_id = args[0]
-    configuration_fn = args[1]
-    spectrum_fns = args[2:]
+    configuration_fn = args[0]
+    spectrum_fns = args[1:]
 
     if (any(True for f in spectrum_fns if not f.endswith('.ms2'))
         or (options.work_slice
@@ -1104,10 +1115,6 @@ def main(args=sys.argv[1:]):
     logging.basicConfig(level=log_level, datefmt='%b %e %H:%M:%S',
                         format='%(asctime)s %(levelname)s: %(message)s')
     info("starting on %s", gethostname())
-
-    # prevent format char problems
-    if '%' in job_id:
-        error("<job-id> may not contain '%'")
 
     # check spectrum basename uniqueness, as corresponding sqt files will be
     # in a single directory
@@ -1249,7 +1256,8 @@ def main(args=sys.argv[1:]):
 
     info("writing result file")
     # FIX: this is only for standalone mode
-    result_fn = 'grind_%s-%s.gwr' % options.work_slice
+    result_fn = 'grind_%s_%s-%s.gwr' % (options.job_id, options.work_slice[0],
+                                        options.work_slice[1])
     with contextlib.closing(gzip.open(result_fn, 'w')) as result_file:
         d = { 'version' : __version__,
               'matches' : results_dump(score_statistics,

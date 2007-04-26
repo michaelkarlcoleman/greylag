@@ -88,6 +88,7 @@ install::
 	install -p greylag_index_spectra.py $(DEST)/greylag-index-spectra
 	install -p greylag_merge.py $(DEST)/greylag-merge
 	install -p greylag_sqt.py $(DEST)/greylag-sqt
+	install -p greylag_solo.py $(DEST)/greylag-solo
 	@echo "# remember to link 'greylag-python' to your python $(PYTHONVER)"
 
 clean::

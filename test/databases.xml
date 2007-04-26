@@ -1,9 +1,0 @@
-<?xml version="1.0"?>
-<bioml label="x! taxon-to-file matching list">
-	<taxon label="6323840.fa">
-		<file format="peptide" URL="6323840.fa" />
-	</taxon>
-	<taxon label="yeast-ncbi_2005-09-30.fa">
-		<file format="peptide" URL="yeast-ncbi_2005-09-30.fa" />
-	</taxon>
-</bioml>

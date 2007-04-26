@@ -187,10 +187,6 @@ spectrum::read_spectra_from_ms2(FILE *f, const int file_id,
     std::vector<std::string> names;
     std::vector<double> masses;
     std::vector<int> charges;
-    // for annotated ms2
-    std::vector<int> file_ids;
-    std::vector<int> physical_ids;
-    std::vector<int> ids;
 
     // read headers
     while (true) {
@@ -260,17 +256,8 @@ spectrum::read_spectra_from_ms2(FILE *f, const int file_id,
       spectrum sp(masses[i], charges[i]);
       sp.peaks = peaks;
       sp.name = names[i];
-      if (file_id != -1) {
-	sp.file_id = file_id;
-	sp.physical_id = next_physical_id;
-      } else {
-	sp.file_id = file_ids[i];
-	sp.physical_id = physical_ids[i];
-	sp.id = ids[i];
-	spectrum::next_id = std::max(spectrum::next_id, sp.id+1);
-	spectrum::next_physical_id = std::max(spectrum::next_physical_id,
-					      sp.physical_id+1);
-      }
+      sp.file_id = file_id;
+      sp.physical_id = next_physical_id;
       spectra.push_back(sp);
     }
     if (file_id != -1)

@@ -37,6 +37,8 @@ TASK QUEUE
 * MINI-GOAL: basic greylag-process usable on our cluster (no mods)
 
 
+* Update test cases
+
 * Redo cleavage point code (enzyme and non-specific)
 ** speed/space?
 
@@ -45,10 +47,6 @@ TASK QUEUE
 *** search_run
 ** maybe de-STL things
 *** use an mz list instead of a theoretical spectrum
-
-* Check compile/results on 64-bit host
-
-* Update test cases
 
 * Mod/regime info in SQT output program (greylag-sqt)
 ** R lines to document mass regimes
@@ -77,8 +75,6 @@ TASK QUEUE
 
 
 = M1 =========================================================================
-
-* greylag-solo
 
 * Implement MM smart +3 model?
 ** Is it better?
