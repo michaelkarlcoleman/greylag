@@ -37,8 +37,6 @@ TASK QUEUE
 * MINI-GOAL: basic greylag-process usable on our cluster (no mods)
 
 
-* Update test cases
-
 * Redo cleavage point code (enzyme and non-specific)
 ** speed/space?
 
@@ -73,8 +71,16 @@ TASK QUEUE
 ** look at MM (whole file)
 ** Note: SEQUEST parent tolerance differs
 
+* Further test case updates/adds
+
 
 = M1 =========================================================================
+
+
+
+* do a cg-admin-rewritehist before publishing git archive?
+
+= M2 =========================================================================
 
 * Implement MM smart +3 model?
 ** Is it better?
@@ -116,8 +122,6 @@ TASK QUEUE
 * Add duplicate peptide masking optimization
 ** This will obviate the need to detect identical best matches at search time?
 ** Fix redundant peptide reporting
-
-* Make sure greylag is 64-bit clean.
 
 
 * Time a real mod search vs SEQUEST (and xtandem?), is time reasonable?
@@ -226,10 +230,6 @@ TASK QUEUE
   what slope?  No split should be smaller than one spectrum (after
   filtering).
 
-* Look carefully at the statistics code.  Problems?
-
-* Implement "cyclic permutation" of xtandem.
-
 * Possible generation optimization: Figure out the maximum number of mods,
   which would be the number that could be added to the smallest, lightest
   peptide without exceeding the mass of the largest spectrum parent mass.
@@ -244,9 +244,6 @@ TASK QUEUE
 * If we see a good hit for a spectrum, we could try to see if there's an
   identifiable tag.  If so, could restrict further searching to peptides with
   that tag.
-
-* Motif-based differential deltas (like xtandem).
-
 
 
 TO FILE:
