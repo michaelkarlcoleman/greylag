@@ -8,10 +8,9 @@ SHAREDTMPDIR=/clusterfs/home/proteomics/tmp
 # options passed to all greylag-grind invocations
 greylag_options="-v"
 
-# Divide this run into this many parts.  This should probably be at least 5x
-# the number of cluster nodes available.  At the moment, this must be an exact
-# power of ten.
-PARTS=${GREYLAG_PARTS:-3000}
+# Divide this run into this many parts.  Currently, elapsed time seems to be
+# minimized if this is 5-10% larger than the number of cluster nodes (?).
+PARTS=${GREYLAG_PARTS:-1100}
 
 
 p=`basename $0`
