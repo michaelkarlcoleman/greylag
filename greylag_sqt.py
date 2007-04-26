@@ -49,7 +49,7 @@ def print_header(f, r):
     print >> f, "H\tSQTGeneratorVersion\t%s" % __version__
     for db in r['databases']:
         print >> f, "H\tDatabase\t%s" % db
-    for pk, pv in r['parameters'].items():
+    for pk, pv in sorted(r['parameters'].items()):
         print >> f, "H\tParameter\t%s\t%s" % (pk, pv)
     # How should these be specified?
     # What does DTASelect do with these?

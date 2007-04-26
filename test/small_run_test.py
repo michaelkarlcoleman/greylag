@@ -55,6 +55,9 @@ def run_gl_index_spectra(args):
     subprocess.check_call([GREYLAG_INDEX_SPECTRA] + args)
 
 
+# This is currently kind of bogus because ../greylag_solo.py will end up
+# running the installed versions of greylag-grind, etc.  How to fix this?
+
 def run_combination(combination=None):
     """Run a greylag test, as specified by combination.
 
@@ -73,7 +76,7 @@ def run_combination(combination=None):
         # name of caller
         combination = inspect.getouterframes(inspect.currentframe())[1][3]
     assert combination.endswith('_test')
-    combination = combination.rpartition('_test')[0]
+    combination = id = combination.rpartition('_test')[0]
     run = run_gl
     if combination.endswith('_solo'):
         run = run_gl_solo
@@ -91,12 +94,16 @@ def run_combination(combination=None):
 
     run_gl_index_spectra(ms2)
     run(params, ms2)
-    run_gl_sqt(DEFAULT_GWR)
+    if run == run_gl:
+        run_gl_sqt(DEFAULT_GWR)
+        os.remove(DEFAULT_GWR)
 
     for s, sok in zip(sqt, sqt_ok):
         assert os.path.exists(s), "sqt output '%s' missing" % s
         if os.path.exists(sok):
-            assert filecmp.cmp(s, sok), "sqt output '%s' differs" % s
+            if not filecmp.cmp(s, sok):
+                os.rename(s, "%s_%s-bad.sqt" % (os.path.splitext(s)[0], id))
+                assert False, "sqt output '%s' differs" % s
             os.remove(s)
         else:
             os.rename(s, sok)
