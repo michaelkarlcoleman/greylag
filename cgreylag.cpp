@@ -439,9 +439,13 @@ static inline double
 score_spectrum(const spectrum &x, const spectrum &y) NOTHROW {
   assert (not x.peaks.empty() and not y.peaks.empty());	// FIX
 
-  std::vector<double> peak_best_delta(y.peaks.size(),
-				      CP.fragment_mass_tolerance);
-  std::vector<int> peak_best_class(y.peaks.size(), -1);
+  const unsigned int y_peak_count = y.peaks.size();
+  double peak_best_delta[y_peak_count];
+  int peak_best_class[y_peak_count];
+  for (unsigned int i=0; i<y_peak_count; i++) {
+    peak_best_delta[i] = CP.fragment_mass_tolerance;
+    peak_best_class[i] = -1;
+  }
 
   std::vector<peak>::const_iterator x_it = x.peaks.begin();
   std::vector<peak>::const_iterator y_it = y.peaks.begin();
@@ -467,12 +471,13 @@ score_spectrum(const spectrum &x, const spectrum &y) NOTHROW {
 
   assert(CP.intensity_class_count < INT_MAX);
   std::vector<unsigned> peak_hit_histogram(CP.intensity_class_count);
-  std::vector<int>::const_iterator b_it;
-  for (b_it = peak_best_class.begin(); b_it != peak_best_class.end(); b_it++)
-    if (*b_it >= 0) {
-      assert(*b_it < static_cast<int>(peak_hit_histogram.size()));
-      peak_hit_histogram[*b_it] += 1;
+  for (unsigned int i=0; i<y_peak_count; i++) {
+    const int bc = peak_best_class[i];
+    if (bc >= 0) {
+      assert(bc < static_cast<int>(peak_hit_histogram.size()));
+      peak_hit_histogram[bc] += 1;
     }
+  }
 
   // How many theoretical peaks overlap the real peak range?
   int valid_theoretical_peaks = 0;
@@ -486,11 +491,10 @@ score_spectrum(const spectrum &x, const spectrum &y) NOTHROW {
 					peak_hit_histogram.end(), 0));
   assert(peak_misses >= 0);
 
-  double score = 0.0;
+  double score = ln_combination_(x.empty_peak_bins, peak_misses);
   for (unsigned int i=0; i<peak_hit_histogram.size(); i++)
     score += ln_combination_(x.intensity_class_counts[i],
 			     peak_hit_histogram[i]);
-  score += ln_combination_(x.empty_peak_bins, peak_misses);
   score -= ln_combination_(x.total_peak_bins, valid_theoretical_peaks);
 
   return score;
