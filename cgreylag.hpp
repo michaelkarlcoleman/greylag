@@ -62,7 +62,7 @@ public:
   double parent_mass_tolerance_1; // for +1
   double parent_mass_tolerance_max; // for +N (typically +3)
 
-  int minimum_peptide_length;
+  unsigned int minimum_peptide_length;
 
   double fragment_mass_tolerance;
   int intensity_class_count;
@@ -100,7 +100,7 @@ public:
 // C++ search code
 class search_context {
 public:
-  int mod_count;
+  unsigned int mod_count;
   int mass_regime_index;
   std::string pca_residues;
   double pca_delta;

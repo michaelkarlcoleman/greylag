@@ -359,28 +359,26 @@ spectrum::set_searchable_spectra(const std::vector<spectrum> &spectra) {
 
 // Calculate peaks for a synthesized mass (not mz) ladder.
 static inline void
-get_synthetic_Y_mass_ladder(double *mass_ladder,
-			    const std::vector<double> &mass_list,
+get_synthetic_Y_mass_ladder(double *mass_ladder, const unsigned int ladder_size,
+			    const double *mass_list,
 			    const double fragment_C_fixed_mass) NOTHROW {
   double m = fragment_C_fixed_mass;
 
-  const int ladder_size = mass_list.size()-1;
-  for (int i=ladder_size-1; i>=0; i--) {
-    m += mass_list[i+1];
-    mass_ladder[ladder_size-1-i] = m;
+  for (unsigned int i=ladder_size; i>0; i--) {
+    m += mass_list[i];
+    mass_ladder[ladder_size-i] = m;
   }
 }
 
 
 // Calculate peaks for a synthesized mass (not mz) ladder.
 static inline void
-get_synthetic_B_mass_ladder(double *mass_ladder,
-			    const std::vector<double> &mass_list,
+get_synthetic_B_mass_ladder(double *mass_ladder, const unsigned int ladder_size,
+			    const double *mass_list,
 			    const double fragment_N_fixed_mass) NOTHROW {
   double m = fragment_N_fixed_mass;
 
-  const int ladder_size = mass_list.size()-1;
-  for (int i=0; i<ladder_size; i++) {
+  for (unsigned int i=0; i<ladder_size; i++) {
     m += mass_list[i];
     mass_ladder[i] = m;
   }
@@ -392,18 +390,19 @@ get_synthetic_B_mass_ladder(double *mass_ladder,
 static inline void
 synthetic_spectra(double synth_sp_mz[/* max_fragment_charge+1 */]
 		                    [spectrum::MAX_THEORETICAL_FRAGMENTS],
-		  const std::vector<double> &mass_list,
+		  const double *mass_list, const unsigned int mass_list_size,
 		  const double fragment_N_fixed_mass,
 		  const double fragment_C_fixed_mass,
-		  const double max_fragment_charge) NOTHROW {
-  const unsigned int ladder_size = mass_list.size()-1;
+		  const int max_fragment_charge) NOTHROW {
+  assert(mass_list_size >= 1);
+  const unsigned int ladder_size = mass_list_size - 1;
   double Y_mass_ladder[ladder_size];
   double B_mass_ladder[ladder_size];
 
   for (int charge=1; charge<=max_fragment_charge; charge++) {
-    get_synthetic_Y_mass_ladder(Y_mass_ladder, mass_list,
+    get_synthetic_Y_mass_ladder(Y_mass_ladder, ladder_size, mass_list,
 				fragment_C_fixed_mass);
-    get_synthetic_B_mass_ladder(B_mass_ladder, mass_list,
+    get_synthetic_B_mass_ladder(B_mass_ladder, ladder_size, mass_list,
 				fragment_N_fixed_mass);
 
     unsigned int y_i=0, b_i=0;
@@ -550,13 +549,10 @@ score_equal(double s1, double s2) { return std::abs(s1-s2) < 1e-6; }
 // candidate spectra found.
 static inline void
 evaluate_peptide(const search_context &context, match &m,
-		 const mass_trace_list *mtlp,
-		 const std::vector<double> &mass_list,
+		 const mass_trace_list *mtlp, const double *mass_list,
 		 const std::vector<std::vector<spectrum>::size_type>
 		     &candidate_spectra,
 		 score_stats &stats) NOTHROW {
-  assert(m.peptide_sequence.size() == mass_list.size());
-
   int max_candidate_charge = 0;
   typedef std::vector<std::vector<spectrum>::size_type>::const_iterator c_it;
   for (c_it it=candidate_spectra.begin(); it != candidate_spectra.end(); it++)
@@ -575,7 +571,8 @@ evaluate_peptide(const search_context &context, match &m,
   static double synth_sp_mz[spectrum::MAX_SUPPORTED_CHARGE+1]
                            [spectrum::MAX_THEORETICAL_FRAGMENTS];
 
-  synthetic_spectra(synth_sp_mz, mass_list, context.fragment_N_fixed_mass,
+  synthetic_spectra(synth_sp_mz, mass_list, m.peptide_sequence.size(),
+		    context.fragment_N_fixed_mass,
 		    context.fragment_C_fixed_mass, max_fragment_charge);
 
   for (c_it it=candidate_spectra.begin(); it != candidate_spectra.end(); it++) {
@@ -631,13 +628,13 @@ evaluate_peptide(const search_context &context, match &m,
 // chosen, then evaluate.
 static inline void
 choose_residue_mod(const search_context &context, match &m,
-		   const mass_trace_list *mtlp, std::vector<double> &mass_list,
+		   const mass_trace_list *mtlp, double *mass_list,
 		   const std::vector<std::vector<spectrum>::size_type>
 		       &candidate_spectra,
 		   score_stats &stats,
 		   std::vector<int> &db_remaining,
-		   const unsigned remaining_positions_to_choose,
-		   const unsigned next_position_to_consider) NOTHROW {
+		   const unsigned int remaining_positions_to_choose,
+		   const unsigned int next_position_to_consider) NOTHROW {
   assert(remaining_positions_to_choose
 	 <= m.peptide_sequence.size() - next_position_to_consider);
 
@@ -707,8 +704,8 @@ update_p_mass(double &p_mass, int &p_begin, int begin_index, int sign,
 void inline
 search_run(const search_context &context, const sequence_run &sequence_run,
 	   score_stats &stats) {
-  const int min_peptide_length = std::max<int>(CP.minimum_peptide_length,
-					       context.mod_count);
+  const unsigned int min_peptide_length
+    = std::max<unsigned int>(CP.minimum_peptide_length, context.mod_count);
   const std::vector<double> &fixed_parent_mass \
     = CP.parent_mass_regime[context.mass_regime_index].fixed_residue_mass;
 
@@ -767,9 +764,8 @@ search_run(const search_context &context, const sequence_run &sequence_run,
 	break;
 
       const int end_index = cleavage_points[end];
-      assert(end_index - begin_index > 0);
-      const int peptide_size = end_index - begin_index;
-      assert(0 < peptide_size);
+      assert(end_index > begin_index);
+      const unsigned int peptide_size = end_index - begin_index;
       if (peptide_size < min_peptide_length)
 	continue;
       // FIX: "2" assumes just two ion series (e.g., B and Y)
@@ -829,8 +825,8 @@ search_run(const search_context &context, const sequence_run &sequence_run,
       m.predicted_parent_mass = p_mass;
       m.peptide_sequence.assign(run_sequence, begin_index, peptide_size);
 
-      std::vector<double> mass_list(peptide_size);
-      for (std::vector<double>::size_type i=0; i<m.peptide_sequence.size(); i++)
+      double mass_list[peptide_size];
+      for (unsigned int i=0; i<peptide_size; i++)
 	mass_list[i] = (CP.fragment_mass_regime[context.mass_regime_index]
 			.fixed_residue_mass[m.peptide_sequence[i]]);
 
