@@ -165,7 +165,8 @@ class spectrum {
 public:
   double mass;			// [M + H+], aka "neutral mass" (protonated)
   int charge;
-  static const int MAX_SUPPORTED_CHARGE = 10;
+  static const int MAX_SUPPORTED_CHARGE = 15;
+  static const int MAX_THEORETICAL_FRAGMENTS = 256;
   std::vector<peak> peaks;	// always ordered by increasing m/z!
 
   std::vector<int> intensity_class_counts; // number of peaks in each class

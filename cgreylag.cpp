@@ -390,7 +390,8 @@ get_synthetic_B_mass_ladder(std::vector<peak> &mass_ladder,
 // Generate synthetic spectra for a set of charges.  Only the charge and peaks
 // of these spectra are initialized.
 static inline void
-synthetic_spectra(spectrum synth_sp[/* max_fragment_charge+1 */],
+synthetic_spectra(double synth_sp_mz[/* max_fragment_charge+1 */]
+		                    [spectrum::MAX_THEORETICAL_FRAGMENTS],
 		  const std::vector<double> &mass_list,
 		  const double fragment_N_fixed_mass,
 		  const double fragment_C_fixed_mass,
@@ -399,9 +400,6 @@ synthetic_spectra(spectrum synth_sp[/* max_fragment_charge+1 */],
   std::vector<peak> B_mass_ladder(mass_list.size()-1);
 
   for (int charge=1; charge<=max_fragment_charge; charge++) {
-    spectrum &sp = synth_sp[charge];
-    sp.peaks.resize(Y_mass_ladder.size() * 2);
-
     get_synthetic_Y_mass_ladder(Y_mass_ladder, mass_list,
 				fragment_C_fixed_mass);
     get_synthetic_B_mass_ladder(B_mass_ladder, mass_list,
@@ -409,20 +407,20 @@ synthetic_spectra(spectrum synth_sp[/* max_fragment_charge+1 */],
 
     std::vector<peak>::const_iterator y_it=Y_mass_ladder.begin();
     std::vector<peak>::const_iterator b_it=B_mass_ladder.begin();
-    std::vector<peak>::iterator p_it=sp.peaks.begin();
+    double *sp_mz_p = synth_sp_mz[charge];
 
     // merge the two (already sorted) mass lists, converting them to mz values
     // in the process
     while (y_it != Y_mass_ladder.end() and b_it != B_mass_ladder.end())
       if (y_it->mz < b_it->mz)
-	(p_it++)->mz = peak::get_mz((y_it++)->mz, charge);
+	*(sp_mz_p++) = peak::get_mz((y_it++)->mz, charge);
       else
-	(p_it++)->mz = peak::get_mz((b_it++)->mz, charge);
+	*(sp_mz_p++) = peak::get_mz((b_it++)->mz, charge);
     while (y_it != Y_mass_ladder.end())
-      (p_it++)->mz = peak::get_mz((y_it++)->mz, charge);
+      *(sp_mz_p++) = peak::get_mz((y_it++)->mz, charge);
     while (b_it != B_mass_ladder.end())
-      (p_it++)->mz = peak::get_mz((b_it++)->mz, charge);
-    assert(p_it == sp.peaks.end());
+      *(sp_mz_p++) = peak::get_mz((b_it++)->mz, charge);
+    *sp_mz_p = -1;
   }
 }
 
@@ -435,11 +433,17 @@ synthetic_spectra(spectrum synth_sp[/* max_fragment_charge+1 */],
 //
 // This is the innermost loop, so it's worthwhile to optimize this some.
 // FIX: Should some of these vectors be arrays?
+// FIX const declaration
 static inline double
-score_spectrum(const spectrum &x, const spectrum &y) NOTHROW {
-  assert (not x.peaks.empty() and not y.peaks.empty());	// FIX
+score_spectrum(const spectrum &x,
+	       const double synth_mzs[spectrum::MAX_THEORETICAL_FRAGMENTS])
+  NOTHROW {
+  assert(not x.peaks.empty() and *synth_mzs != 0);
 
-  const unsigned int y_peak_count = y.peaks.size();
+  // FIX this
+  unsigned int y_peak_count=0;
+  for (const double *p=synth_mzs; *p >= 0; p++, y_peak_count++);
+
   double peak_best_delta[y_peak_count];
   int peak_best_class[y_peak_count];
   for (unsigned int i=0; i<y_peak_count; i++) {
@@ -447,26 +451,22 @@ score_spectrum(const spectrum &x, const spectrum &y) NOTHROW {
     peak_best_class[i] = -1;
   }
 
-  std::vector<peak>::const_iterator x_it = x.peaks.begin();
-  std::vector<peak>::const_iterator y_it = y.peaks.begin();
-
   // Iterate over all closest pairs of peaks, collecting info on the class of
   // the best (meaning closest mz) real peak matching each theoretical peak
   // (for real/theoretical peak pairs that are no farther apart than
   // fragment_mass_tolerance).
-  int y_index = 0;
-  while (x_it != x.peaks.end() and y_it != y.peaks.end()) {
-    const double delta = y_it->mz - x_it->mz;
+  std::vector<peak>::const_iterator x_it = x.peaks.begin();
+  unsigned int y_index = 0;
+  while (x_it != x.peaks.end() and y_index < y_peak_count) {
+    const double delta = synth_mzs[y_index] - x_it->mz;
     if (std::abs(delta) <= peak_best_delta[y_index]) {
       peak_best_class[y_index] = x_it->intensity_class;
       peak_best_delta[y_index] = std::abs(delta);
     }
     if (delta > 0)
       x_it++;
-    else {
-      y_it++;
+    else
       y_index++;
-    }
   }
 
   assert(CP.intensity_class_count < INT_MAX);
@@ -484,8 +484,8 @@ score_spectrum(const spectrum &x, const spectrum &y) NOTHROW {
 
   // How many theoretical peaks overlap the real peak range?
   int valid_theoretical_peaks = 0;
-  for (y_it = y.peaks.begin(); y_it != y.peaks.end(); y_it++)
-    if (x.min_peak_mz <= y_it->mz and y_it->mz <= x.max_peak_mz)
+  for (unsigned int i=0; i<y_peak_count; i++)
+    if (x.min_peak_mz <= synth_mzs[i] and synth_mzs[i] <= x.max_peak_mz)
       valid_theoretical_peaks++;
 
   unsigned int total_peak_hits = 0;
@@ -514,16 +514,19 @@ score_spectrum(const spectrum &x, const spectrum &y) NOTHROW {
 // may not make much sense.  (Wouldn't it be better to take the max of +1b/+2y
 // or +2b/+1y?)
 // FIX: implement MM smart +3 model, and/or come up with something better.
+// FIX const decl
 static inline double
-score_spectrum_over_charges(spectrum synth_sp[/* max_fragment_charge+1 */],
+score_spectrum_over_charges(const double
+			    synth_sp_mz[/* max_fragment_charge+1 */]
+			    [spectrum::MAX_THEORETICAL_FRAGMENTS],
 			    const spectrum &sp,
 			    const int max_fragment_charge) NOTHROW {
-  double best_score = score_spectrum(sp, synth_sp[1]);
+  double best_score = score_spectrum(sp, synth_sp_mz[1]);
 
   const int charge_limit = std::max<int>(1, sp.charge-1);
   for (int charge=2; charge<=charge_limit; charge++) {
     assert(charge <= max_fragment_charge);
-    best_score += score_spectrum(sp, synth_sp[charge]);
+    best_score += score_spectrum(sp, synth_sp_mz[charge]);
   }
   return best_score;
 }
@@ -564,10 +567,15 @@ evaluate_peptide(const search_context &context, match &m,
 
   const int max_fragment_charge = std::max<int>(1, max_candidate_charge-1);
   assert(max_fragment_charge <= spectrum::MAX_SUPPORTED_CHARGE);
-  // e.g. +2 -> 'B' -> spectrum
-  // FIX: should this be a std::vector??
-  static spectrum synth_sp[spectrum::MAX_SUPPORTED_CHARGE+1];
-  synthetic_spectra(synth_sp, mass_list, context.fragment_N_fixed_mass,
+
+  // This array is preallocated to avoid the overhead of allocation and
+  // deallocation within the inner loop.
+  // FIX
+  // charge -> mz array
+  static double synth_sp_mz[spectrum::MAX_SUPPORTED_CHARGE+1]
+                           [spectrum::MAX_THEORETICAL_FRAGMENTS];
+
+  synthetic_spectra(synth_sp_mz, mass_list, context.fragment_N_fixed_mass,
 		    context.fragment_C_fixed_mass, max_fragment_charge);
 
   for (c_it it=candidate_spectra.begin(); it != candidate_spectra.end(); it++) {
@@ -580,7 +588,7 @@ evaluate_peptide(const search_context &context, match &m,
       continue;
 
     //std::cerr << "sp " << m.spectrum_index << std::endl;
-    m.score = score_spectrum_over_charges(synth_sp, sp, max_fragment_charge);
+    m.score = score_spectrum_over_charges(synth_sp_mz, sp, max_fragment_charge);
     //std::cerr << "score " << m.score << std::endl;
 
     std::vector<match> &sp_best_matches = stats.best_matches[m.spectrum_index];
@@ -761,9 +769,11 @@ search_run(const search_context &context, const sequence_run &sequence_run,
       const int end_index = cleavage_points[end];
       assert(end_index - begin_index > 0);
       const int peptide_size = end_index - begin_index;
-      assert(peptide_size > 0);
+      assert(0 < peptide_size);
       if (peptide_size < min_peptide_length)
 	continue;
+      // FIX: "2" assumes just two ion series (e.g., B and Y)
+      assert(peptide_size <= 2*(spectrum::MAX_THEORETICAL_FRAGMENTS-1));
       update_p_mass(p_mass, p_end, end_index, +1, run_sequence,
 		    fixed_parent_mass);
       //std::cerr << "peptide: " << std::string(run_sequence, begin_index, peptide_size) << " p_mass: " << p_mass << std::endl;
