@@ -470,11 +470,14 @@ score_spectrum(const spectrum &x, const spectrum &y) NOTHROW {
   }
 
   assert(CP.intensity_class_count < INT_MAX);
-  std::vector<unsigned> peak_hit_histogram(CP.intensity_class_count);
+  const unsigned int intensity_class_count = CP.intensity_class_count;
+  unsigned int peak_hit_histogram[intensity_class_count];
+  for (unsigned int i=0; i<intensity_class_count; i++)
+    peak_hit_histogram[i] = 0;
   for (unsigned int i=0; i<y_peak_count; i++) {
     const int bc = peak_best_class[i];
     if (bc >= 0) {
-      assert(bc < static_cast<int>(peak_hit_histogram.size()));
+      assert(bc < static_cast<int>(intensity_class_count));
       peak_hit_histogram[bc] += 1;
     }
   }
@@ -485,14 +488,16 @@ score_spectrum(const spectrum &x, const spectrum &y) NOTHROW {
     if (x.min_peak_mz <= y_it->mz and y_it->mz <= x.max_peak_mz)
       valid_theoretical_peaks++;
 
+  unsigned int total_peak_hits = 0;
+  for (unsigned int i=0; i<intensity_class_count; i++)
+    total_peak_hits += peak_hit_histogram[i];
+
   // How many valid theoretical peaks were misses?
-  const int peak_misses = (valid_theoretical_peaks
-			   - accumulate(peak_hit_histogram.begin(),
-					peak_hit_histogram.end(), 0));
+  const int peak_misses = valid_theoretical_peaks - total_peak_hits;
   assert(peak_misses >= 0);
 
   double score = ln_combination_(x.empty_peak_bins, peak_misses);
-  for (unsigned int i=0; i<peak_hit_histogram.size(); i++)
+  for (unsigned int i=0; i<intensity_class_count; i++)
     score += ln_combination_(x.intensity_class_counts[i],
 			     peak_hit_histogram[i]);
   score -= ln_combination_(x.total_peak_bins, valid_theoretical_peaks);
