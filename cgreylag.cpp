@@ -359,30 +359,30 @@ spectrum::set_searchable_spectra(const std::vector<spectrum> &spectra) {
 
 // Calculate peaks for a synthesized mass (not mz) ladder.
 static inline void
-get_synthetic_Y_mass_ladder(std::vector<peak> &mass_ladder,
+get_synthetic_Y_mass_ladder(double *mass_ladder,
 			    const std::vector<double> &mass_list,
 			    const double fragment_C_fixed_mass) NOTHROW {
   double m = fragment_C_fixed_mass;
 
-  const int ladder_size = mass_ladder.size();
+  const int ladder_size = mass_list.size()-1;
   for (int i=ladder_size-1; i>=0; i--) {
     m += mass_list[i+1];
-    mass_ladder[ladder_size-1-i] = peak(m, 1.0);
+    mass_ladder[ladder_size-1-i] = m;
   }
 }
 
 
 // Calculate peaks for a synthesized mass (not mz) ladder.
 static inline void
-get_synthetic_B_mass_ladder(std::vector<peak> &mass_ladder,
+get_synthetic_B_mass_ladder(double *mass_ladder,
 			    const std::vector<double> &mass_list,
 			    const double fragment_N_fixed_mass) NOTHROW {
   double m = fragment_N_fixed_mass;
 
-  const int ladder_size = mass_ladder.size();
-  for (int i=0; i<=ladder_size-1; i++) {
+  const int ladder_size = mass_list.size()-1;
+  for (int i=0; i<ladder_size; i++) {
     m += mass_list[i];
-    mass_ladder[i] = peak(m, 1.0);
+    mass_ladder[i] = m;
   }
 }
 
@@ -396,8 +396,9 @@ synthetic_spectra(double synth_sp_mz[/* max_fragment_charge+1 */]
 		  const double fragment_N_fixed_mass,
 		  const double fragment_C_fixed_mass,
 		  const double max_fragment_charge) NOTHROW {
-  std::vector<peak> Y_mass_ladder(mass_list.size()-1);
-  std::vector<peak> B_mass_ladder(mass_list.size()-1);
+  const unsigned int ladder_size = mass_list.size()-1;
+  double Y_mass_ladder[ladder_size];
+  double B_mass_ladder[ladder_size];
 
   for (int charge=1; charge<=max_fragment_charge; charge++) {
     get_synthetic_Y_mass_ladder(Y_mass_ladder, mass_list,
@@ -405,22 +406,21 @@ synthetic_spectra(double synth_sp_mz[/* max_fragment_charge+1 */]
     get_synthetic_B_mass_ladder(B_mass_ladder, mass_list,
 				fragment_N_fixed_mass);
 
-    std::vector<peak>::const_iterator y_it=Y_mass_ladder.begin();
-    std::vector<peak>::const_iterator b_it=B_mass_ladder.begin();
+    unsigned int y_i=0, b_i=0;
     double *sp_mz_p = synth_sp_mz[charge];
 
     // merge the two (already sorted) mass lists, converting them to mz values
     // in the process
-    while (y_it != Y_mass_ladder.end() and b_it != B_mass_ladder.end())
-      if (y_it->mz < b_it->mz)
-	*(sp_mz_p++) = peak::get_mz((y_it++)->mz, charge);
+    while (y_i < ladder_size and b_i < ladder_size)
+      if (Y_mass_ladder[y_i] < B_mass_ladder[b_i])
+	*(sp_mz_p++) = peak::get_mz(Y_mass_ladder[y_i++], charge);
       else
-	*(sp_mz_p++) = peak::get_mz((b_it++)->mz, charge);
-    while (y_it != Y_mass_ladder.end())
-      *(sp_mz_p++) = peak::get_mz((y_it++)->mz, charge);
-    while (b_it != B_mass_ladder.end())
-      *(sp_mz_p++) = peak::get_mz((b_it++)->mz, charge);
-    *sp_mz_p = -1;
+	*(sp_mz_p++) = peak::get_mz(B_mass_ladder[b_i++], charge);
+    while (y_i < ladder_size)
+      *(sp_mz_p++) = peak::get_mz(Y_mass_ladder[y_i++], charge);
+    while (b_i < ladder_size)
+      *(sp_mz_p++) = peak::get_mz(B_mass_ladder[b_i++], charge);
+    *sp_mz_p = -1;		// invalid mz as terminator
   }
 }
 
