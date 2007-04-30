@@ -735,29 +735,6 @@ search_peptide(const search_context &context, const double &p_mass, match &m,
 }
 
 
-// p_begin (p_end) to begin_index (end_index), updating p_mass in the process.
-// The sign determines whether mass increases or decreases as p_begin (p_end)
-// is moved forward--so it should be -1 for the begin case and +1 for the end
-// case.
-// FIX: is this worth its complexity?  kill or else add reset
-static inline void
-update_p_mass(double &p_mass, int &p_begin, int begin_index, int sign,
-	      const std::string &run_sequence,
-	      const std::vector<double> &fixed_residue_mass) {
-  assert(sign == +1 or sign == -1);
-  assert(begin_index >= 0);
-  const bool moving_forward = begin_index >= p_begin;
-  int p0=p_begin, p1=begin_index;
-  if (not moving_forward) {
-    std::swap(p0, p1);
-    sign = -sign;
-  }
-  for (int i=p0; i<p1; i++)
-    p_mass += sign * fixed_residue_mass[run_sequence[i]];
-  p_begin = begin_index;
-}
-
-
 // Search a sequence run for matches according to the context against the
 // spectra.  Updates score_stats and the number of candidate spectra found.
 
@@ -827,8 +804,11 @@ search_run(const search_context &context, const sequence_run &sequence_run,
       assert(false);
     }
 
-    update_p_mass(p_mass, p_begin, begin_index, -1, run_sequence,
-		  fixed_parent_mass);
+    assert(begin_index >= p_begin and begin_index >= 0);
+    for (int i=p_begin; i<begin_index; i++)
+      p_mass -= fixed_parent_mass[run_sequence[i]];
+    p_begin = begin_index;
+
     unsigned int end = std::max<unsigned int>(begin + 1, next_end);
     for (; end<cleavage_points_size; end++) {
       if (not context.nonspecific_cleavage) {
@@ -844,8 +824,17 @@ search_run(const search_context &context, const sequence_run &sequence_run,
 	continue;
       // FIX: "2" assumes just two ion series (e.g., B and Y)
       assert(peptide_size <= 2*(spectrum::MAX_THEORETICAL_FRAGMENTS-1));
-      update_p_mass(p_mass, p_end, end_index, +1, run_sequence,
-		    fixed_parent_mass);
+
+      assert(end_index >= 0);
+      if (end_index >= p_end)
+	for (int i=p_end; i<end_index; i++)
+	  p_mass += fixed_parent_mass[run_sequence[i]];
+      else
+	for (int i=end_index; i<p_end; i++)
+	  p_mass -= fixed_parent_mass[run_sequence[i]];
+      p_end = end_index;
+
+
       //std::cerr << "peptide: " << std::string(run_sequence, begin_index, peptide_size) << " p_mass: " << p_mass << std::endl;
 
       int status = search_peptide(context, p_mass, m, run_sequence,
