@@ -766,8 +766,6 @@ update_p_mass(double &p_mass, int &p_begin, int begin_index, int sign,
 static inline void
 search_run(const search_context &context, const sequence_run &sequence_run,
 	   score_stats &stats) {
-  assert(context.nonspecific_cleavage);
-
   const unsigned int min_peptide_length
     = std::max<unsigned int>(CP.minimum_peptide_length, context.mod_count);
   const std::vector<double> &fixed_parent_mass
@@ -796,9 +794,21 @@ search_run(const search_context &context, const sequence_run &sequence_run,
   double p_mass = context.parent_fixed_mass;
   int p_begin=0, p_end=0;
 
-  // FIX: optimize the non-specific cleavage case?
-  for (unsigned int begin_index=0; begin_index<run_sequence.size();
-       begin_index++) {
+  const std::vector<int> *cleavage_points = &sequence_run.cleavage_points;
+  std::vector<int>::size_type cleavage_points_size = cleavage_points->size();
+  // "fake" cleavage point vector used for nonspecific cleavage (v[i]==i)
+  static std::vector<int> nonspecific_cleavage_points;
+  if (context.nonspecific_cleavage) {
+    cleavage_points_size = run_sequence.size() + 1;
+    for (unsigned int i=nonspecific_cleavage_points.size();
+	 i<cleavage_points_size; i++)
+      nonspecific_cleavage_points.push_back(i);
+    cleavage_points = &nonspecific_cleavage_points;
+  }
+  assert(cleavage_points_size >= 2);	// endpoints must be present
+
+  for (unsigned int begin=0; begin<cleavage_points_size-1; begin++) {
+    const int begin_index = (*cleavage_points)[begin];
     peptide_begin = begin_index + sequence_run.sequence_offset;
 
     // If pca_residues specified, require one of them to be the peptide
@@ -819,8 +829,15 @@ search_run(const search_context &context, const sequence_run &sequence_run,
 
     update_p_mass(p_mass, p_begin, begin_index, -1, run_sequence,
 		  fixed_parent_mass);
-    unsigned int end_index = std::max<unsigned int>(begin_index+1, next_end);
-    for (; end_index<run_sequence.size(); end_index++) {
+    unsigned int end = std::max<unsigned int>(begin + 1, next_end);
+    for (; end<cleavage_points_size; end++) {
+      if (not context.nonspecific_cleavage) {
+	const int missed_cleavage_count = end - begin - 1;
+	if (missed_cleavage_count > context.maximum_missed_cleavage_sites)
+	  break;
+      }
+
+      const int end_index = (*cleavage_points)[end];
       assert(end_index > begin_index);
       const unsigned int peptide_size = end_index - begin_index;
       if (peptide_size < min_peptide_length)
@@ -838,9 +855,9 @@ search_run(const search_context &context, const sequence_run &sequence_run,
 	break;
       if (status == 1) {	// peptide was too short
 	// so next start with a peptide at least this long
-	if (end_index == run_sequence.size() - 1)
+	if (end == cleavage_points_size - 1)
 	  return;
-	next_end = end_index;
+	next_end = end;
       }
     }
   }

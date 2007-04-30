@@ -86,12 +86,6 @@ public:
     : sequence_index(sequence_index), sequence_offset(sequence_offset),
       sequence(sequence), cleavage_points(cleavage_points),
       name(name) {
-    // FIX
-    // generate non-specific cleavage points
-    assert(sequence.size() < INT_MAX);
-    if (this->cleavage_points.empty())
-      for (int i=0; i<=static_cast<int>(sequence.size()); i++)
-	this->cleavage_points.push_back(i);
   }
 };
 
