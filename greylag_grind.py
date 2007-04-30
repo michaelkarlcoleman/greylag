@@ -1235,9 +1235,10 @@ def main(args=sys.argv[1:]):
         cleavage_pattern = re.compile(cleavage_pattern)
 
         context = cgreylag.search_context()
+        context.nonspecific_cleavage = (cleavage_motif == "[X]|[X]")
         for idno, offset, locusname, defline, seq, seq_filename in db:
             cp = []
-            if cleavage_motif != "[X]|[X]":
+            if not context.nonspecific_cleavage:
                 cp = list(generate_cleavage_points(cleavage_pattern,
                                                    cleavage_pos, seq))
             sr = cgreylag.sequence_run(idno, offset, seq, cp, locusname)

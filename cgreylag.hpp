@@ -119,6 +119,7 @@ public:
 
   // general search parameters
   int maximum_missed_cleavage_sites;
+  bool nonspecific_cleavage;
 
   std::vector<sequence_run> sequence_runs;
 };

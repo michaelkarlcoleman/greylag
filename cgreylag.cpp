@@ -672,6 +672,69 @@ choose_residue_mod(const search_context &context, match &m,
 }
 
 
+static inline int
+search_peptide(const search_context &context, const double &p_mass, match &m,
+	       const std::string &run_sequence, const int &begin_index,
+	       const unsigned int &peptide_size, score_stats &stats,
+	       std::vector<int> &db_remaining) {
+  // We'd like to consider only the spectra whose masses are within the
+  // tolerance range of theoretical mass of the peptide (p_mass).
+  // Unfortunately, the tolerance range of each spectrum depends on its
+  // charge, since the tolerance is specified in m/z units.  Furthermore,
+  // when deciding how to adjust begin/end to generate the next peptide,
+  // we need to be conservative, as a high-charge spectrum may come into
+  // range, even though only +1 spectra are currently in-range.  So, we
+  // first screen using the maximum tolerance range, then check the actual
+  // spectra below.
+
+  const double sp_mass_lb = p_mass - CP.parent_mass_tolerance_max;
+  const double sp_mass_ub = p_mass + CP.parent_mass_tolerance_max;
+
+  const spmi_c_it candidate_spectra_info_begin
+    = spectrum::spectrum_mass_index.lower_bound(sp_mass_lb);
+  if (candidate_spectra_info_begin == spectrum::spectrum_mass_index.end()) {
+    // spectrum masses all too low to match peptide (peptide too long)
+    return -1;
+  }
+
+  const spmi_c_it candidate_spectra_info_end
+    = spectrum::spectrum_mass_index.upper_bound(sp_mass_ub);
+  if (candidate_spectra_info_end == spectrum::spectrum_mass_index.begin()) {
+    // spectrum masses all too high to match peptide (peptide too short)
+    return 1;
+  }
+  if (candidate_spectra_info_begin == candidate_spectra_info_end) {
+    // no spectrum with close-enough parent mass
+    return 0;
+  }
+
+  // Now generate the list of candidate spectra that are actually
+  // in-range, considering the charge of each spectrum.
+  std::vector<std::vector<spectrum>::size_type> candidate_spectra_0;
+  for (spmi_c_it it=candidate_spectra_info_begin;
+       it != candidate_spectra_info_end; it++) {
+    const spectrum &csp = spectrum::searchable_spectra[it->second];
+    if (std::abs(csp.mass - p_mass) <= (csp.charge
+					* CP.parent_mass_tolerance_1))
+      candidate_spectra_0.push_back(it->second);
+  }
+  if (candidate_spectra_0.empty())
+    return 0;
+
+  m.predicted_parent_mass = p_mass;
+  m.peptide_sequence.assign(run_sequence, begin_index, peptide_size);
+
+  double mass_list[peptide_size];
+  for (unsigned int i=0; i<peptide_size; i++)
+    mass_list[i] = (CP.fragment_mass_regime[context.mass_regime_index]
+		    .fixed_residue_mass[m.peptide_sequence[i]]);
+
+  choose_residue_mod(context, m, NULL, mass_list, candidate_spectra_0,
+		     stats, db_remaining, context.mod_count, 0);
+  return 0;
+}
+
+
 // p_begin (p_end) to begin_index (end_index), updating p_mass in the process.
 // The sign determines whether mass increases or decreases as p_begin (p_end)
 // is moved forward--so it should be -1 for the begin case and +1 for the end
@@ -695,23 +758,22 @@ update_p_mass(double &p_mass, int &p_begin, int begin_index, int sign,
 }
 
 
-
 // Search a sequence run for matches according to the context against the
 // spectra.  Updates score_stats and the number of candidate spectra found.
 
 // FIX: examine carefully for signed/unsigned problems
 
-void inline
+static inline void
 search_run(const search_context &context, const sequence_run &sequence_run,
 	   score_stats &stats) {
+  assert(context.nonspecific_cleavage);
+
   const unsigned int min_peptide_length
     = std::max<unsigned int>(CP.minimum_peptide_length, context.mod_count);
-  const std::vector<double> &fixed_parent_mass \
+  const std::vector<double> &fixed_parent_mass
     = CP.parent_mass_regime[context.mass_regime_index].fixed_residue_mass;
 
   const std::string &run_sequence = sequence_run.sequence;
-  const std::vector<int> &cleavage_points = sequence_run.cleavage_points;
-  assert(cleavage_points.size() >= 2); // endpoints assumed always present
 
   // This match will be passed inward and used to record information that we
   // need to remember about a match when we finally see one.  At that point, a
@@ -735,8 +797,8 @@ search_run(const search_context &context, const sequence_run &sequence_run,
   int p_begin=0, p_end=0;
 
   // FIX: optimize the non-specific cleavage case?
-  for (unsigned int begin=0; begin<cleavage_points.size()-1; begin++) {
-    const int begin_index = cleavage_points[begin];
+  for (unsigned int begin_index=0; begin_index<run_sequence.size();
+       begin_index++) {
     peptide_begin = begin_index + sequence_run.sequence_offset;
 
     // If pca_residues specified, require one of them to be the peptide
@@ -757,13 +819,8 @@ search_run(const search_context &context, const sequence_run &sequence_run,
 
     update_p_mass(p_mass, p_begin, begin_index, -1, run_sequence,
 		  fixed_parent_mass);
-    unsigned int end = std::max<unsigned int>(begin + 1, next_end);
-    for (; end<cleavage_points.size(); end++) {
-      const int missed_cleavage_count = end - begin - 1;
-      if (missed_cleavage_count > context.maximum_missed_cleavage_sites)
-	break;
-
-      const int end_index = cleavage_points[end];
+    unsigned int end_index = std::max<unsigned int>(begin_index+1, next_end);
+    for (; end_index<run_sequence.size(); end_index++) {
       assert(end_index > begin_index);
       const unsigned int peptide_size = end_index - begin_index;
       if (peptide_size < min_peptide_length)
@@ -774,64 +831,17 @@ search_run(const search_context &context, const sequence_run &sequence_run,
 		    fixed_parent_mass);
       //std::cerr << "peptide: " << std::string(run_sequence, begin_index, peptide_size) << " p_mass: " << p_mass << std::endl;
 
-      // We'd like to consider only the spectra whose masses are within the
-      // tolerance range of theoretical mass of the peptide (p_mass).
-      // Unfortunately, the tolerance range of each spectrum depends on its
-      // charge, since the tolerance is specified in m/z units.  Furthermore,
-      // when deciding how to adjust begin/end to generate the next peptide,
-      // we need to be conservative, as a high-charge spectrum may come into
-      // range, even though only +1 spectra are currently in-range.  So, we
-      // first screen using the maximum tolerance range, then check the actual
-      // spectra below.
-
-      const double sp_mass_lb = p_mass - CP.parent_mass_tolerance_max;
-      const double sp_mass_ub = p_mass + CP.parent_mass_tolerance_max;
-
-      const spmi_c_it candidate_spectra_info_begin
-	= spectrum::spectrum_mass_index.lower_bound(sp_mass_lb);
-      if (candidate_spectra_info_begin == spectrum::spectrum_mass_index.end()) {
-	// spectrum masses all too low to match peptide (peptide too long)
+      int status = search_peptide(context, p_mass, m, run_sequence,
+				  begin_index, peptide_size, stats,
+				  db_remaining);
+      if (status == -1)		// peptide was too long
 	break;
-      }
-
-      const spmi_c_it candidate_spectra_info_end
-	= spectrum::spectrum_mass_index.upper_bound(sp_mass_ub);
-      if (candidate_spectra_info_end == spectrum::spectrum_mass_index.begin()) {
-	// spectrum masses all too high to match peptide
-	// (peptide is too short, so increase end, if possible, else return)
-	if (end == cleavage_points.size() - 1)
+      if (status == 1) {	// peptide was too short
+	// so next start with a peptide at least this long
+	if (end_index == run_sequence.size() - 1)
 	  return;
-	next_end = end;
-	continue;
+	next_end = end_index;
       }
-      if (candidate_spectra_info_begin == candidate_spectra_info_end) {
-	// no spectrum with close-enough parent mass
-	continue;
-      }
-
-      // Now generate the list of candidate spectra that are actually
-      // in-range, considering the charge of each spectrum.
-      std::vector<std::vector<spectrum>::size_type> candidate_spectra_0;
-      for (spmi_c_it it=candidate_spectra_info_begin;
-	   it != candidate_spectra_info_end; it++) {
-	const spectrum &csp = spectrum::searchable_spectra[it->second];
-	if (std::abs(csp.mass - p_mass) <= (csp.charge
-					    * CP.parent_mass_tolerance_1))
-	  candidate_spectra_0.push_back(it->second);
-      }
-      if (candidate_spectra_0.empty())
-	continue;
-
-      m.predicted_parent_mass = p_mass;
-      m.peptide_sequence.assign(run_sequence, begin_index, peptide_size);
-
-      double mass_list[peptide_size];
-      for (unsigned int i=0; i<peptide_size; i++)
-	mass_list[i] = (CP.fragment_mass_regime[context.mass_regime_index]
-			.fixed_residue_mass[m.peptide_sequence[i]]);
-
-      choose_residue_mod(context, m, NULL, mass_list, candidate_spectra_0,
-			 stats, db_remaining, context.mod_count, 0);
     }
   }
 }
