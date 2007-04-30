@@ -664,8 +664,9 @@ PARAMETER_INFO = {
     "pervasive_mods" : (fixed_mod_list, ""),
     "potential_mods" : (potential_mod_list, ""),
     "potential_mod_limit" : (int, 2, p_nonnegative),
+    "enable_pca_mods" : (bool, "no"),
     "charge_limit" : (int, 3, p_positive),
-    "min_peptide_length" : (int, 5, p_positive), # needed?
+    "min_peptide_length" : (int, 5, p_positive),
     "min_parent_spectrum_mass" : (float, 0, p_nonnegative),
     "max_parent_spectrum_mass" : (float, 10000, p_nonnegative),
     "TIC_cutoff_proportion" : (float, 0.98, p_proportion),
@@ -784,12 +785,14 @@ def get_pca_table(mass_regimes):
     """
     # FIX: According to Xtandem, C is only a candidate for PCA if
     # carboxyamidomethylated (C+57).  Currently we always search it.
-    return [ [('', 0, 0),
-              ('E', -1 * CP.parent_mass_regime[r].water_mass,
-               -1 * CP.fragment_mass_regime[r].water_mass),
-              ('QC', -1 * CP.parent_mass_regime[r].ammonia_mass,
-               -1 * CP.fragment_mass_regime[r].ammonia_mass)]
-             for r in range(len(mass_regimes)) ]
+    if XTP["enable_pca_mods"]:
+        return [ [('', 0, 0),
+                  ('E', -1 * CP.parent_mass_regime[r].water_mass,
+                   -1 * CP.fragment_mass_regime[r].water_mass),
+                  ('QC', -1 * CP.parent_mass_regime[r].ammonia_mass,
+                   -1 * CP.fragment_mass_regime[r].ammonia_mass)]
+                 for r in range(len(mass_regimes)) ]
+    return [ [('', 0, 0)] for r in range(len(mass_regimes)) ]
 
 
 def enumerate_conjunction(mod_tree, limit, conjuncts=[]):
