@@ -347,13 +347,35 @@ spectrum::classify(int intensity_class_count, double intensity_class_ratio,
 }
 
 
+// Update the *_cache fields from the peaks field.
+void
+spectrum::update_peak_cache() {
+  clear_peak_cache();
+
+  const unsigned int peak_count = peaks.size();
+  peak_mz_cache = new double[peak_count+1];
+  peak_intensity_class_cache = new int[peak_count+1];
+
+  for (unsigned int i=0; i<peak_count; i++) {
+    peak_mz_cache[i] = peaks[i].mz;
+    peak_intensity_class_cache[i] = peaks[i].intensity_class;
+  }
+
+  // negative value is terminator
+  peak_mz_cache[peak_count] = -1;
+  peak_intensity_class_cache[peak_count] = -1;
+}
+
+
 // Store the list of spectra that search_peptide will search against, and also
 // build spectrum_mass_index.
 void
 spectrum::set_searchable_spectra(const std::vector<spectrum> &spectra) {
   searchable_spectra = spectra;
-  for (std::vector<spectrum>::size_type i=0; i<spectra.size(); i++)
+  for (std::vector<spectrum>::size_type i=0; i<spectra.size(); i++) {
     spectrum_mass_index.insert(std::make_pair(spectra[i].mass, i));
+    searchable_spectra[i].update_peak_cache();
+  }
 }
 
 
@@ -410,6 +432,7 @@ synthetic_spectra(double synth_sp_mz[/* max_fragment_charge+1 */]
 
     // merge the two (already sorted) mass lists, converting them to mz values
     // in the process
+    // FIX: try algorithm::merge?
     while (y_i < ladder_size and b_i < ladder_size)
       if (Y_mass_ladder[y_i] < B_mass_ladder[b_i])
 	*(sp_mz_p++) = peak::get_mz(Y_mass_ladder[y_i++], charge);
@@ -431,14 +454,11 @@ synthetic_spectra(double synth_sp_mz[/* max_fragment_charge+1 */]
 // better yet, sets) for peak lists simpler?  As fast or faster?
 //
 // This is the innermost loop, so it's worthwhile to optimize this some.
-// FIX: Should some of these vectors be arrays?
 // FIX const declaration
 static inline double
 score_spectrum(const spectrum &x,
 	       const double synth_mzs[spectrum::MAX_THEORETICAL_FRAGMENTS])
   NOTHROW {
-  assert(not x.peaks.empty() and *synth_mzs != 0);
-
   // FIX this
   unsigned int y_peak_count=0;
   for (const double *p=synth_mzs; *p >= 0; p++, y_peak_count++);
@@ -454,18 +474,24 @@ score_spectrum(const spectrum &x,
   // the best (meaning closest mz) real peak matching each theoretical peak
   // (for real/theoretical peak pairs that are no farther apart than
   // fragment_mass_tolerance).
-  std::vector<peak>::const_iterator x_it = x.peaks.begin();
-  unsigned int y_index = 0;
-  while (x_it != x.peaks.end() and y_index < y_peak_count) {
-    const double delta = synth_mzs[y_index] - x_it->mz;
+
+  const unsigned int x_peak_count=x.peaks.size();
+  assert(x_peak_count > 0 and y_peak_count > 0);
+
+  unsigned int x_index=0, y_index=0;
+  while (true) {
+    const double delta = synth_mzs[y_index] - x.peak_mz_cache[x_index];
     if (std::abs(delta) <= peak_best_delta[y_index]) {
-      peak_best_class[y_index] = x_it->intensity_class;
+      peak_best_class[y_index] = x.peak_intensity_class_cache[x_index];
       peak_best_delta[y_index] = std::abs(delta);
     }
-    if (delta > 0)
-      x_it++;
-    else
-      y_index++;
+    if (delta > 0) {
+      if (++x_index >= x_peak_count)
+	break;
+    } else {
+      if (++y_index >= y_peak_count)
+	break;
+    }
   }
 
   assert(CP.intensity_class_count < INT_MAX);

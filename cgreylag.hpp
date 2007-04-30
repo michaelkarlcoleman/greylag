@@ -171,6 +171,10 @@ public:
   double min_peak_mz;
   double max_peak_mz;
 
+  // These are caches of the data in peaks above.  They speed up search.
+  double *peak_mz_cache;
+  int *peak_intensity_class_cache;
+
   double total_ion_current;
 
   // This is the total number of bins, 2*fragment_tolerance mz wide in peak
@@ -189,7 +193,9 @@ public:
   // Construct an empty spectrum.
   explicit spectrum(double mass=0,
 		    int charge=0) : mass(mass), charge(charge), min_peak_mz(0),
-				    max_peak_mz(0), total_ion_current(0),
+				    max_peak_mz(0), peak_mz_cache(0),
+				    peak_intensity_class_cache(0),
+				    total_ion_current(0),
 				    total_peak_bins(0), empty_peak_bins(0),
 				    file_id(-1), physical_id(-1),
 				    comparisons(0) {
@@ -234,6 +240,27 @@ public:
   // Classify peaks and update class_counts.
   void classify(int intensity_class_count, double intensity_class_ratio,
 		double fragment_mass_tolerance);
+
+  // Update the *_cache fields from the peaks field.
+  void update_peak_cache();
+
+  void clear_peak_cache() {
+    if (peak_mz_cache) {
+      //delete[] peak_mz_cache;
+      peak_mz_cache = 0;
+    }
+    if (peak_intensity_class_cache) {
+      //delete[] peak_intensity_class_cache;
+      peak_intensity_class_cache = 0;
+    }
+  }
+
+  // Strictly speaking, we should release the cache on destruction.  This
+  // would mean implementing bug-prone copy constructor and assignment
+  // constructor functions.  Instead, skip it.  This leaks memory if
+  // update_peak_cache() is called multiple times, but we don't do that.
+  //
+  // ~spectrum() { clear_peak_cache(); }
 
   // Store the list of spectra that search_peptide will search against, and
   // also build spectrum_mass_index.
