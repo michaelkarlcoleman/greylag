@@ -37,19 +37,38 @@ TASK QUEUE
 * MINI-GOAL: basic greylag-process usable on our cluster (no mods)
 
 
-* Redo cleavage point code (enzyme and non-specific)
-** speed/space?
-
-* Basic optimization
-** look at callgrind output
-*** search_run
-** maybe de-STL things
-*** use an mz list instead of a theoretical spectrum
-
 * Mod/regime info in SQT output program (greylag-sqt)
 ** R lines to document mass regimes
+
+  R	0	A	71.037114
+  R	0	C	103.009184
+  ...
+
+  regime + fixed mods + pca mod + diff mod + terminal mod + isotope mods (N15 or
+    natural)
+
+1 for back compatibility, support ASDC*ASDF form, and maybe A1S2D1C3A1S2D1F4
+       form
+1 need a means to specify mapping preference?
+
 ** A lines for each M line to document regime (index of R) and residue mods
+
+3 AR	0
+4 APCA	+17.0
+2 AM	12	+32.34	phosphorylation
+3 AM	5	+57.0
+4 AT	]	+18.0	name
+4 AI	14	+1
+
+** are these required?
+  H       StaticMod       C=160.1388
+  H       DiffMod TNA*=+2.0
+
+
+
 ** Try to keep back compatibility by grepping out A/R lines
+
+* Why aren't scores a little more stable?
 
 * update estimate factor
 
@@ -65,11 +84,13 @@ TASK QUEUE
 ** maybe avoid spectrum name copies
 ** maybe avoid locus name copies
 ** instead of copying db sequences, use Python's?
-** kill off cleavage point lists (4M?)
 
 * Compare greylag/SEQUEST/MM on test-myrimatch example (non-specific)
 ** look at MM (whole file)
 ** Note: SEQUEST parent tolerance differs
+
+* Basic optimization
+** look at callgrind output
 
 * Further test case updates/adds
 
