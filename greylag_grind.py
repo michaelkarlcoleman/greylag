@@ -678,6 +678,8 @@ PARAMETER_INFO = {
     "enable_pca_mods" : (bool, "no"),
     "charge_limit" : (int, 3, p_positive),
     "min_peptide_length" : (int, 5, p_positive),
+    "cleavage_motif" : (str, "[X]|[X]"),
+    "maximum_missed_cleavage_sites" : (int, 1, p_nonnegative),
     "min_parent_spectrum_mass" : (float, 0, p_nonnegative),
     "max_parent_spectrum_mass" : (float, 10000, p_nonnegative),
     "TIC_cutoff_proportion" : (float, 0.98, p_proportion),
@@ -997,7 +999,7 @@ def search_all(options, context, mod_limit, mod_conjunct_triples,
                                                       score_statistics)
                         total_combinations_searched \
                             += score_statistics.combinations_searched
-                        info("  %s candidate spectra examined, this bag",
+                        info("  %20s candidate spectra examined, this bag",
                              score_statistics.combinations_searched)
 
     info('%s candidate spectra examined',
@@ -1244,17 +1246,16 @@ def main(args=sys.argv[1:]):
     if spectra:
         del spectra                     # release memory
 
-        # FIX!!!
         # (cleavage_re, position of cleavage in cleavage_re)
-        cleavage_motif = "[X]|[X]"
-        cleavage_pattern, cleavage_pos = cleavage_motif_re(cleavage_motif)
+        cleavage_pattern, cleavage_pos \
+                          = cleavage_motif_re(XTP["cleavage_motif"])
         if cleavage_pos == None:
             error("cleavage site '%s' is missing '|'",
                   XTP["protein, cleavage site"])
         cleavage_pattern = re.compile(cleavage_pattern)
 
         context = cgreylag.search_context()
-        context.nonspecific_cleavage = (cleavage_motif == "[X]|[X]")
+        context.nonspecific_cleavage = (XTP["cleavage_motif"] == "[X]|[X]")
         for idno, offset, locusname, defline, seq, seq_filename in db:
             cp = []
             if not context.nonspecific_cleavage:
@@ -1262,7 +1263,8 @@ def main(args=sys.argv[1:]):
                                                    cleavage_pos, seq))
             sr = cgreylag.sequence_run(idno, offset, seq, cp, locusname)
             context.sequence_runs.append(sr)
-        context.maximum_missed_cleavage_sites = 1000000000 # FIX
+        context.maximum_missed_cleavage_sites \
+            = XTP["maximum_missed_cleavage_sites"]
 
         info("searching")
         search_all(options, context, mod_limit, mod_conjunct_triples,
@@ -1271,8 +1273,9 @@ def main(args=sys.argv[1:]):
         warning("no spectra after filtering--search skipped")
 
     if options.estimate_only:
+        # this factor is just an empirical guess
         print ("%.2f generic CPU hours"
-               % (score_statistics.candidate_spectrum_count / 300.0e6))
+               % (score_statistics.candidate_spectrum_count / 439.0e6))
         return
 
     info("writing result file")
