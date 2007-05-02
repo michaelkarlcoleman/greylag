@@ -37,53 +37,28 @@ TASK QUEUE
 * MINI-GOAL: basic greylag-process usable on our cluster (no mods)
 
 
-* Mod/regime info in SQT output program (greylag-sqt)
-** R lines to document mass regimes
+* Demo runs! (vs SEQUEST)
+** observe memory use!
+** no mod
+** one mod
+** ASFP (multiple mods)
+** vs myrimatch, if run completes
 
-  R	0	A	71.037114
-  R	0	C	103.009184
-  ...
+* Write release email
+** What it does and doesn't yet do
+** How to use it
 
-  regime + fixed mods + pca mod + diff mod + terminal mod + isotope mods (N15 or
-    natural)
+* Change the way mod limit works?  ({1,4} feature?)
 
-1 for back compatibility, support ASDC*ASDF form, and maybe A1S2D1C3A1S2D1F4
-       form
-1 need a means to specify mapping preference?
+* Why aren't scores a little more stable?  (fast-math?)
 
-** A lines for each M line to document regime (index of R) and residue mods
-
-3 AR	0
-4 APCA	+17.0
-2 AM	12	+32.34	phosphorylation
-3 AM	5	+57.0
-4 AT	]	+18.0	name
-4 AI	14	+1
-
-** are these required?
-  H       StaticMod       C=160.1388
-  H       DiffMod TNA*=+2.0
-
-
-
-** Try to keep back compatibility by grepping out A/R lines
-
-* Why aren't scores a little more stable?
-
-* update estimate factor
+* add A1S2D1C3A1S2D1F4 marking form?
 
 * Update docstrings
 
 * Evaluate performance differences vs SEQUEST/MM/Xtandem?
 
 * Design and implement greylag master process (work manifests?)
-
-* Look for more dead code to remove
-
-* Look at memory usage
-** maybe avoid spectrum name copies
-** maybe avoid locus name copies
-** instead of copying db sequences, use Python's?
 
 * Compare greylag/SEQUEST/MM on test-myrimatch example (non-specific)
 ** look at MM (whole file)
@@ -93,6 +68,13 @@ TASK QUEUE
 ** look at callgrind output
 
 * Further test case updates/adds
+** enzymatic cleavage
+
+
+* Verify that memory usage no longer a problem
+** maybe avoid spectrum name copies
+** maybe avoid locus name copies
+** instead of copying db sequences, use Python's?
 
 
 = M1 =========================================================================
@@ -100,6 +82,9 @@ TASK QUEUE
 
 
 * do a cg-admin-rewritehist before publishing git archive?
+
+* calculate Ion%?
+
 
 = M2 =========================================================================
 
