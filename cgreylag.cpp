@@ -590,6 +590,10 @@ evaluate_peptide(const search_context &context, match &m,
   const int max_fragment_charge = std::max<int>(1, max_candidate_charge-1);
   assert(max_fragment_charge <= spectrum::MAX_SUPPORTED_CHARGE);
 
+  const unsigned int peptide_size = m.peptide_sequence.size();
+  // FIX: "2" assumes just two ion series (e.g., B and Y)
+  assert(peptide_size <= 2*(spectrum::MAX_THEORETICAL_FRAGMENTS-1));
+
   // This array is preallocated to avoid the overhead of allocation and
   // deallocation within the inner loop.
   // FIX
@@ -597,7 +601,7 @@ evaluate_peptide(const search_context &context, match &m,
   static double synth_sp_mz[spectrum::MAX_SUPPORTED_CHARGE+1]
                            [spectrum::MAX_THEORETICAL_FRAGMENTS];
 
-  synthetic_spectra(synth_sp_mz, mass_list, m.peptide_sequence.size(),
+  synthetic_spectra(synth_sp_mz, mass_list, peptide_size,
 		    context.fragment_N_fixed_mass,
 		    context.fragment_C_fixed_mass, max_fragment_charge);
 
@@ -852,8 +856,6 @@ search_run(const search_context &context, const sequence_run &sequence_run,
       const unsigned int peptide_size = end_index - begin_index;
       if (peptide_size < min_peptide_length)
 	continue;
-      // FIX: "2" assumes just two ion series (e.g., B and Y)
-      assert(peptide_size <= 2*(spectrum::MAX_THEORETICAL_FRAGMENTS-1));
 
       assert(end_index >= 0);
       if (end_index >= p_end)
