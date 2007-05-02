@@ -207,7 +207,6 @@ def initialize_spectrum_parameters(options, mass_regimes, fixed_mod_map):
     fixed_mod_map maps, for example, 'M' to (1, 'O', False, 'M', 'oxidation').
     """
 
-    debug('fixed_mod_map: %s', fixed_mod_map)
     # This is the size of vectors that are indexed by residues (A-Z) or
     # special characters ('[]').
     RESIDUE_LIMIT = max(ord(c) for c in 'Z[]') + 1
@@ -216,8 +215,10 @@ def initialize_spectrum_parameters(options, mass_regimes, fixed_mod_map):
     CP.proton_mass = PROTON_MASS
     CP.hydrogen_mass = formula_mass("H")
 
+    regime_manifest = []
+
     global MASS_REGIME_ATOMIC_MASSES
-    for regime_pair in mass_regimes:
+    for rn, regime_pair in enumerate(mass_regimes):
         assert len(regime_pair) == 2    # parent and fragment
         info('mass regime: %s', regime_pair)
         MASS_REGIME_ATOMIC_MASSES.append([])
@@ -236,6 +237,8 @@ def initialize_spectrum_parameters(options, mass_regimes, fixed_mod_map):
                 m = 0
                 if r in RESIDUES:
                     m = formula_mass(RESIDUE_FORMULA[r], atmass)
+                if n == 1:
+                    regime_manifest.append((rn, r, m))
                 rmod = fixed_mod_map.get(r)
                 if rmod:
                     if isinstance(rmod[1], str):
@@ -286,6 +289,8 @@ def initialize_spectrum_parameters(options, mass_regimes, fixed_mod_map):
 
     CP.estimate_only = bool(options.estimate_only)
     CP.show_progress = bool(options.show_progress)
+
+    return regime_manifest
 
 
 def cleavage_motif_re(motif):
@@ -477,6 +482,7 @@ def mass_regime_part(part_specification):
                          " (prevalence must be in range 0-100%)")
     return (ps[0], [(ppps[0], prevalence)])
 
+
 def mass_regime_list(mass_regime_list_specification):
     """Check and return a list of regime tuples (parent_regime,
     fragment_regime), where each regime is a tuple (id, [(isotope_id,
@@ -499,7 +505,6 @@ def mass_regime_list(mass_regime_list_specification):
         if len(pr) == 1:
             pr = [ pr[0], pr[0] ]
         result.append(pr)
-    debug("mass regime list:\n%s", pformat(result))
 
     # The first fragmentation regime should generally be MONO, so that
     # formulaic deltas with '!' do the expected thing.
@@ -512,17 +517,19 @@ def mass_regime_list(mass_regime_list_specification):
 
 def parse_mod_term(s, is_potential=False):
     """Parse a modification term, returning a tuple (sign, mod, fixed_regime,
-    residues, description).
+    residues, description, marker).  The marker character must be printable
+    and non-alphabetic.
 
     >>> parse_mod_term('-C2H3ON!@C')
-    (-1, 'C2H3ON', True, 'C', None)
-    >>> parse_mod_term('42@STY phosphorylation', is_potential=True)
-    (1, 42.0, False, 'STY', 'phosphorylation')
+    (-1, 'C2H3ON', True, 'C', None, None)
+    >>> parse_mod_term("42@STY phosphorylation '*'", is_potential=True)
+    (1, 42.0, False, 'STY', 'phosphorylation', '*')
 
     """
 
     m = re.match(r'^\s*(-|\+)?(([1-9][0-9.]*)|([A-Z][A-Z0-9]*))(!?)'
-                 r'@([A-Z]+|\[|\])(\s+([A-Za-z0-9_]+))?\s*$', s)
+                 r'@([A-Z]+|\[|\])(\s+([A-Za-z0-9_]+))?'
+                 r"(\s+'([[-`!-@{-~])')?\s*$", s)
     if not m:
         raise ValueError("invalid modification term specification"
                          " '%s'" % s)
@@ -546,16 +553,17 @@ def parse_mod_term(s, is_potential=False):
         raise ValueError("invalid modification list specification"
                          " '%s' (duplicate residues prohibited)"
                          % residues)
-    return (mg[0] == '-' and -1 or 1, delta, mg[4] == '!', residues, mg[7])
+    return (mg[0] == '-' and -1 or 1, delta, mg[4] == '!', residues, mg[7],
+            mg[9])
 
 
 def fixed_mod_list(specification):
     """Check and return a list of modification tuples.
 
     >>> fixed_mod_list('57@C')
-    [(1, 57.0, False, 'C', None)]
-    >>> fixed_mod_list('57@C,CH!@N desc')
-    [(1, 57.0, False, 'C', None), (1, 'CH', True, 'N', 'desc')]
+    [(1, 57.0, False, 'C', None, None)]
+    >>> fixed_mod_list("57@C '*',CH!@N desc")
+    [(1, 57.0, False, 'C', None, '*'), (1, 'CH', True, 'N', 'desc', None)]
     >>> fixed_mod_list('57@C,58@C')
     Traceback (most recent call last):
         ...
@@ -621,18 +629,21 @@ def potential_mod_list(specification):
 
     >>> potential_mod_list('')
     []
-    >>> potential_mod_list('PO3H@STY; C2H2O@KST')
-    [[(1, 'PO3H', False, 'STY', None)], [(1, 'C2H2O', False, 'KST', None)]]
-    >>> potential_mod_list('PO3H@STY, C2H2O@KST')
-    [[(1, 'PO3H', False, 'STY', None), (1, 'C2H2O', False, 'KST', None)]]
-    >>> pprint(potential_mod_list('''(PO3H@STY phosphorylation;
-    ...                               C2H2O@KST acetylation;
-    ...                               CH2@AKST methylation),
-    ...                              O@M oxidation'''))
-    [[[[(1, 'PO3H', False, 'STY', 'phosphorylation')],
-       [(1, 'C2H2O', False, 'KST', 'acetylation')],
-       [(1, 'CH2', False, 'AKST', 'methylation')]],
-      (1, 'O', False, 'M', 'oxidation')]]
+    >>> pprint(potential_mod_list('PO3H@STY; C2H2O@KST'))
+    [[(1, 'PO3H', False, 'STY', None, None)],
+     [(1, 'C2H2O', False, 'KST', None, None)]]
+    >>> pprint(potential_mod_list('PO3H@STY, C2H2O@KST'))
+    [[(1, 'PO3H', False, 'STY', None, None),
+      (1, 'C2H2O', False, 'KST', None, None)]]
+    >>> pprint(potential_mod_list('''(PO3H@STY phosphorylation '*';
+    ...                               C2H2O@KST acetylation '^';
+    ...                               CH2@AKST methylation '#'),
+    ...                              O@M oxidation '@'
+    ...                           '''))
+    [[[[(1, 'PO3H', False, 'STY', 'phosphorylation', '*')],
+       [(1, 'C2H2O', False, 'KST', 'acetylation', '^')],
+       [(1, 'CH2', False, 'AKST', 'methylation', '#')]],
+      (1, 'O', False, 'M', 'oxidation', '@')]]
 
     """
     if not specification:
@@ -741,7 +752,10 @@ def pythonize_swig_object(o, only_fields=None, skip_fields=[]):
     avoid infinite recursion).
 
     >>> pprint(pythonize_swig_object(cgreylag.score_stats(1, 1)))
-    {'best_matches': [[{'mass_trace': [],
+    {'best_matches': [[{'conjunct_index': -1,
+                        'mass_regime_index': -1,
+                        'mass_trace': [],
+                        'pca_delta': 0.0,
                         'peptide_begin': [],
                         'peptide_sequence': '',
                         'predicted_parent_mass': 0.0,
@@ -908,33 +922,27 @@ def generate_delta_bag_counts(mod_count, conjunct_length):
 
 
 def set_context_conjuncts(context, mass_regime_index, N_cj, C_cj, R_cj):
-    assert len(N_cj) < 1 and len(C_cj) < 1
+    assert len(N_cj) < 1 and len(C_cj) < 1, "not yet implemented"
+
     context.N_delta = 0
     if N_cj:
-        context.N_delta = N_cj[0][5][mass_regime_index][1]
+        context.N_delta = N_cj[0][6][mass_regime_index][1]
     context.C_delta = 0
     if C_cj:
-        context.C_delta = C_cj[0][5][mass_regime_index][1]
+        context.C_delta = C_cj[0][6][mass_regime_index][1]
     context.delta_bag_lookup.clear()
     context.delta_bag_lookup.resize(ord('Z')+1)
     context.delta_bag_delta.clear()
     for n, cj in enumerate(R_cj):
-        context.delta_bag_delta.append(cj[5][mass_regime_index][1])
+        context.delta_bag_delta.append(cj[6][mass_regime_index][1])
         for r in cj[3]:
             context.delta_bag_lookup[ord(r)] \
                 = context.delta_bag_lookup[ord(r)] + (n,)
 
 
-def search_all(options, context, score_statistics):
+def search_all(options, context, mod_limit, mod_conjunct_triples,
+               score_statistics):
     """Search sequence database against searchable spectra."""
-
-    mod_limit = XTP["potential_mod_limit"]
-
-    mod_conjunct_triples = get_mod_conjunct_triples(XTP["potential_mods"],
-                                                    mod_limit)
-    info("%s unique potential modification conjuncts",
-         len(mod_conjunct_triples))
-    debug("mod_conjunct_triples (unique):\n%s", pformat(mod_conjunct_triples))
 
     mass_regimes = XTP["mass_regimes"]
     pca_table = get_pca_table(mass_regimes)
@@ -953,13 +961,11 @@ def search_all(options, context, score_statistics):
                 for cji, (N_cj, C_cj, R_cj) in enumerate(mod_conjunct_triples):
                     if pca_res and N_cj:
                         continue    # mutually exclusive, for now
+                    context.conjunct_index = cji
                     set_context_conjuncts(context, mr_index, N_cj, C_cj, R_cj)
-                    debug("mod_count: %s", mod_count)
                     debug("cj_triple: N=%s C=%s R=%s", N_cj, C_cj, R_cj)
                     for delta_bag in generate_delta_bag_counts(mod_count,
                                                                len(R_cj)):
-                        debug("delta_bag: %s", delta_bag)
-
                         # this clear() avoids an SWIG/STL bug!?
                         context.delta_bag_count.clear()
                         context.delta_bag_count[:] = delta_bag
@@ -967,17 +973,17 @@ def search_all(options, context, score_statistics):
                         pmrf = CP.parent_mass_regime[mr_index].fixed_residue_mass
                         fmrf = CP.fragment_mass_regime[mr_index].fixed_residue_mass
                         p_fx = (pmrf[ord('[')]
-                                + (N_cj and N_cj[0][5][mr_index][0] or 0)
+                                + (N_cj and N_cj[0][6][mr_index][0] or 0)
                                 + pmrf[ord(']')]
-                                + (C_cj and C_cj[0][5][mr_index][0] or 0)
+                                + (C_cj and C_cj[0][6][mr_index][0] or 0)
                                 + pca_parent_delta + PROTON_MASS)
                         context.parent_fixed_mass = p_fx
                         f_N_fx = (fmrf[ord('[')]
-                                  + (N_cj and N_cj[0][5][mr_index][1] or 0)
+                                  + (N_cj and N_cj[0][6][mr_index][1] or 0)
                                   + pca_frag_delta)
                         context.fragment_N_fixed_mass = f_N_fx
                         f_C_fx = (fmrf[ord(']')]
-                                  + (C_cj and C_cj[0][5][mr_index][1] or 0)
+                                  + (C_cj and C_cj[0][6][mr_index][1] or 0)
                                   + CP.fragment_mass_regime[mr_index].water_mass)
                         context.fragment_C_fixed_mass = f_C_fx
 
@@ -1144,7 +1150,9 @@ def main(args=sys.argv[1:]):
     XTP = validate_parameters(parameters)
 
     fixed_mod_map = dict((r[3], r) for r in XTP["pervasive_mods"])
-    initialize_spectrum_parameters(options, XTP["mass_regimes"], fixed_mod_map)
+    regime_manifest = initialize_spectrum_parameters(options,
+                                                     XTP["mass_regimes"],
+                                                     fixed_mod_map)
 
     # read sequence dbs
     databases = XTP["databases"].split()
@@ -1225,6 +1233,14 @@ def main(args=sys.argv[1:]):
     score_statistics = cgreylag.score_stats(len(spectra),
                                             XTP["best_result_count"])
 
+    mod_limit = XTP["potential_mod_limit"]
+    mod_conjunct_triples = get_mod_conjunct_triples(XTP["potential_mods"],
+                                                    mod_limit)
+    info("%s unique potential modification conjuncts",
+         len(mod_conjunct_triples))
+    debug("mod_conjunct_triples (unique):\n%s",
+          pformat(mod_conjunct_triples))
+
     if spectra:
         del spectra                     # release memory
 
@@ -1249,7 +1265,8 @@ def main(args=sys.argv[1:]):
         context.maximum_missed_cleavage_sites = 1000000000 # FIX
 
         info("searching")
-        search_all(options, context, score_statistics)
+        search_all(options, context, mod_limit, mod_conjunct_triples,
+                   score_statistics)
     else:
         warning("no spectra after filtering--search skipped")
 
@@ -1271,7 +1288,9 @@ def main(args=sys.argv[1:]):
               'databases' : databases,
               'parameters' : XTP,
               'mass regime atomic masses' : MASS_REGIME_ATOMIC_MASSES,
+              'mass regime manifest' : sorted(regime_manifest),
               'proton mass' : PROTON_MASS,
+              'modification conjuncts' : mod_conjunct_triples,
               'argv' : sys.argv }
         cPickle.dump(d, result_file, cPickle.HIGHEST_PROTOCOL)
     info("finished, result file written to '%s'", result_fn)

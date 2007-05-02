@@ -96,6 +96,7 @@ class search_context {
 public:
   unsigned int mod_count;
   int mass_regime_index;
+  int conjunct_index;
   std::string pca_residues;
   double pca_delta;
 
@@ -287,13 +288,10 @@ public:
 struct mass_trace_item {
   int position;
   double delta;
-  int id;			// FIX
 
   // grrrr
   bool operator==(const mass_trace_item &x) const {
-    return this->position == x.position
-      and this->delta == x.delta
-      and this->id == x.id;
+    return this->position == x.position and this->delta == x.delta;
   }
 };
 
@@ -307,6 +305,10 @@ public:
   int spectrum_index;
   std::string peptide_sequence;
   double predicted_parent_mass;
+
+  int mass_regime_index;
+  int conjunct_index;
+  double pca_delta;
   std::vector<mass_trace_item> mass_trace;
 
   // these are vectors of results for storing peptides found in multiple
@@ -314,7 +316,8 @@ public:
   std::vector<int> peptide_begin; // absolute position within locus
   std::vector<std::string> sequence_name;
 
-  match() : score(0), spectrum_index(-1), predicted_parent_mass(0) { }
+  match() : score(0), spectrum_index(-1), predicted_parent_mass(0),
+	    mass_regime_index(-1), conjunct_index(-1), pca_delta(0) { }
 };
 
 

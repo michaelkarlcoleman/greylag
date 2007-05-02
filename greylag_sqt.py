@@ -28,6 +28,7 @@ __copyright__ = '''
 __version__ = "0.0"
 
 
+from collections import defaultdict
 import contextlib
 import cPickle
 import gzip
@@ -45,20 +46,48 @@ def error(s):
 
 
 def print_header(f, r):
+    """Output H lines."""
     print >> f, "H\tSQTGenerator\tgreylag"
     print >> f, "H\tSQTGeneratorVersion\t%s" % __version__
     for db in r['databases']:
         print >> f, "H\tDatabase\t%s" % db
     for pk, pv in sorted(r['parameters'].items()):
         print >> f, "H\tParameter\t%s\t%s" % (pk, pv)
-    # How should these be specified?
-    # What does DTASelect do with these?
+    # FIX: are these necessary?
     # H       StaticMod       C=160.1388
     # H       DiffMod TNA*=+2.0
 
 
-def print_spectrum(f, sp_matches):
-    """Print the lines associated with the given spectrum."""
+def print_regime_manifest(f, regime_manifest):
+    """Output R lines."""
+    for regime_no, residue, mass in regime_manifest:
+        print >> f, "R\t%s\t%s\t%s" % (regime_no, residue, mass)
+
+
+def generate_marked_sequence(match_name_map, mass_trace, peptide_sequence):
+    """Yield the characters in a marked version of peptide_sequence.
+
+    >>> ''.join(generate_marked_sequence({}, [], 'ASDF'))
+    'ASDF'
+    >>> ''.join(generate_marked_sequence({('S', 80) : ('phosphorylation', '*')},
+    ...                                  [{'position' : 1, 'delta' : 80}],
+    ...                                  'ASDF'))
+    'AS*DF'
+
+    """
+
+    # FIX: handle [ ]
+    trace = sorted(mass_trace,
+                   key=lambda x: (x['position'], x['delta']), reverse=True)
+    for n, r in enumerate(peptide_sequence):
+        yield r
+        while trace and trace[-1]['position'] == n:
+            yield match_name_map[(r, trace[-1]['delta'])][1]
+            trace.pop()
+
+
+def print_spectrum(f, mod_name_map, sp_matches):
+    """Print the lines (S/M/L/A*) associated with the given spectrum."""
     spectrum, sp_best_matches = sp_matches
 
     scan_low, scan_high, _rest = spectrum['name'].split('.', 2)
@@ -80,6 +109,15 @@ def print_spectrum(f, sp_matches):
         rank = rank_map[score]
         score_delta = (best_score - score) / best_score
 
+        match_name_map = mod_name_map[(match['mass_regime_index'],
+                                       match['conjunct_index'])]
+        marked_sequence \
+            = ''.join(generate_marked_sequence(match_name_map,
+                                               match['mass_trace'],
+                                               match['peptide_sequence']))
+
+        # FIX: also need M lines for fixed mods, terminal mods, isotope mods
+        # (N15), etc.
         # Note: scores, being log probability, are non-positive, but we
         # flip the sign in the SQT output
         print >> f, '\t'.join(str(v) for v in
@@ -88,7 +126,17 @@ def print_spectrum(f, sp_matches):
                                round(score_delta, 4), round(-score, 4), 0,
                                # 1 of 2 ions found--keep DTASelect happy
                                1, 2,
-                               "-.%s.-" % match['peptide_sequence'], 'U'])
+                               "-.%s.-" % marked_sequence, 'U'])
+        if match['mass_regime_index'] != 0:
+            print >> f, "AR\t%s" % match['mass_regime_index']
+        if match['pca_delta'] != 0:
+            print >> f, "APCA\t%s" % match['pca_delta']
+        for mt in match['mass_trace']:
+            name = (match_name_map[(match['peptide_sequence'][mt['position']],
+                                    mt['delta'])][0])
+            fs = ["AM", mt['position'], round(mt['delta'], 5),
+                  name if name else '']
+            print >> f, '\t'.join(str(v) for v in fs)
 
         assert len(match['sequence_name']) == len(match['peptide_begin'])
         for sn, pb in zip(match['sequence_name'], match['peptide_begin']):
@@ -133,20 +181,33 @@ def main(args=sys.argv[1:]):
 
     # order matches by (spectrum filename, spectrum name)
     def filename_specname_order(m):
-
         sp = m[1][0]
         return sp['file_id'], sp['name']
 
     matches.sort(key=filename_specname_order)
+
+
+    # (regime index, conjunct index) -> (residue, delta)
+    #                                                -> (mod name, mod marker)
+    mod_name_map = defaultdict(dict)
+    for regime in range(len(r['mass regime atomic masses'])):
+        for cj_n, (N_cj, C_cj, R_cj) in enumerate(r['modification conjuncts']):
+            assert not N_cj and not C_cj, "not yet implemented"
+            for cj in R_cj:
+                for res in cj[3]:
+                    mod_name_map[(regime, cj_n)][(res, cj[6][regime][1])] \
+                        = (cj[4], cj[5])
+    #pprint(mod_name_map.items())
 
     for spectrum_n, spectrum_fn in enumerate(spectrum_fns):
         assert os.path.dirname(spectrum_fn) == ''
         sqt_fn = os.path.splitext(spectrum_fn)[0] + '.sqt'
         with open(sqt_fn, 'w') as sqtf:
             print_header(sqtf, r)
+            print_regime_manifest(sqtf, r['mass regime manifest'])
             for match in matches:
                 if match[1][0]['file_id'] == spectrum_n:
-                    print_spectrum(sqtf, match[1])
+                    print_spectrum(sqtf, mod_name_map, match[1])
 
 
 if __name__ == '__main__':

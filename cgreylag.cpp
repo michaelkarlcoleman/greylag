@@ -626,11 +626,12 @@ evaluate_peptide(const search_context &context, match &m,
       m.mass_trace.push_back(p->item);
 
     // If this is duplicate, just append to the existing match and return
-    // FIX: does comparison of mass trace work for all cases?
     for (std::vector<match>::reverse_iterator rit
 	   = sp_best_matches.rbegin(); rit != sp_best_matches.rend(); rit++)
       if (score_equal(rit->score, m.score)
 	  and rit->peptide_sequence == m.peptide_sequence
+	  and rit->mass_regime_index == m.mass_regime_index
+	  and rit->conjunct_index == m.conjunct_index
 	  and rit->mass_trace == m.mass_trace) {
 	rit->peptide_begin.push_back(m.peptide_begin[0]);
 	rit->sequence_name.push_back(m.sequence_name[0]);
@@ -784,6 +785,9 @@ search_run(const search_context &context, const sequence_run &sequence_run,
   m.sequence_name.push_back(sequence_run.name);
   m.peptide_begin.push_back(0);
   int &peptide_begin = m.peptide_begin[0];
+  m.mass_regime_index = context.mass_regime_index;
+  m.conjunct_index = context.conjunct_index;
+  m.pca_delta = context.pca_delta;
 
   assert(context.delta_bag_delta.size() == context.delta_bag_count.size());
   // counts remaining as mod positions are chosen
