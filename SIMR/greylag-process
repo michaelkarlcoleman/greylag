@@ -87,6 +87,7 @@ ln -s $$ $lockfile 2>/dev/null || true
 lockpid=$(ls -ld $lockfile | sed -e 's/^.*> //')
 
 if [ $lockpid != $$ ]; then
+    trap - EXIT			# leave lockfile
     die "this directory locked by another process (pid = $lockpid)?
          remove $lockfile if not"
 fi
@@ -151,7 +152,7 @@ qsub -sync y -r y -b y -S /bin/bash -cwd -V -hard -l virtual_free=250M \
     -o 'grind.$TASK_ID.out' \
     greylag-grind $greylag_options \
     --work-slice '$(greylag-sge-slice ${SGE_TASK_ID} ${SGE_TASK_LAST})' \
-    id "$config" "$@"
+    "$config" "$@"
 qsub_status=$?
 cat $(find . -name 'grind-*.out' -o -name 'grind-*.err' | sort -t . -k 2n,3) /dev/null
 if [ "$qsub_status" != 0 ]; then
