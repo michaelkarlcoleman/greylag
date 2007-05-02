@@ -10,14 +10,28 @@ For example, 'greylag-sge-slice 20 456' prints '0.04167 0.04386'.
 
 import sys
 
+def get_slice(N, M):
+    """Calculate slice.
+
+    >>> get_slice(1, 1)
+    0.0 1.0
+    >>> get_slice(2, 10)
+    0.1 0.2
+    >>> get_slice(20, 456)
+    0.04167 0.04386
+
+    """
+    assert 1 <= N <= M
+
+    s = 1.0 / M
+    w0 = (N-1) * s
+    w1 = N * s
+    if N == M:
+        w1 = 1.0                            # forestall rounding issues
+    return w0, w1
+
+
 N = int(sys.argv[1])
 M = int(sys.argv[2])
 
-assert 1 <= N <= M
-
-s = 1.0 / M
-w0 = (N-1) * s
-w1 = N * s
-if N == M:
-    w1 = 1.0                            # forestall rounding issues
-print "%.5f %.5f" % (w0, w1)
+print "%.5f %.5f" % get_slice(N, M)
