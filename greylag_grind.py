@@ -85,8 +85,8 @@ def fileerror(s, *args):
           *args)
 
 
-# name -> value map of processed XML input parameters
-XTP = {}
+# name -> value map of processed greylag config parameters
+GLP = {}
 
 # handle to the singleton parameter object shared with the C++ module
 CP = cgreylag.cvar.parameters_the
@@ -272,18 +272,18 @@ def initialize_spectrum_parameters(options, mass_regimes, fixed_mod_map):
             if CP.fragment_mass_regime[rn].fixed_residue_mass[ord(r)] < 1.0:
                 raise ValueError('bogus parent mass specification for %s' % r)
 
-    CP.parent_mass_tolerance_1 = XTP["parent_mz_tolerance"]
-    CP.parent_mass_tolerance_max = (XTP["parent_mz_tolerance"]
-                                    * XTP["charge_limit"])
+    CP.parent_mass_tolerance_1 = GLP["parent_mz_tolerance"]
+    CP.parent_mass_tolerance_max = (GLP["parent_mz_tolerance"]
+                                    * GLP["charge_limit"])
 
-    CP.fragment_mass_tolerance = XTP["fragment_mass_tolerance"]
-    CP.intensity_class_count = XTP["intensity_class_count"]
+    CP.fragment_mass_tolerance = GLP["fragment_mass_tolerance"]
+    CP.intensity_class_count = GLP["intensity_class_count"]
 
-    CP.minimum_peptide_length = XTP["min_peptide_length"]
+    CP.minimum_peptide_length = GLP["min_peptide_length"]
 
     # CP.ln_factorial[n] == ln(n!)
-    CP.ln_factorial.resize(int(XTP["max_parent_spectrum_mass"]
-                               / XTP["fragment_mass_tolerance"] + 100), 0.0)
+    CP.ln_factorial.resize(int(GLP["max_parent_spectrum_mass"]
+                               / GLP["fragment_mass_tolerance"] + 100), 0.0)
     for n in range(2, len(CP.ln_factorial)):
         CP.ln_factorial[n] = CP.ln_factorial[n-1] + math.log(n)
 
@@ -801,7 +801,7 @@ def get_pca_table(mass_regimes):
     """
     # FIX: According to Xtandem, C is only a candidate for PCA if
     # carboxyamidomethylated (C+57).  Currently we always search it.
-    if XTP["enable_pca_mods"]:
+    if GLP["enable_pca_mods"]:
         return [ [('', 0, 0),
                   ('E', -1 * CP.parent_mass_regime[r].water_mass,
                    -1 * CP.fragment_mass_regime[r].water_mass),
@@ -869,7 +869,7 @@ def get_mod_conjunct_triples(mod_tree, limit):
         sign, delta, is_mono = t[:3]
         return t + (tuple((rmass(r, 0, sign, delta, is_mono),
                            rmass(r, 1, sign, delta, is_mono))
-                          for r in range(len(XTP["mass_regimes"]))),)
+                          for r in range(len(GLP["mass_regimes"]))),)
 
     def triple(c):
         Ns = tuple(frozenset(enmass(x) for x in c if x[3] == '['))
@@ -946,7 +946,7 @@ def search_all(options, context, mod_limit, mod_conjunct_triples,
                score_statistics):
     """Search sequence database against searchable spectra."""
 
-    mass_regimes = XTP["mass_regimes"]
+    mass_regimes = GLP["mass_regimes"]
     pca_table = get_pca_table(mass_regimes)
     debug("pca_table: %s", pca_table)
 
@@ -1148,16 +1148,16 @@ def main(args=sys.argv[1:]):
         error("%s has no [greylag] section" % configuration_fn)
     parameters = dict(cp.items('greylag'))
     parameters.update(dict(options.parameters)) # command-line override
-    global XTP
-    XTP = validate_parameters(parameters)
+    global GLP
+    GLP = validate_parameters(parameters)
 
-    fixed_mod_map = dict((r[3], r) for r in XTP["pervasive_mods"])
+    fixed_mod_map = dict((r[3], r) for r in GLP["pervasive_mods"])
     regime_manifest = initialize_spectrum_parameters(options,
-                                                     XTP["mass_regimes"],
+                                                     GLP["mass_regimes"],
                                                      fixed_mod_map)
 
     # read sequence dbs
-    databases = XTP["databases"].split()
+    databases = GLP["databases"].split()
     # [(locusname, defline, seq, filename), ...]
     fasta_db = list(read_fasta_files(databases))
     # [(idno, offset, locusname, defline, seq, seq_filename), ...]
@@ -1213,13 +1213,13 @@ def main(args=sys.argv[1:]):
 
     # filter and normalize spectra
     for sp in spectra:
-        sp.filter_peaks(XTP["TIC_cutoff_proportion"],
+        sp.filter_peaks(GLP["TIC_cutoff_proportion"],
                         CP.parent_mass_tolerance_max)
-        sp.classify(XTP["intensity_class_count"], XTP["intensity_class_ratio"],
-                    XTP["fragment_mass_tolerance"])
+        sp.classify(GLP["intensity_class_count"], GLP["intensity_class_ratio"],
+                    GLP["fragment_mass_tolerance"])
 
-    min_psm = XTP["min_parent_spectrum_mass"]
-    max_psm = XTP["max_parent_spectrum_mass"]
+    min_psm = GLP["min_parent_spectrum_mass"]
+    max_psm = GLP["max_parent_spectrum_mass"]
     # FIX: also filter by 1 + 2 + 4 rule?
     spectra = [ sp for sp in spectra
                 if len(sp.peaks) >= 10 and min_psm <= sp.mass <= max_psm ]
@@ -1233,10 +1233,10 @@ def main(args=sys.argv[1:]):
 
     cgreylag.spectrum.set_searchable_spectra(spectra)
     score_statistics = cgreylag.score_stats(len(spectra),
-                                            XTP["best_result_count"])
+                                            GLP["best_result_count"])
 
-    mod_limit = XTP["potential_mod_limit"]
-    mod_conjunct_triples = get_mod_conjunct_triples(XTP["potential_mods"],
+    mod_limit = GLP["potential_mod_limit"]
+    mod_conjunct_triples = get_mod_conjunct_triples(GLP["potential_mods"],
                                                     mod_limit)
     info("%s unique potential modification conjuncts",
          len(mod_conjunct_triples))
@@ -1248,14 +1248,14 @@ def main(args=sys.argv[1:]):
 
         # (cleavage_re, position of cleavage in cleavage_re)
         cleavage_pattern, cleavage_pos \
-                          = cleavage_motif_re(XTP["cleavage_motif"])
+                          = cleavage_motif_re(GLP["cleavage_motif"])
         if cleavage_pos == None:
             error("cleavage site '%s' is missing '|'",
-                  XTP["protein, cleavage site"])
+                  GLP["protein, cleavage site"])
         cleavage_pattern = re.compile(cleavage_pattern)
 
         context = cgreylag.search_context()
-        context.nonspecific_cleavage = (XTP["cleavage_motif"] == "[X]|[X]")
+        context.nonspecific_cleavage = (GLP["cleavage_motif"] == "[X]|[X]")
         for idno, offset, locusname, defline, seq, seq_filename in db:
             cp = []
             if not context.nonspecific_cleavage:
@@ -1264,7 +1264,7 @@ def main(args=sys.argv[1:]):
             sr = cgreylag.sequence_run(idno, offset, seq, cp, locusname)
             context.sequence_runs.append(sr)
         context.maximum_missed_cleavage_sites \
-            = XTP["maximum_missed_cleavage_sites"]
+            = GLP["maximum_missed_cleavage_sites"]
 
         info("searching")
         search_all(options, context, mod_limit, mod_conjunct_triples,
@@ -1289,7 +1289,7 @@ def main(args=sys.argv[1:]):
               'total comparisons' : score_statistics.candidate_spectrum_count,
               'spectrum files' : base_spectrum_fns,
               'databases' : databases,
-              'parameters' : XTP,
+              'parameters' : GLP,
               'mass regime atomic masses' : MASS_REGIME_ATOMIC_MASSES,
               'mass regime manifest' : sorted(regime_manifest),
               'proton mass' : PROTON_MASS,

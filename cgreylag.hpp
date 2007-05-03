@@ -58,7 +58,7 @@ public:
   std::vector<mass_regime_parameters> parent_mass_regime;
   std::vector<mass_regime_parameters> fragment_mass_regime;
 
-  // from XTP
+  // from GLP
   double parent_mass_tolerance_1; // for +1
   double parent_mass_tolerance_max; // for +N (typically +3)
 
