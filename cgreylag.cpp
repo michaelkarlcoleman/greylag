@@ -33,7 +33,6 @@
 
 
 #ifdef __GNU__
-#define NOTHROW __attribute__ ((nothrow))
 // Use faster, non-threadsafe versions, since we don't use threads.  This is
 // maybe 10% faster?
 #define fgetsX fgets_unlocked
@@ -42,7 +41,6 @@
 #define ferrorX ferror_unlocked
 #define getcX getc_unlocked
 #else
-#define NOTHROW
 #define fgetsX std::fgets
 #define fputsX std::fputs
 #define fprintfX std::fprintf
@@ -90,7 +88,7 @@ spectrum::__repr__() const {
 // FIX: does this actually help inlining?
 // Return ln of n_C_k.
 static inline double
-ln_combination_(unsigned int n, unsigned int k) NOTHROW {
+ln_combination_(unsigned int n, unsigned int k) {
   // Occasionally happens due to problems in scoring function. (FIX)
   if (n < k)
     return 0;
@@ -383,7 +381,7 @@ spectrum::set_searchable_spectra(const std::vector<spectrum> &spectra) {
 static inline void
 get_synthetic_Y_mass_ladder(double *mass_ladder, const unsigned int ladder_size,
 			    const double *mass_list,
-			    const double fragment_C_fixed_mass) NOTHROW {
+			    const double fragment_C_fixed_mass) {
   double m = fragment_C_fixed_mass;
 
   for (unsigned int i=ladder_size; i>0; i--) {
@@ -397,7 +395,7 @@ get_synthetic_Y_mass_ladder(double *mass_ladder, const unsigned int ladder_size,
 static inline void
 get_synthetic_B_mass_ladder(double *mass_ladder, const unsigned int ladder_size,
 			    const double *mass_list,
-			    const double fragment_N_fixed_mass) NOTHROW {
+			    const double fragment_N_fixed_mass) {
   double m = fragment_N_fixed_mass;
 
   for (unsigned int i=0; i<ladder_size; i++) {
@@ -415,7 +413,7 @@ synthetic_spectra(double synth_sp_mz[/* max_fragment_charge+1 */]
 		  const double *mass_list, const unsigned int mass_list_size,
 		  const double fragment_N_fixed_mass,
 		  const double fragment_C_fixed_mass,
-		  const int max_fragment_charge) NOTHROW {
+		  const int max_fragment_charge) {
   assert(mass_list_size >= 1);
   const unsigned int ladder_size = mass_list_size - 1;
   double Y_mass_ladder[ladder_size];
@@ -457,8 +455,7 @@ synthetic_spectra(double synth_sp_mz[/* max_fragment_charge+1 */]
 // FIX const declaration
 static inline double
 score_spectrum(const spectrum &x,
-	       const double synth_mzs[spectrum::MAX_THEORETICAL_FRAGMENTS])
-  NOTHROW {
+	       const double synth_mzs[spectrum::MAX_THEORETICAL_FRAGMENTS]) {
   // FIX this
   unsigned int y_peak_count=0;
   for (const double *p=synth_mzs; *p >= 0; p++, y_peak_count++);
@@ -545,7 +542,7 @@ score_spectrum_over_charges(const double
 			    synth_sp_mz[/* max_fragment_charge+1 */]
 			    [spectrum::MAX_THEORETICAL_FRAGMENTS],
 			    const spectrum &sp,
-			    const int max_fragment_charge) NOTHROW {
+			    const int max_fragment_charge) {
   double best_score = score_spectrum(sp, synth_sp_mz[1]);
 
   const int charge_limit = std::max<int>(1, sp.charge-1);
@@ -578,7 +575,7 @@ evaluate_peptide(const search_context &context, match &m,
 		 const mass_trace_list *mtlp, const double *mass_list,
 		 const std::vector<std::vector<spectrum>::size_type>
 		     &candidate_spectra,
-		 score_stats &stats) NOTHROW {
+		 score_stats &stats) {
   int max_candidate_charge = 0;
   typedef std::vector<std::vector<spectrum>::size_type>::const_iterator c_it;
   for (c_it it=candidate_spectra.begin(); it != candidate_spectra.end(); it++)
@@ -665,7 +662,7 @@ choose_residue_mod(const search_context &context, match &m,
 		   score_stats &stats,
 		   std::vector<int> &db_remaining,
 		   const unsigned int remaining_positions_to_choose,
-		   const unsigned int next_position_to_consider) NOTHROW {
+		   const unsigned int next_position_to_consider) {
   assert(remaining_positions_to_choose
 	 <= m.peptide_sequence.size() - next_position_to_consider);
 
