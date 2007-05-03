@@ -40,11 +40,14 @@ TASK QUEUE
 * save .git backup
 * reinitialize git mirror on research
 
+* Is NOTHROW faster or slower?
+
 * Demo runs! (vs SEQUEST)  [DTASelect -t 0, Contrast]
 ** no mod
 ** one mod??
 ** ASFP (multiple mods)
 ** vs myrimatch, if run completes
+** caveats re differing parameters, behaviors, etc
 
 * Write release email
 ** What it does and doesn't yet do
@@ -55,8 +58,6 @@ TASK QUEUE
 * Why aren't scores a little more stable?  (fast-math?)
 
 * add A1S2D1C3A1S2D1F4 marking form?
-
-* Update docstrings
 
 * Evaluate performance differences vs SEQUEST/MM/Xtandem?
 
@@ -73,15 +74,11 @@ TASK QUEUE
 ** enzymatic cleavage
 
 
-* Verify that memory usage no longer a problem
-** maybe avoid spectrum name copies
-** maybe avoid locus name copies
-** instead of copying db sequences, use Python's?
-
-
 = M1 =========================================================================
 
 
+
+* Update docstrings
 
 * calculate Ion%?
 
@@ -115,10 +112,7 @@ TASK QUEUE
 * Implement MyriMatch deisotoping?
 
 
-* Look more closely at specific MM vs GL match diffs.
-
-
-* Figure out how to handle multiple residue mods (delta, isotope, etc)
+* Investigate identification differences between greylag and SEQUEST/MM.
 
 * Clean up [,] (N/C-terminal) mass regime calculations
 
@@ -130,9 +124,6 @@ TASK QUEUE
 ** Fix redundant peptide reporting
 
 
-* Time a real mod search vs SEQUEST (and xtandem?), is time reasonable?
-  MAKE SURE PARAMS ARE COMPARABLE!  Ballpark correctness?
-
 * Create direct DTASelect.txt output?
   (This seems to be sufficient to support most or all DTASelect output.)
 
@@ -140,14 +131,6 @@ TASK QUEUE
   statistics--how many id's are the same, different, missing, etc.  For each
   spectrum, want to see what each program did, and how many times the assigned
   locus was otherwise id'ed.
-
-* Investigate identification differences between greylag and SEQUEST.
-
-* Careful timing and correctness check for
-  /n/proteomics/mkc/HsProA-Control_S100_Ti_1_H_2006-03-03_wSHUFFLED-greylag
-
-* Design and implement tracing of mass regime/PCA/fixed and non-fixed
-  deltas/etc into output file.  Try to stay compatible with xtandem.
 
 * PPM error tolerances (MyriMatch doesn't implement this?)
 
@@ -203,9 +186,6 @@ TASK QUEUE
 * Should we try to guarantee that searching is equivalent for all mass regimes,
   to make comparisons more valid?
 
-* Eval speedup: make intensity information integer, or otherwise store it in
-  log form so we can add instead of multiplying?
-
 * Try to switch FP code to use integers instead?
 
 * Rigorously check all values coming in from Python (at least by assert).
@@ -242,11 +222,6 @@ TASK QUEUE
   Probably not worth doing?  Similarly, if we know all bags of size N are too
   large, and all deltas are positive, we can skip larger bags.
 
-* Can we make the parts restartable?  If so, maybe this could be used to load
-  balance, recover from crashes, etc.
-
-* Is NOTHROW faster or slower?
-
 * If we see a good hit for a spectrum, we could try to see if there's an
   identifiable tag.  If so, could restrict further searching to peptides with
   that tag.
@@ -261,5 +236,3 @@ TO FILE:
 * test spectrum synthesis
 
 * test semi-tryptic cleavage
-
-* double-check handling of FP arithmetic using epsilons (no ==, no strict <)

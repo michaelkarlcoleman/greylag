@@ -32,19 +32,19 @@ without searching peptides that may have combinations of both.
 separate search with a subsequent merge.  It also should be at least a little
 faster.
 
-- Modification limit can be specified as a limit on modifications per peptide
-(similar to SEQUEST) (and Myrimatch?) and/or as a limit on the combinations
-searched per peptide (similar to X!Tandem and OMSSA).  (The first limit
-differs from SEQUEST in that a SEQUEST limit of N would allow N modifications
-for each delta in a peptide, whereas greylag allows N modifications total per
-peptide.)
+- Modification limit is specified as a limit on modifications per peptide
+(similar to SEQUEST) (and Myrimatch?) rather than as a limit on the
+combinations searched per peptide (similar to X!Tandem and OMSSA).  (The
+greylag limit differs from SEQUEST in that a SEQUEST limit of N would allow N
+modifications for each delta in a peptide, whereas greylag allows N
+modifications total per peptide.)
 
 - Modifications can be specified by formula (e.g., +CH2 instead of +14 for
 methylation).  This allows the mass delta to be calculated more accurately,
 and correctly handles cases for which the delta depends on the mass regime
 (e.g., because the modification involves an isotope).  XXX
 
-- Modifications may be named ("14@K(methylation),14@S(methylation)"), which
+- Modifications may be named ("14@K methylation,14@S methylation"), which
 simplifies modification tracking in downstream software.  XXX
 
 - Supports different mass regimes for parent and fragment mass calculations
@@ -56,22 +56,21 @@ modifications, as X!Tandem does.  (SEQUEST apparently doesn't do this.)
 
 - Refinement steps, similar to X!Tandem.  XXX
 
-- X!Tandem-compatible input and output file formats.  Can be used as a drop-in
-replacement for X!Tandem, with some limitations.
-
-- Has a "quirks-mode" feature that attempts to replicate X!Tandem's behavior
-as closely as possible (warts and all).
+- Generates SQT output files (like SEQUEST).  These can be read by DTASelect,
+etc
 
 - Supports ms2 spectrum files.  [X!Tandem, OMSSA, Myrimatch require
 conversion.]
 
 - Supports multiple spectrum files.  [X!Tandem handles only one at a time.]
 
-- Integrated cluster implementation.  [X!Tandem has a multithreading feature
-that works on single machines, and an add-on cluster implementation.
-Myrimatch uses multithreading and MPI.]
+- Parallel implementation works the same on single multiprocessor machines and
+clusters.  No external dependencies (e.g., MPI), and flexible enough to fit
+into a broad range of cluster scheduling architectures.  [X!Tandem has a
+multithreading feature that works on single machines, and an add-on cluster
+implementation.  Myrimatch uses multithreading and MPI.]
 
-- Source code is relatively small and simple (currently about 15% of
+- Source code is relatively small and simple (currently about 15-20% of
 X!Tandem's size).  Most functionality is implemented in a high-level
 interpreted language (Python), with low-level code (C++) used only for
 performance-critical sections.  This makes it much easier to understand, learn
@@ -87,9 +86,9 @@ floating-point comparison, and uses single-precision in most places.]
 - Source code carefully examined for correctness.  [X!Tandem has mismatched
 new/delete, potential buffer overflows, etc.]
 
-- Relative speed.  XXX seems okay, but not yet tested or optimized...
+- Competitive speed.  (Seems okay, but not yet tested or optimized.)
 
-- Platform independent.  XXX (only Linux tried so far)
+- Platform independent design (though only tested on Linux so far).
 
 - Better progress logging.
 
