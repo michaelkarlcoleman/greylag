@@ -33,11 +33,11 @@ One of our goals is to keep things simple and compact.  Here's a recent
 comparison against similar programs (generated using David A. Wheeler's
 'SLOCCount'):
 
-greylag: cpp:   898 py: 1400 (+336 sh to set up parallel jobs at SIMR)
-xtandem: cpp: 13058 (+ 1271 for parallel tandem -> 14329)
-omssa:   cpp:  7583 (plus an unknown, possibly large number from the NCBI
-		     toolkits [33 distinct headers])
-		    (the toolkits are 1000000 sloc, 65% cpp, 34% c)
+greylag:   cpp:   813 py: 1367 (+205 sh to set up parallel jobs at SIMR)
+xtandem:   cpp: 13058 (+ 1271 for parallel tandem -> 14329)
+omssa:     cpp:  7583 (plus an unknown, possibly large number from the NCBI
+		       toolkits [33 distinct headers])
+		      (the toolkits are 1000000 sloc, 65% cpp, 34% c)
 myrimatch: cpp:  6534 (not counting expat code)
 
 
