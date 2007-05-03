@@ -120,12 +120,6 @@ public:
 };
 
 
-enum ion { ION_MIN, ION_Y=ION_MIN, ION_B, ION_MAX }; // NB: [ION_MIN, ION_MAX)
-
-inline void operator++(ion &i) { i = ion(i + 1); }
-inline void operator++(ion &i, int) { i = ion(i + 1); }
-
-
 class peak {
 public:
   double mz;
@@ -139,10 +133,7 @@ public:
   char *__repr__() const;
 
   static bool less_mz(peak x, peak y) { return x.mz < y.mz; }
-  // FIX: delete one of these
-  static bool less_intensity(peak x, peak y) {
-    return x.intensity < y.intensity;
-  }
+
   static bool greater_intensity(peak x, peak y) {
     return x.intensity > y.intensity;
   }
@@ -298,7 +289,6 @@ struct mass_trace_item {
 
 // This is everything we want to remember about a match, so that we can report
 // it later.
-// FIX: Are any of these fields unneeded?
 class match {
 public:
   double score;

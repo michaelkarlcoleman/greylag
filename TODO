@@ -37,10 +37,12 @@ TASK QUEUE
 * MINI-GOAL: basic greylag-process usable on our cluster (no mods)
 
 
-* Demo runs! (vs SEQUEST)
-** observe memory use!
+* save .git backup
+* reinitialize git mirror on research
+
+* Demo runs! (vs SEQUEST)  [DTASelect -t 0, Contrast]
 ** no mod
-** one mod
+** one mod??
 ** ASFP (multiple mods)
 ** vs myrimatch, if run completes
 
@@ -80,8 +82,6 @@ TASK QUEUE
 = M1 =========================================================================
 
 
-
-* do a cg-admin-rewritehist before publishing git archive?
 
 * calculate Ion%?
 

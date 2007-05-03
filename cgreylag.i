@@ -40,10 +40,6 @@
     }
 }
 
-// not sure these are useful--just avoiding SWIG warning
-%rename(ion_increment) operator++(ion &);
-%rename(ion_post_increment) operator++(ion &, int);
-
 
 %include std_string.i
 %apply const std::string & { std::string *name };
