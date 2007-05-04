@@ -37,17 +37,21 @@ TASK QUEUE
 * MINI-GOAL: basic greylag-process usable on our cluster (no mods)
 
 
-* save .git backup
-* reinitialize git mirror on research
+* need some greylag-merge test cases
 
-* Is NOTHROW faster or slower?
+* dtas-filter
+** look at zybailov paper
+** look at dbvalidate src
 
 * Demo runs! (vs SEQUEST)  [DTASelect -t 0, Contrast]
 ** no mod
+
 ** one mod??
 ** ASFP (multiple mods)
 ** vs myrimatch, if run completes
 ** caveats re differing parameters, behaviors, etc
+
+* Look at asciidoc
 
 * Write release email
 ** What it does and doesn't yet do
