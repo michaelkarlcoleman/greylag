@@ -178,14 +178,7 @@ def main(args=sys.argv[1:]):
     assert len(spectrum_fns) == len(set(spectrum_fns)) # check uniqueness
 
     matches = r['matches'].items()
-
-    # order matches by (spectrum filename, spectrum name)
-    def filename_specname_order(m):
-        sp = m[1][0]
-        return sp['file_id'], sp['name']
-
-    matches.sort(key=filename_specname_order)
-
+    matches.sort()
 
     # (regime index, conjunct index) -> (residue, delta)
     #                                                -> (mod name, mod marker)
@@ -206,7 +199,7 @@ def main(args=sys.argv[1:]):
             print_header(sqtf, r)
             print_regime_manifest(sqtf, r['mass regime manifest'])
             for match in matches:
-                if match[1][0]['file_id'] == spectrum_n:
+                if match[0][0] == spectrum_n:
                     print_spectrum(sqtf, mod_name_map, match[1])
 
 

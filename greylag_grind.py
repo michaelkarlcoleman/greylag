@@ -1062,8 +1062,9 @@ def results_dump(score_statistics, searchable_spectra):
     assert len(py_s_spectra) == len(py_matches)
 
     for sp_metadata, sp_matches in zip(py_s_spectra, py_matches):
-        assert sp_metadata['name'] not in r, "duplicate spectrum name"
-        r[sp_metadata['name']] = (sp_metadata, sp_matches)
+        sp_key = (sp_metadata['file_id'], sp_metadata['name'])
+        assert sp_key not in r, "duplicate spectrum name"
+        r[sp_key] = (sp_metadata, sp_matches)
 
     return r
 

@@ -55,6 +55,11 @@ def check_consistency(r0, r1):
     if k0 != k1:
         warn("mismatched keys: %s" % (k0 ^ k1))
 
+    # FIX: this restriction goes away later
+    if r0['spectrum files'] != r1['spectrum files']:
+        error('merging across differing sets of ms2 files not yet implemented'
+              ' (%s vs %s)' % (r0['spectrum files'], r1['spectrum files']))
+
     varying_keys = set(['matches', 'total comparisons', 'argv'])
     for k in k0 - varying_keys:
         if r0[k] != r1.get(k):
@@ -69,8 +74,8 @@ def merge_match(m0, m1):
     """Merge a particular spectrum match from m1 into m0."""
     m0[0]['comparisons'] += m1[0]['comparisons']
 
-    # NB: This merge code, and score_equal above, must functionally match the
-    # merge code in cgreylag.cpp:evaluate_peptide!
+    # NB: This merge code, and score_equal above, must do the same merge as
+    # the merge code in cgreylag.cpp:evaluate_peptide!
 
     keep = max(len(m0), len(m1))
     assert keep >= 1
