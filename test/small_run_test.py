@@ -23,7 +23,7 @@ GREYLAG_SQT = '../greylag_sqt.py'
 GREYLAG_INDEX_SPECTRA = '../greylag_index_spectra.py'
 
 JOB_ID = 'tmp'
-DEFAULT_GWR = 'grind_%s_0.0-1.0.gwr' % JOB_ID
+DEFAULT_GLW = 'grind_%s_0.0-1.0.glw' % JOB_ID
 
 # cd to the test directory, but restore when we're done
 SAVE_CWD = os.getcwd()
@@ -36,7 +36,7 @@ def teardown(self):
 def run_gl(conf, spectra):
     "Run greylag-grind, checking for error return."
     try:
-        os.remove(DEFAULT_GWR)
+        os.remove(DEFAULT_GLW)
     except:
         pass
     subprocess.check_call([GREYLAG_GRIND, "-q", "-w", "0", "1",
@@ -95,8 +95,8 @@ def run_combination(combination=None):
     run_gl_index_spectra(ms2)
     run(params, ms2)
     if run == run_gl:
-        run_gl_sqt(DEFAULT_GWR)
-        os.remove(DEFAULT_GWR)
+        run_gl_sqt(DEFAULT_GLW)
+        os.remove(DEFAULT_GLW)
 
     for s, sok in zip(sqt, sqt_ok):
         assert os.path.exists(s), "sqt output '%s' missing" % s

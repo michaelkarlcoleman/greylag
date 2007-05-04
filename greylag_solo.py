@@ -77,8 +77,8 @@ def slices(N):
 
 
 def run_parts_and_merge(processes, job_id, args):
-    merge_fn = 'greylag-merge-%s.gwr' % job_id
-    work_fns = [ 'grind_%s_%s-%s.gwr' % (job_id, w0, w1)
+    merge_fn = 'greylag-merge-%s.glw' % job_id
+    work_fns = [ 'grind_%s_%s-%s.glw' % (job_id, w0, w1)
                  for w0, w1 in slices(processes) ]
 
     try:

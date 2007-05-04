@@ -1281,7 +1281,7 @@ def main(args=sys.argv[1:]):
 
     info("writing result file")
     # FIX: this is only for standalone mode
-    result_fn = 'grind_%s_%s-%s.gwr' % (options.job_id, options.work_slice[0],
+    result_fn = 'grind_%s_%s-%s.glw' % (options.job_id, options.work_slice[0],
                                         options.work_slice[1])
     with contextlib.closing(gzip.open(result_fn, 'w')) as result_file:
         d = { 'version' : __version__,

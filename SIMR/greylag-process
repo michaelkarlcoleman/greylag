@@ -139,12 +139,12 @@ pushd $shared_d > /dev/null || die "pushd failed!"
 #ls -l $shared_d/
 
 
-err search
+err commence search
 
 # It's important that the same ms2 arguments be given (in the same order) each
 # time.
 
-qsub -sync y -r y -b y -S /bin/bash -cwd -V -hard -l virtual_free=250M \
+qsub -sync y -r y -b y -S /bin/bash -cwd -V -hard -l virtual_free=100M \
     -q all.q \
     -t 1-$PARTS \
     -N "greylag-$jobbasedir-$jobname-$$" \
@@ -159,7 +159,7 @@ if [ "$qsub_status" != 0 ]; then
     die "grind on nodes failed"
 fi
 
-if [ "$(find . -name '*.gwr' | wc -l)" != $PARTS ]; then
+if [ "$(find . -name '*.glw' | wc -l)" != $PARTS ]; then
     die "SGE/grind on nodes failed"
 fi
 
@@ -170,12 +170,12 @@ popd > /dev/null || die "popd failed!"
 
 err merge results
 
-find $shared_d -name '*.gwr' | greylag-merge --files-on-stdin "$jobname.gwr" \
+find $shared_d -name '*.glw' | greylag-merge --files-on-stdin "$jobname.glw" \
     || die "merge failed"
 
 err write sqt files
 
-greylag-sqt "$jobname.gwr" || die "sqt write failed"
+greylag-sqt "$jobname.glw" || die "sqt write failed"
 
 # for now, don't do this
 #rm -fr "$shared_d" $lockfile
