@@ -168,11 +168,12 @@ def calculate_combined_thresholds(options, sqt_fns):
                 last_value = this_value
             spinfo0.pop()
 
-        print ("%+d: score %s, delta %s -> %s real ids (fdr %.4f)"
-               % (charge, thresholds[charge][0], thresholds[charge][1],
-                  thresholds[charge][2],
-                  1 - specificity(thresholds[charge][2],
-                                  thresholds[charge][3])))
+        if options.verbose:
+            print ("%+d: score %s, delta %s -> %s real ids (fdr %.4f)"
+                   % (charge, thresholds[charge][0], thresholds[charge][1],
+                      thresholds[charge][2],
+                      1 - specificity(thresholds[charge][2],
+                                      thresholds[charge][3])))
 
     return thresholds
 
