@@ -37,11 +37,8 @@ TASK QUEUE
 * MINI-GOAL: basic greylag-process usable on our cluster (no mods)
 
 
-* need some greylag-merge test cases
-
-* dtas-filter
-** look at zybailov paper
-** look at dbvalidate src
+* sqt-filter
+** implement --mark options
 
 * Demo runs! (vs SEQUEST)  [DTASelect -t 0, Contrast]
 ** no mod
@@ -56,6 +53,8 @@ TASK QUEUE
 * Write release email
 ** What it does and doesn't yet do
 ** How to use it
+
+* need some greylag-merge test cases
 
 * Change the way mod limit works?  ({1,4} feature?)
 
