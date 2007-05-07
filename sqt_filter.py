@@ -1,8 +1,8 @@
 #!/usr/bin/env greylag-python
 
 """
-Filter a set of sqt files according to various criteria, optionally rewriting
-them with the validation marks set to 'N' for filtered-out spectra.
+Filter a set of sqt files according to FPR and other criteria, optionally
+rewriting them with the validation marks set to 'N' for filtered-out spectra.
 
 """
 
@@ -97,20 +97,23 @@ def read_sqt_info(decoy_prefix, sqt_fns):
     return z_scores
 
 
+def specificity(positives, negatives):
+    return (float(positives - negatives)
+            / (positives + negatives))
+
+
 def calculate_inner_threshold(specificity_goal, charge, spinfo):
-    spinfo = sorted(spinfo, key=lambda x: x[1])
+    spinfo = sorted(spinfo, key=lambda x: x[0])
 
     real_count = sum(1 for x in spinfo if x[-1] == 'real')
     decoy_count = len(spinfo) - real_count
 
     if real_count == 0:
-        #print real_count, decoy_count
-        return None                     # give up
+        return (None, real_count, decoy_count) # give up
 
     current_threshold = -1e100      # allow all spectra
     for n, sp in enumerate(spinfo):
-        specificity_est = (float(real_count - decoy_count)
-                           / (real_count + decoy_count))
+        specificity_est = specificity(real_count, decoy_count)
         if specificity_est >= specificity_goal:
             break
         if sp[-1] == 'real':
@@ -118,98 +121,58 @@ def calculate_inner_threshold(specificity_goal, charge, spinfo):
         else:
             decoy_count -= 1
         # set threshold just high enough to exclude this spectrum
-        current_threshold = sp[1] + 1e-6
+        current_threshold = sp[0] + 1e-6
     else:
-        current_threshold = spinfo[-1][1] + 1e-6 # couldn't meet goal
+        current_threshold = spinfo[-1][0] + 1e-6 # couldn't meet goal
 
-    print current_threshold, real_count, decoy_count
-
-    return current_threshold
+    return (current_threshold, real_count, decoy_count)
 
 
-
-def calculate_combined_thresholds(fpr, decoy_prefix, sqt_fns):
+def calculate_combined_thresholds(options, sqt_fns):
     """Find best score/delta thresholds for each charge.
     """
 
-    z_scores = read_sqt_info(decoy_prefix, sqt_fns)
-    warn("searching")
+    z_scores = read_sqt_info(options.decoy_prefix, sqt_fns)
 
-    specificity_goal = 1 - fpr
+    specificity_goal = 1 - options.fpr
 
-    search_granularity = 0.01
+    # Rather than search every possible value of delta, we're only going to
+    # "sample" at this granularity.  This cuts search time dramatically (and
+    # making it O(n) instead of O(n**2).  Extra precision wouldn't really be
+    # useful in any case.
+    SEARCH_GRANULARITY = 0.001
+
+    # charge -> (score, delta, passing_reals, passing_decoys)
+    thresholds = {}
 
     for charge, spinfo in z_scores.iteritems():
-        spinfo0 = sorted(spinfo, key=lambda x: x[0], reverse=True)
+        spinfo0 = sorted(spinfo, key=lambda x: x[1], reverse=True)
 
         last_value = None
 
         while spinfo0:
-            this_value = spinfo0[-1][0]
+            this_value = spinfo0[-1][1] # current delta
             if (last_value == None
-                or abs(this_value - last_value) >= search_granularity):
-                print charge, this_value,
-                calculate_inner_threshold(specificity_goal, charge, spinfo0)
+                or abs(this_value - last_value) >= SEARCH_GRANULARITY):
+
+                # "inner" is score
+                r = calculate_inner_threshold(specificity_goal, charge,
+                                              spinfo0)
+                if r[0] != None:
+                    if options.debug:
+                        print '#', charge, r[0], this_value, r[1], r[2]
+                    if (charge not in thresholds
+                        or r[1] > thresholds[charge][2]):
+                        thresholds[charge] = (r[0], this_value, r[1], r[2])
+
                 last_value = this_value
             spinfo0.pop()
 
-
-
-
-
-def calculate_thresholds(fpr, decoy_prefix, sqt_fns, by_score=True):
-
-    z_scores = read_sqt_info(decoy_prefix, sqt_fns)
-
-    warn("searching")
-
-    # charge -> threshold
-    thresholds = {}
-
-    specificity_goal = 1 - fpr
-
-    #vf = 0                              # validate by score
-    #vf = 1                              # validate by delta
-    #vf = 2                              # validate by score+5*delta
-    vf = 0 if by_score else 1
-
-    for charge, spinfo in z_scores.iteritems():
-        #if vf == 2:
-        #    spinfo = [ (x[0], x[1], x[0]+5*x[1], x[2]) for x in spinfo ]
-
-        spinfo.sort(key=lambda x: x[vf])
-
-        real_count = sum(1 for x in spinfo if x[-1] == 'real')
-        decoy_count = len(spinfo) - real_count
-
-        #print real_count
-        #print decoy_count
-        #pprint(spinfo)
-
-        if real_count == 0:
-            thresholds[charge] = None   # give up
-            warn("no real ids for charge = %s" % charge)
-            continue
-
-        current_threshold = -1e100      # allow all spectra
-        for n, sp in enumerate(spinfo):
-            specificity_est = (float(real_count - decoy_count)
-                               / (real_count + decoy_count))
-            #print n, specificity_est, specificity_goal
-            if specificity_est >= specificity_goal:
-                break
-            if sp[-1] == 'real':
-                real_count -= 1
-            else:
-                decoy_count -= 1
-            # set threshold just high enough to exclude this spectrum
-            current_threshold = sp[vf] + 1e-6
-        else:
-            current_threshold = 1e100   # couldn't meet goal
-
-        thresholds[charge] = current_threshold
-        print ("charge %s  threshold %s  real ids %s  decoy ids %s"
-               % (charge, current_threshold, real_count, decoy_count))
+        print ("%+d: score %s, delta %s -> %s real ids (fdr %.4f)"
+               % (charge, thresholds[charge][0], thresholds[charge][1],
+                  thresholds[charge][2],
+                  1 - specificity(thresholds[charge][2],
+                                  thresholds[charge][3])))
 
     return thresholds
 
@@ -226,6 +189,8 @@ def main(args=sys.argv[1:]):
        help="false positive rate [default=0.02]", metavar="PROPORTION")
     pa("-v", "--verbose", action="store_true", dest="verbose",
        help="be verbose")
+    pa("--debug", action="store_true", dest="debug",
+       help="show debug output")
     pa("-m", "--mark", action="store_true", dest="mark",
        help="rewrite the input files, changing some validation marks to 'N',"
        " according to filtering")
@@ -253,16 +218,10 @@ def main(args=sys.argv[1:]):
         error("not yet implemented")
         return
 
-    thresholds = calculate_thresholds(options.fpr, options.decoy_prefix, args,
-                                      by_score=True)
-    thresholds = calculate_thresholds(options.fpr, options.decoy_prefix, args,
-                                      by_score=False)
-    sys.stdout.flush()
+    thresholds = calculate_combined_thresholds(options, args)
 
-    thresholds = calculate_combined_thresholds(options.fpr,
-                                               options.decoy_prefix, args)
-
-    pprint(thresholds)
+    if options.debug:
+        pprint(thresholds)
 
     if options.mark:
         # do it

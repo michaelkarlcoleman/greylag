@@ -89,6 +89,7 @@ install::
 	install -p greylag_merge.py $(DEST)/greylag-merge
 	install -p greylag_sqt.py $(DEST)/greylag-sqt
 	install -p greylag_solo.py $(DEST)/greylag-solo
+	install -p sqt_filter.py $(DEST)/sqt-filter
 	@echo "# remember to link 'greylag-python' to your python $(PYTHONVER)"
 
 clean::
