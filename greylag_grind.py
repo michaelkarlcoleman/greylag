@@ -1283,20 +1283,24 @@ def main(args=sys.argv[1:]):
     # FIX: this is only for standalone mode
     result_fn = 'grind_%s_%s-%s.glw' % (options.job_id, options.work_slice[0],
                                         options.work_slice[1])
+
+    d = { 'version' : __version__,
+          'matches' : results_dump(score_statistics,
+                                   cgreylag.cvar.spectrum_searchable_spectra),
+          'total comparisons' : score_statistics.candidate_spectrum_count,
+          'spectrum files' : base_spectrum_fns,
+          'databases' : databases,
+          'parameters' : GLP,
+          'mass regime atomic masses' : MASS_REGIME_ATOMIC_MASSES,
+          'mass regime manifest' : sorted(regime_manifest),
+          'proton mass' : PROTON_MASS,
+          'modification conjuncts' : mod_conjunct_triples,
+          'argv' : sys.argv }
     with contextlib.closing(gzip.open(result_fn, 'w')) as result_file:
-        d = { 'version' : __version__,
-              'matches' : results_dump(score_statistics,
-                                       cgreylag.cvar.spectrum_searchable_spectra),
-              'total comparisons' : score_statistics.candidate_spectrum_count,
-              'spectrum files' : base_spectrum_fns,
-              'databases' : databases,
-              'parameters' : GLP,
-              'mass regime atomic masses' : MASS_REGIME_ATOMIC_MASSES,
-              'mass regime manifest' : sorted(regime_manifest),
-              'proton mass' : PROTON_MASS,
-              'modification conjuncts' : mod_conjunct_triples,
-              'argv' : sys.argv }
-        cPickle.dump(d, result_file, cPickle.HIGHEST_PROTOCOL)
+        pk = cPickle.Pickler(result_file, cPickle.HIGHEST_PROTOCOL)
+        pk.fast = 1                     # no circular references
+        pk.dump(d)
+
     info("finished, result file written to '%s'", result_fn)
 
 

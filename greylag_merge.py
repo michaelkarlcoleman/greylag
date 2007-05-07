@@ -156,10 +156,14 @@ def main(args=sys.argv[1:]):
         if options.verbose:
             print >> sys.stderr, "merged", additional_result_fn
 
+    del r1                              # free some memory
+
     r0['matches'] = matches
     r0['total comparisons'] = total_comparisons
     with contextlib.closing(gzip.open(output_fn, 'w')) as output_file:
-        cPickle.dump(r0, output_file, cPickle.HIGHEST_PROTOCOL)
+        pk = cPickle.Pickler(output_file, cPickle.HIGHEST_PROTOCOL)
+        pk.fast = 1                     # no circular references
+        pk.dump(r0)
     if options.verbose:
         print >> sys.stderr, "dumped", output_fn
 
