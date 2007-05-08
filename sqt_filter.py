@@ -45,21 +45,67 @@ def fileerror(s, *args):
                % (fileinput.filelineno(), fileinput.filename())),
           *args)
 
+def inplace_warning():
+    warn("!!!\nan error occurred while modifying .sqt files in-place--it may"
+         " be necessary to recover some or all of the .sqt files from the"
+         " corresponding .sqt.bak files.\n!!!")
+
+
+def reset_marks(options, sqt_fns):
+    """Rewrite all evaluation marks to 'U', in-place."""
+
+    try:
+        for line in fileinput.input(sqt_fns, inplace=1, backup='.bak'):
+            if line.startswith("M\t"):
+                fs = line.split("\t")
+                if len(fs) >= 11:
+                    fs[10] = 'U' + fs[10][1:]
+                line = '\t'.join(fs)
+            sys.stdout.write(line)
+    except:
+        inplace_warning()
+        raise
+
+
+def mark(options, thresholds, sp_scores, sqt_fns):
+    """Rewrite evaluation marks to 'N', in-place, for spectra not meeting
+    score and delta thresholds."""
+
+    spectrum_no = -1
+    mark_spectrum = False
+
+    try:
+        for line in fileinput.input(sqt_fns, inplace=1, backup='.bak'):
+            if line.startswith("S\t"):
+                spectrum_no += 1
+                charge, score, delta = sp_scores[spectrum_no]
+                mark_spectrum = (charge in thresholds
+                                 and score != None
+                                 and (score < thresholds[charge][0]
+                                      or delta < thresholds[charge][1]))
+            elif line.startswith("M\t") and mark_spectrum:
+                fs = line.split("\t")
+                if len(fs) >= 11:
+                    fs[10] = 'N' + fs[10][1:]
+                line = '\t'.join(fs)
+            sys.stdout.write(line)
+    except:
+        inplace_warning()
+        raise
+
 
 def read_sqt_info(decoy_prefix, sqt_fns):
-    """Return a dict mapping each charge to a list of (score, delta, state),
-    where state is 'real' or 'decoy', for all the spectra in sqt_fns.
+    """Return a pair, the first a dict mapping each charge to a list of
+    (score, delta, state), where state is 'real' or 'decoy', for all the
+    spectra in sqt_fns, and the second a list of all (score, delta).
     """
 
     # charge -> [ (score, delta, state), ... ]
     #   where state is either 'real' or 'decoy'
     z_scores = defaultdict(list)
 
-    # reset fileinput first, in case it's been called before
-    try:
-        fileinput.close()
-    except RuntimeError:
-        pass
+    # [ (charge, score, delta), ... ]
+    sp_scores = []
 
     current_charge = None
     current_score = None
@@ -69,9 +115,11 @@ def read_sqt_info(decoy_prefix, sqt_fns):
     for line in fileinput.input(sqt_fns):
         fs = line.split('\t')
         if fs[0] == 'S':
-            if current_score and len(current_state) == 1:
+            if current_score != None and len(current_state) == 1:
                 z_scores[current_charge].append((current_score, current_delta,
                                                  current_state.pop()))
+            if current_charge != None:
+                sp_scores.append((current_charge, current_score, current_delta))
             current_charge = int(fs[3])
             current_score = None
             current_delta = 0
@@ -88,13 +136,14 @@ def read_sqt_info(decoy_prefix, sqt_fns):
                     current_state.add('decoy')
                 else:
                     current_state.add('real')
-    # handle final spectrum
-    if current_score and len(current_state) == 1:
+    # handle final spectrum, as above
+    if current_score != None and len(current_state) == 1:
         z_scores[current_charge].append((current_score, current_delta,
                                          current_state.pop()))
+    if current_charge != None:
+        sp_scores.append((current_charge, current_score, current_delta))
 
-    #pprint(dict(z_scores))
-    return z_scores
+    return (z_scores, sp_scores)
 
 
 def specificity(positives, negatives):
@@ -128,11 +177,8 @@ def calculate_inner_threshold(specificity_goal, charge, spinfo):
     return (current_threshold, real_count, decoy_count)
 
 
-def calculate_combined_thresholds(options, sqt_fns):
-    """Find best score/delta thresholds for each charge.
-    """
-
-    z_scores = read_sqt_info(options.decoy_prefix, sqt_fns)
+def calculate_combined_thresholds(options, z_scores):
+    """Find best score/delta thresholds for each charge."""
 
     specificity_goal = 1 - options.fpr
 
@@ -168,7 +214,7 @@ def calculate_combined_thresholds(options, sqt_fns):
                 last_value = this_value
             spinfo0.pop()
 
-        if options.verbose:
+        if options.verbose and charge in thresholds:
             print ("%+d: score %s, delta %s -> %s real ids (fdr %.4f)"
                    % (charge, thresholds[charge][0], thresholds[charge][1],
                       thresholds[charge][2],
@@ -215,18 +261,18 @@ def main(args=sys.argv[1:]):
         error("only one of --mark and --reset-marks may be specified")
 
     if options.reset_marks:
-        # do it
-        error("not yet implemented")
+        reset_marks(options, args)
         return
 
-    thresholds = calculate_combined_thresholds(options, args)
+    z_scores, spectrum_scores = read_sqt_info(options.decoy_prefix, args)
+
+    thresholds = calculate_combined_thresholds(options, z_scores)
 
     if options.debug:
         pprint(thresholds)
 
     if options.mark:
-        # do it
-        error("not yet implemented")
+        mark(options, thresholds, spectrum_scores, args)
 
 
 if __name__ == '__main__':
