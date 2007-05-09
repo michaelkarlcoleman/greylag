@@ -30,7 +30,6 @@ __version__ = "0.0"
 
 import contextlib
 import cPickle
-import gzip
 import optparse
 import os.path
 from pprint import pprint
@@ -140,7 +139,7 @@ def main(args=sys.argv[1:]):
 
     # spectrum name -> match list/spectrum info
     matches = {}
-    with contextlib.closing(gzip.open(result_fn_0)) as r_file:
+    with contextlib.closing(open(result_fn_0)) as r_file:
         r0 = cPickle.load(r_file)
     matches = r0['matches']
     total_comparisons = r0['total comparisons']
@@ -148,7 +147,7 @@ def main(args=sys.argv[1:]):
         print >> sys.stderr, "loaded", result_fn_0
 
     for additional_result_fn in result_fn_1_N:
-        with contextlib.closing(gzip.open(additional_result_fn)) as r1_file:
+        with contextlib.closing(open(additional_result_fn)) as r1_file:
             r1 = cPickle.load(r1_file)
         check_consistency(r0, r1)
         merge_matches(matches, r1['matches'])
@@ -160,7 +159,7 @@ def main(args=sys.argv[1:]):
 
     r0['matches'] = matches
     r0['total comparisons'] = total_comparisons
-    with contextlib.closing(gzip.open(output_fn, 'w')) as output_file:
+    with contextlib.closing(open(output_fn, 'w')) as output_file:
         pk = cPickle.Pickler(output_file, cPickle.HIGHEST_PROTOCOL)
         pk.fast = 1                     # no circular references
         pk.dump(r0)

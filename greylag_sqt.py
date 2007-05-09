@@ -31,7 +31,6 @@ __version__ = "0.0"
 from collections import defaultdict
 import contextlib
 import cPickle
-import gzip
 import math
 import optparse
 import os.path
@@ -167,7 +166,7 @@ def main(args=sys.argv[1:]):
         parser.print_help()
         sys.exit(1)
 
-    with contextlib.closing(gzip.open(args[0])) as r_file:
+    with contextlib.closing(open(args[0])) as r_file:
         r = cPickle.load(r_file)
 
     if options.dump:

@@ -1296,7 +1296,7 @@ def main(args=sys.argv[1:]):
           'proton mass' : PROTON_MASS,
           'modification conjuncts' : mod_conjunct_triples,
           'argv' : sys.argv }
-    with contextlib.closing(gzip.open(result_fn, 'w')) as result_file:
+    with contextlib.closing(open(result_fn, 'w')) as result_file:
         pk = cPickle.Pickler(result_file, cPickle.HIGHEST_PROTOCOL)
         pk.fast = 1                     # no circular references
         pk.dump(d)
