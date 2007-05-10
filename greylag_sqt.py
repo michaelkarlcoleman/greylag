@@ -85,18 +85,21 @@ def generate_marked_sequence(match_name_map, mass_trace, peptide_sequence):
             trace.pop()
 
 
-def print_spectrum(f, mod_name_map, sp_matches):
+def print_spectrum(f, mod_name_map, sp_name, sp_matches):
     """Print the lines (S/M/L/A*) associated with the given spectrum."""
     spectrum, sp_best_matches = sp_matches
 
-    scan_low, scan_high, _rest = spectrum['name'].split('.', 2)
+    scan_low, scan_high, charge = sp_name.rsplit('.', 2)
     print >> f, '\t'.join(str(v) for v in
-                          ["S", scan_low, scan_high, spectrum['charge'], 0,
-                           'honk', spectrum['mass'],
+                          ["S", scan_low, scan_high, charge, 0, 'honk',
+                           spectrum['mass'],
                            round(math.log(spectrum['total_ion_current']), 4),
                            0, spectrum['comparisons']])
 
     best_scores = sorted(list(set(m['score'] for m in sp_best_matches)))
+    if not best_scores:
+        return
+
     # score -> rank
     rank_map = dict(zip(best_scores, range(1,len(best_scores)+1)))
 
@@ -108,11 +111,11 @@ def print_spectrum(f, mod_name_map, sp_matches):
         rank = rank_map[score]
         score_delta = (best_score - score) / best_score
 
-        match_name_map = mod_name_map[(match['mass_regime_index'],
-                                       match['conjunct_index'])]
+        match_name_map = mod_name_map[(match.get('mass_regime_index', 0),
+                                       match.get('conjunct_index', 0))]
         marked_sequence \
             = ''.join(generate_marked_sequence(match_name_map,
-                                               match['mass_trace'],
+                                               match.get('mass_trace', []),
                                                match['peptide_sequence']))
 
         # FIX: also need M lines for fixed mods, terminal mods, isotope mods
@@ -126,11 +129,11 @@ def print_spectrum(f, mod_name_map, sp_matches):
                                # 1 of 2 ions found--keep DTASelect happy
                                1, 2,
                                "-.%s.-" % marked_sequence, 'U'])
-        if match['mass_regime_index'] != 0:
+        if match.get('mass_regime_index', 0) != 0:
             print >> f, "AR\t%s" % match['mass_regime_index']
-        if match['pca_delta'] != 0:
+        if match.get('pca_delta', 0) != 0:
             print >> f, "APCA\t%s" % match['pca_delta']
-        for mt in match['mass_trace']:
+        for mt in match.get('mass_trace', []):
             name = (match_name_map[(match['peptide_sequence'][mt['position']],
                                     mt['delta'])][0])
             fs = ["AM", mt['position'], round(mt['delta'], 5),
@@ -199,7 +202,7 @@ def main(args=sys.argv[1:]):
             print_regime_manifest(sqtf, r['mass regime manifest'])
             for match in matches:
                 if match[0][0] == spectrum_n:
-                    print_spectrum(sqtf, mod_name_map, match[1])
+                    print_spectrum(sqtf, mod_name_map, match[0][1], match[1])
 
 
 if __name__ == '__main__':

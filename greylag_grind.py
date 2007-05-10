@@ -1049,8 +1049,18 @@ def get_suffix_sequence(end_pos, run_offset, sequence):
 
 def results_dump(score_statistics, searchable_spectra):
     """Return a result dict mapping spectrum names to (spectrum_metadata,
-    best_matches) pairs.  (Unneeded fields are stripped.)
+    best_matches) pairs.
+
+    Unneeded fields are stripped.  Some are always removed, while others are
+    removed if they have a value matching their default (0 or []).
+    Placeholders in the match list (which do not represent actual matches) are
+    also removed.
     """
+
+    # The goal of stripping is not so much to reduce the size of the glw
+    # files--though it does do this--as to reduce the memory footprint of
+    # loading a merged glw file representing an entire run.  It also probably
+    # speeds things up a bit.
 
     r = {}
     spectrum_metadata_fs = set(['name', 'file_id', 'mass', 'charge',
@@ -1061,10 +1071,33 @@ def results_dump(score_statistics, searchable_spectra):
                                        skip_fields=['spectrum_index'])
     assert len(py_s_spectra) == len(py_matches)
 
+    # note that both strip functions modify their argument
+    def strip_meta(meta):
+        del meta['file_id']
+        del meta['name']
+        del meta['charge']
+        return meta
+
+    def strip_match(match):
+        assert len(match['peptide_begin']) == len(match['sequence_name'])
+        if len(match['peptide_begin']) == 0:
+            return None
+        if match['conjunct_index'] == 0:
+            del match['conjunct_index']
+        if match['mass_regime_index'] == 0:
+            del match['mass_regime_index']
+        if len(match['mass_trace']) == 0:
+            del match['mass_trace']
+        if match['pca_delta'] == 0:
+            del match['pca_delta']
+        return match
+
     for sp_metadata, sp_matches in zip(py_s_spectra, py_matches):
         sp_key = (sp_metadata['file_id'], sp_metadata['name'])
         assert sp_key not in r, "duplicate spectrum name"
-        r[sp_key] = (sp_metadata, sp_matches)
+        sp_matches_stripped = [ strip_match(m) for m in sp_matches ]
+        sp_matches_stripped = [ m for m in sp_matches_stripped if m != None ]
+        r[sp_key] = (strip_meta(sp_metadata), sp_matches_stripped)
 
     return r
 
@@ -1298,7 +1331,7 @@ def main(args=sys.argv[1:]):
           'argv' : sys.argv }
     with contextlib.closing(open(result_fn, 'w')) as result_file:
         pk = cPickle.Pickler(result_file, cPickle.HIGHEST_PROTOCOL)
-        pk.fast = 1                     # no circular references
+        pk.fast = 1                     # stipulate no circular references
         pk.dump(d)
 
     info("finished, result file written to '%s'", result_fn)

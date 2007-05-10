@@ -69,14 +69,13 @@ def score_equal(s1, s2):
     return abs(s1-s2) < 1e-6
 
 
-def merge_match(m0, m1):
+def merge_match(m0, m1, keep):
     """Merge a particular spectrum match from m1 into m0."""
     m0[0]['comparisons'] += m1[0]['comparisons']
 
     # NB: This merge code, and score_equal above, must do the same merge as
     # the merge code in cgreylag.cpp:evaluate_peptide!
 
-    keep = max(len(m0), len(m1))
     assert keep >= 1
     matches = m0[1] + m1[1]
     matches.sort(key=lambda x: x['score'], reverse=True)
@@ -86,18 +85,18 @@ def merge_match(m0, m1):
         c0, c1 = merged_matches[-1], matches.pop()
         if (score_equal(c0['score'], c1['score'])
             and c0['peptide_sequence'] == c1['peptide_sequence']
-            and c0['mass_trace'] == c1['mass_trace']):
+            and c0.get('mass_trace') == c1.get('mass_trace')):
             continue
         merged_matches.append(c1)
 
 
-def merge_matches(m0, m1):
+def merge_matches(m0, m1, keep):
     """Merge the match information in m1 into m0."""
     for m1k, m1v in m1.iteritems():
         if m1k not in m0:
             m0[m1k] = m1v
         else:
-            merge_match(m0[m1k], m1v)
+            merge_match(m0[m1k], m1v, keep)
 
 
 def main(args=sys.argv[1:]):
@@ -141,8 +140,9 @@ def main(args=sys.argv[1:]):
     matches = {}
     with contextlib.closing(open(result_fn_0)) as r_file:
         r0 = cPickle.load(r_file)
-    matches = r0['matches']
     total_comparisons = r0['total comparisons']
+    keep = r0['parameters']['best_result_count']
+    matches = r0['matches']
     if options.verbose:
         print >> sys.stderr, "loaded", result_fn_0
 
@@ -150,8 +150,9 @@ def main(args=sys.argv[1:]):
         with contextlib.closing(open(additional_result_fn)) as r1_file:
             r1 = cPickle.load(r1_file)
         check_consistency(r0, r1)
-        merge_matches(matches, r1['matches'])
         total_comparisons += r1['total comparisons']
+        keep = max(keep, r1['parameters']['best_result_count'])
+        merge_matches(matches, r1['matches'], keep)
         if options.verbose:
             print >> sys.stderr, "merged", additional_result_fn
 
@@ -161,7 +162,7 @@ def main(args=sys.argv[1:]):
     r0['total comparisons'] = total_comparisons
     with contextlib.closing(open(output_fn, 'w')) as output_file:
         pk = cPickle.Pickler(output_file, cPickle.HIGHEST_PROTOCOL)
-        pk.fast = 1                     # no circular references
+        pk.fast = 1                     # stipulate no circular references
         pk.dump(r0)
     if options.verbose:
         print >> sys.stderr, "dumped", output_fn
