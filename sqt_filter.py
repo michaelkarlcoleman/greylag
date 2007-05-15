@@ -1,7 +1,7 @@
 #!/usr/bin/env greylag-python
 
 """
-Filter a set of sqt files according to FPR and other criteria, optionally
+Filter a set of sqt files according to FDR and other criteria, optionally
 rewriting them with the validation marks set to 'N' for filtered-out spectra.
 
 """
@@ -97,7 +97,8 @@ def mark(options, thresholds, sp_scores, sqt_fns):
 def read_sqt_info(decoy_prefix, sqt_fns):
     """Return a pair, the first a dict mapping each charge to a list of
     (score, delta, state), where state is 'real' or 'decoy', for all the
-    spectra in sqt_fns, and the second a list of all (score, delta).
+    spectra in sqt_fns, and the second a list of (charge, score, delta), one
+    for each spectrum.
     """
 
     # charge -> [ (score, delta, state), ... ]
@@ -180,7 +181,7 @@ def calculate_inner_threshold(specificity_goal, charge, spinfo):
 def calculate_combined_thresholds(options, z_scores):
     """Find best score/delta thresholds for each charge."""
 
-    specificity_goal = 1 - options.fpr
+    specificity_goal = 1 - options.fdr
 
     # Rather than search every possible value of delta, we're only going to
     # "sample" at this granularity.  This cuts search time dramatically (and
@@ -235,8 +236,8 @@ def main(args=sys.argv[1:]):
     pa("--decoy-prefix", dest="decoy_prefix", default="SHUFFLED_",
        help='prefix given to locus name of decoy (e.g., shuffled) database'
        ' sequences [default="SHUFFLED_"]', metavar="PREFIX")
-    pa("--fpr", dest="fpr", type="float", default="0.02",
-       help="false positive rate [default=0.02]", metavar="PROPORTION")
+    pa("--fdr", dest="fdr", type="float", default="0.02",
+       help="false discovery rate [default=0.02]", metavar="PROPORTION")
     pa("-v", "--verbose", action="store_true", dest="verbose",
        help="be verbose")
     pa("--debug", action="store_true", dest="debug",
@@ -258,8 +259,8 @@ def main(args=sys.argv[1:]):
         parser.print_help()
         sys.exit(1)
 
-    if not (0.0 <= options.fpr <= 1.0):
-        error("--fpr must be within range [0.0, 1.0]")
+    if not (0.0 <= options.fdr <= 1.0):
+        error("--fdr must be within range [0.0, 1.0]")
     if options.mark and options.reset_marks:
         error("only one of --mark and --reset-marks may be specified")
 
@@ -273,6 +274,9 @@ def main(args=sys.argv[1:]):
 
     if options.debug:
         pprint(thresholds)
+
+        for charge, score, delta in spectrum_scores:
+            print '#S', charge, score, delta
 
     if options.mark:
         mark(options, thresholds, spectrum_scores, args)
