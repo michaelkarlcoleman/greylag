@@ -94,7 +94,7 @@ def mark(options, thresholds, sp_scores, sqt_fns):
         raise
 
 
-def read_sqt_info(decoy_prefix, sqt_fns):
+def read_sqt_info(decoy_prefix, is_laf, sqt_fns):
     """Return a pair, the first a dict mapping each charge to a list of
     (score, delta, state), where state is 'real' or 'decoy', for all the
     spectra in sqt_fns, and the second a list of (charge, score, delta), one
@@ -111,26 +111,39 @@ def read_sqt_info(decoy_prefix, sqt_fns):
     current_charge = None
     current_score = None
     current_delta = 0
+    current_sp_rank = None
+    current_peptide_length = None
     current_state = set()
 
     for line in fileinput.input(sqt_fns):
         fs = line.split('\t')
         if fs[0] == 'S':
-            if current_score != None and len(current_state) == 1:
-                z_scores[current_charge].append((current_score, current_delta,
-                                                 current_state.pop()))
-            if current_charge != None:
-                sp_scores.append((current_charge, current_score, current_delta))
+            if (current_charge != None and
+                (not is_laf or (current_sp_rank <= 10))):
+                if current_score != None and len(current_state) == 1:
+                    z_scores[current_charge].append((current_score,
+                                                     current_delta,
+                                                     current_state.pop()))
+                if current_charge != None:
+                    sp_scores.append((current_charge, current_score,
+                                      current_delta))
             current_charge = int(fs[3])
             current_score = None
             current_delta = 0
+            current_sp_rank = None
+            current_peptide_length = None
             current_state = set()
         elif fs[0] == 'M':
-            delta, score = float(fs[4]), float(fs[5])
+            delta, score, sp_rank, pep_length = (float(fs[4]), float(fs[5]),
+                                                 int(fs[2]), len(fs[9])-4)
             if delta == 0:
                 current_score = score
             elif current_delta == 0:
                 current_delta = delta
+            if current_sp_rank == None:
+                current_sp_rank = sp_rank
+            if current_peptide_length == None:
+                current_peptide_length = pep_length
         elif fs[0] == 'L':
             if current_delta == 0:
                 if fs[1].startswith(decoy_prefix):
@@ -138,11 +151,13 @@ def read_sqt_info(decoy_prefix, sqt_fns):
                 else:
                     current_state.add('real')
     # handle final spectrum, as above
-    if current_score != None and len(current_state) == 1:
-        z_scores[current_charge].append((current_score, current_delta,
-                                         current_state.pop()))
-    if current_charge != None:
-        sp_scores.append((current_charge, current_score, current_delta))
+    if (current_charge != None and
+        (not is_laf or (current_sp_rank <= 10))):
+        if current_score != None and len(current_state) == 1:
+            z_scores[current_charge].append((current_score, current_delta,
+                                             current_state.pop()))
+        if current_charge != None:
+            sp_scores.append((current_charge, current_score, current_delta))
 
     return (z_scores, sp_scores)
 
@@ -240,6 +255,8 @@ def main(args=sys.argv[1:]):
        help="false discovery rate [default=0.02]", metavar="PROPORTION")
     pa("-v", "--verbose", action="store_true", dest="verbose",
        help="be verbose")
+    pa("--laf", action="store_true", dest="laf",
+       help="drop peptides of length < 7 or Sp rank > 10")
     pa("--debug", action="store_true", dest="debug",
        help="show debug output")
     pa("-m", "--mark", action="store_true", dest="mark",
@@ -268,7 +285,8 @@ def main(args=sys.argv[1:]):
         reset_marks(options, args)
         return
 
-    z_scores, spectrum_scores = read_sqt_info(options.decoy_prefix, args)
+    z_scores, spectrum_scores = read_sqt_info(options.decoy_prefix,
+                                              options.laf, args)
 
     thresholds = calculate_combined_thresholds(options, z_scores)
 
