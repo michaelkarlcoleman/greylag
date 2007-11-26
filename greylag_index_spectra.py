@@ -69,10 +69,8 @@ def main(args=sys.argv[1:]):
         with open(fn) as specfile:
             contents = specfile.read()
         specnames = set()
-        prevname = ''
-        offset = 0
         with contextlib.closing(gzip.open(fn + '.idx', 'w')) as idx:
-            ms = [ m for m in re.finditer('^:.*$', contents, re.MULTILINE) ]
+            ms = [ m for m in re.finditer(r'^:.*$', contents, re.MULTILINE) ]
             specnames = [ m.group() for m in ms ]
             if len(set(specnames)) < len(ms):
                 error("duplicate spectrum names not allowed")
