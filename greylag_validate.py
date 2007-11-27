@@ -1,8 +1,9 @@
 #!/usr/bin/env greylag-python
 
 """
-Filter a set of sqt files according to FDR and other criteria, optionally
-rewriting them with the validation marks set to 'N' for filtered-out spectra.
+Given a set of sqt files, determine a 'valid' set of identifications that
+satisfy the specified FDR (false discovery rate).  Optionally rewrite the sqt
+files with validation marks set to 'N' for filtered-out spectra.
 
 """
 
@@ -33,6 +34,7 @@ from collections import defaultdict
 import fileinput
 import optparse
 from pprint import pprint
+import string
 import sys
 
 
@@ -94,6 +96,15 @@ def mark(options, thresholds, sp_scores, sqt_fns):
         raise
 
 
+nulltrans = string.maketrans('','')
+non_aa_chars = string.digits + string.punctuation
+
+def stripmods(s):
+    """Given a peptide, return just the unmodified peptide seen (upcased)."""
+    # assuming no control chars present
+    return s.upper().translate(nulltrans, non_aa_chars)
+
+
 def read_sqt_info(decoy_prefix, is_laf, sqt_fns):
     """Return a pair, the first a dict mapping each charge to a list of
     (score, delta, state), where state is 'real' or 'decoy', for all the
@@ -114,14 +125,20 @@ def read_sqt_info(decoy_prefix, is_laf, sqt_fns):
     current_sp_rank = None
     current_peptide_length = None
     current_peptide_trypticity = None   # or one of [ 0, 1, 2 ]
-    current_state = set()
+    current_state = set()               # 'real', 'decoy' or both
+    highest_rank_seen = 0
+    best_peptide_seen = None
+
+    def passes_laf(length, sp_rank, trypticity):
+        return length >= 7 and sp_rank <= 10 and trypticity == 2
 
     for line in fileinput.input(sqt_fns):
         fs = line.split('\t')
         if fs[0] == 'S':
             if (current_charge != None and
-                (not is_laf or (current_sp_rank <= 10
-                                and current_peptide_trypticity == 2))):
+                (not is_laf or passes_laf(current_peptide_length,
+                                          current_sp_rank,
+                                          current_peptide_trypticity))):
                 if current_score != None and len(current_state) == 1:
                     z_scores[current_charge].append((current_score,
                                                      current_delta,
@@ -136,19 +153,41 @@ def read_sqt_info(decoy_prefix, is_laf, sqt_fns):
             current_peptide_length = None
             current_peptide_trypticity = None
             current_state = set()
+            highest_rank_seen = 0
+            best_peptide_seen = None
         elif fs[0] == 'M':
-            delta, score, sp_rank, peptide = (float(fs[4]), float(fs[5]),
-                                              int(fs[2]), fs[9].strip())
-            pep_length = len(peptide) - 4
+            rank, delta, score, sp_rank, peptide, mass = (int(fs[1]),
+                                                          float(fs[4]),
+                                                          float(fs[5]),
+                                                          int(fs[2]),
+                                                          fs[9].strip(),
+                                                          float(fs[3]))
+            assert peptide[1] == '.' and peptide[-2] == '.'
+            peptide = peptide[2:-2]
+
+            if rank > highest_rank_seen + 1:
+                # ignore aux top SpRank hits, because delta confounds
+                continue
+            highest_rank_seen = rank
+
+            peptide_stripped = stripmods(peptide)
+            if best_peptide_seen == None:
+                best_peptide_seen = peptide_stripped
 
             if delta == 0:
+                assert current_delta == 0
                 current_score = score
-            elif current_delta == 0:
+            elif (current_delta == 0 or best_peptide_seen == None
+                  or best_peptide_seen == peptide_stripped):
                 current_delta = delta
+                if best_peptide_seen != peptide_stripped:
+                    # once we've seen a non-equivalent peptide, don't set
+                    # delta if we see further equivalent peptides
+                    best_peptide_seen = '####'
             if current_sp_rank == None:
                 current_sp_rank = sp_rank
             if current_peptide_length == None:
-                current_peptide_length = pep_length
+                current_peptide_length = len(peptide)
             if current_peptide_trypticity == None:
                 current_peptide_trypticity = 0
                 if (peptide[0] in ('K', 'R')
@@ -163,35 +202,42 @@ def read_sqt_info(decoy_prefix, is_laf, sqt_fns):
                     current_state.add('decoy')
                 else:
                     current_state.add('real')
+
     # handle final spectrum, as above
     if (current_charge != None and
-        (not is_laf or (current_sp_rank <= 10
-                        and current_peptide_trypticity == 2))):
+        (not is_laf or passes_laf(current_peptide_length,
+                                  current_sp_rank,
+                                  current_peptide_trypticity))):
         if current_score != None and len(current_state) == 1:
-            z_scores[current_charge].append((current_score, current_delta,
+            z_scores[current_charge].append((current_score,
+                                             current_delta,
                                              current_state.pop()))
         if current_charge != None:
-            sp_scores.append((current_charge, current_score, current_delta))
+            sp_scores.append((current_charge, current_score,
+                              current_delta))
 
     return (z_scores, sp_scores)
 
 
 def specificity(positives, negatives):
-    return (float(positives - negatives)
-            / (positives + negatives))
+    return float(positives - negatives) / positives
 
 
-def calculate_inner_threshold(specificity_goal, charge, spinfo):
+def calculate_inner_threshold(fdr, charge, spinfo):
+    specificity_goal = 1 - fdr
+
     spinfo = sorted(spinfo, key=lambda x: x[0])
+
+    epsilon = -1e-9
 
     real_count = sum(1 for x in spinfo if x[-1] == 'real')
     decoy_count = len(spinfo) - real_count
 
-    if real_count == 0:
-        return (None, real_count, decoy_count) # give up
-
     current_threshold = -1e100      # allow all spectra
     for n, sp in enumerate(spinfo):
+        if real_count == 0:
+            return (None, real_count, decoy_count) # give up
+
         specificity_est = specificity(real_count, decoy_count)
         if specificity_est >= specificity_goal:
             break
@@ -200,9 +246,9 @@ def calculate_inner_threshold(specificity_goal, charge, spinfo):
         else:
             decoy_count -= 1
         # set threshold just high enough to exclude this spectrum
-        current_threshold = sp[0] + 1e-6
+        current_threshold = sp[0] + epsilon
     else:
-        current_threshold = spinfo[-1][0] + 1e-6 # couldn't meet goal
+        current_threshold = spinfo[-1][0] + epsilon # couldn't meet goal
 
     return (current_threshold, real_count, decoy_count)
 
@@ -214,7 +260,7 @@ def calculate_combined_thresholds(options, z_scores):
 
     # Rather than search every possible value of delta, we're only going to
     # "sample" at this granularity.  This cuts search time dramatically (and
-    # making it O(n) instead of O(n**2).  Extra precision wouldn't really be
+    # makes it O(n) instead of O(n**2).  Extra precision wouldn't really be
     # useful in any case.
     SEARCH_GRANULARITY = 0.001
 
@@ -232,8 +278,7 @@ def calculate_combined_thresholds(options, z_scores):
                 or abs(this_value - last_value) >= SEARCH_GRANULARITY):
 
                 # "inner" is score
-                r = calculate_inner_threshold(specificity_goal, charge,
-                                              spinfo0)
+                r = calculate_inner_threshold(options.fdr, charge, spinfo0)
                 if r[0] != None:
                     if options.debug:
                         print '#', charge, r[0], this_value, r[1], r[2]
@@ -245,12 +290,12 @@ def calculate_combined_thresholds(options, z_scores):
             spinfo0.pop()
 
         if charge in thresholds:
-            if options.verbose:
-                print ("%+d: score %s, delta %s -> %s real ids (fdr %.4f)"
-                       % (charge, thresholds[charge][0], thresholds[charge][1],
-                          thresholds[charge][2],
-                          1 - specificity(thresholds[charge][2],
-                                          thresholds[charge][3])))
+            print ("%+d: score %s, delta %s -> %s real ids, %s decoys"
+                   " (fdr %.4f)"
+                   % (charge, thresholds[charge][0], thresholds[charge][1],
+                      thresholds[charge][2], thresholds[charge][3],
+                      1 - specificity(thresholds[charge][2],
+                                      thresholds[charge][3])))
         else:
             warn("could not calculate thresholds for %+d" % charge)
 
@@ -262,15 +307,22 @@ def main(args=sys.argv[1:]):
                                    "usage: %prog [options] <sqt-file>...",
                                    description=__doc__, version=__version__)
     pa = parser.add_option
-    pa("--decoy-prefix", dest="decoy_prefix", default="SHUFFLED_",
+    DEFAULT_DECOY_PREFIX = "SHUFFLED_"
+    pa("--decoy-prefix", dest="decoy_prefix", default=DEFAULT_DECOY_PREFIX,
        help='prefix given to locus name of decoy (e.g., shuffled) database'
-       ' sequences [default="SHUFFLED_"]', metavar="PREFIX")
-    pa("--fdr", dest="fdr", type="float", default="0.02",
-       help="false discovery rate [default=0.02]", metavar="PROPORTION")
+       ' sequences [default=%r]' % DEFAULT_DECOY_PREFIX, metavar="PREFIX")
+    DEFAULT_FDR = 0.02
+    pa("--fdr", dest="fdr", type="float", default=DEFAULT_FDR,
+       help="false discovery rate [default=%s]" % DEFAULT_FDR,
+       metavar="PROPORTION")
     pa("-v", "--verbose", action="store_true", dest="verbose",
        help="be verbose")
     pa("--laf", action="store_true", dest="laf",
-       help="drop peptides of length < 7 or Sp rank > 10")
+       help="drop peptides that have length < 7, Sp rank > 10,"
+       " or that are not fully tryptic")
+    #pa("--graph", dest="graph",
+    #   help='create distribution graphs, using the specified prefix',
+    #   metavar="PATH PREFIX")
     pa("--debug", action="store_true", dest="debug",
        help="show debug output")
     pa("-m", "--mark", action="store_true", dest="mark",
@@ -301,6 +353,11 @@ def main(args=sys.argv[1:]):
 
     z_scores, spectrum_scores = read_sqt_info(options.decoy_prefix,
                                               options.laf, args)
+
+    if options.debug:
+        print ('%s passing spectra, of which %s are not decoys'
+               % (len(spectrum_scores), sum(len(z_scores[x])
+                                            for x in z_scores)))
 
     thresholds = calculate_combined_thresholds(options, z_scores)
 

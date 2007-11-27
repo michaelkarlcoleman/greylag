@@ -13,12 +13,12 @@
 
 # MARCH = pentium3
 # MARCH = pentium4
-MARCH = prescott
+# MARCH = prescott
 # MARCH = opteron
-# MARCH = nocona
+MARCH = nocona
 
 
-DEST = /n/site/inst/Linux-i686/bioinfo/greylag/
+DEST = /n/site/inst/Linux-x86_64/bioinfo/greylag/
 
 PYTHONVER=2.5
 PYTHONFLAGS = $(shell python$(PYTHONVER)-config --include)
@@ -89,7 +89,7 @@ install::
 	install -p greylag_merge.py $(DEST)/greylag-merge
 	install -p greylag_sqt.py $(DEST)/greylag-sqt
 	install -p greylag_solo.py $(DEST)/greylag-solo
-	install -p sqt_filter.py $(DEST)/sqt-filter
+	install -p greylag_validate.py $(DEST)/greylag-validate
 	@echo "# remember to link 'greylag-python' to your python $(PYTHONVER)"
 
 clean::
