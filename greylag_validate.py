@@ -105,11 +105,11 @@ def stripmods(s):
     return s.upper().translate(nulltrans, non_aa_chars)
 
 
-def read_sqt_info(decoy_prefix, is_laf, sqt_fns):
+def read_sqt_info(decoy_prefix, minimum_trypticity, sqt_fns):
     """Return a pair, the first a dict mapping each charge to a list of
     (score, delta, state), where state is 'real' or 'decoy', for all the
     spectra in sqt_fns, and the second a list of (charge, score, delta), one
-    for each spectrum.
+    for each spectrum.  Spectra lacking minimum_trypticity are dropped.
     """
 
     # charge -> [ (score, delta, state), ... ]
@@ -122,55 +122,48 @@ def read_sqt_info(decoy_prefix, is_laf, sqt_fns):
     current_charge = None
     current_score = None
     current_delta = 0
-    current_sp_rank = None
-    current_peptide_length = None
     current_peptide_trypticity = None   # or one of [ 0, 1, 2 ]
     current_state = set()               # 'real', 'decoy' or both
     highest_rank_seen = 0
     best_peptide_seen = None
 
-    def passes_laf(length, sp_rank, trypticity):
-        return length >= 7 and sp_rank <= 10 and trypticity == 2
-
     for line in fileinput.input(sqt_fns):
         fs = line.split('\t')
         if fs[0] == 'S':
             if (current_charge != None and
-                (not is_laf or passes_laf(current_peptide_length,
-                                          current_sp_rank,
-                                          current_peptide_trypticity))):
-                if current_score != None and len(current_state) == 1:
-                    z_scores[current_charge].append((current_score,
-                                                     current_delta,
-                                                     current_state.pop()))
-                if current_charge != None:
+                current_peptide_trypticity >= minimum_trypticity):
+                if current_score != None:
+                    if len(current_state) == 1:
+                        z_scores[current_charge].append((current_score,
+                                                         current_delta,
+                                                         current_state.pop()))
                     sp_scores.append((current_charge, current_score,
                                       current_delta))
             current_charge = int(fs[3])
             current_score = None
             current_delta = 0
-            current_sp_rank = None
-            current_peptide_length = None
             current_peptide_trypticity = None
             current_state = set()
             highest_rank_seen = 0
             best_peptide_seen = None
         elif fs[0] == 'M':
-            rank, delta, score, sp_rank, peptide, mass = (int(fs[1]),
-                                                          float(fs[4]),
-                                                          float(fs[5]),
-                                                          int(fs[2]),
-                                                          fs[9].strip(),
-                                                          float(fs[3]))
-            assert peptide[1] == '.' and peptide[-2] == '.'
-            peptide = peptide[2:-2]
+            rank = int(fs[1])
+            delta = float(fs[4])
+            score = float(fs[5])
+            sp_rank = int(fs[2])
+            peptide = fs[9].strip()     # e.g., A.B@CD*.-
+            mass = float(fs[3])
 
             if rank > highest_rank_seen + 1:
                 # ignore aux top SpRank hits, because delta confounds
                 continue
             highest_rank_seen = rank
 
-            peptide_stripped = stripmods(peptide)
+            assert peptide[1] == '.' and peptide[-2] == '.'
+            peptide_flanks = (peptide[0], peptide[-1]) # ('A', '-')
+            peptide = peptide[2:-2]     # 'B@CD*'
+            peptide_stripped = stripmods(peptide) # 'BCD'
+
             if best_peptide_seen == None:
                 best_peptide_seen = peptide_stripped
 
@@ -184,17 +177,13 @@ def read_sqt_info(decoy_prefix, is_laf, sqt_fns):
                     # once we've seen a non-equivalent peptide, don't set
                     # delta if we see further equivalent peptides
                     best_peptide_seen = '####'
-            if current_sp_rank == None:
-                current_sp_rank = sp_rank
-            if current_peptide_length == None:
-                current_peptide_length = len(peptide)
             if current_peptide_trypticity == None:
                 current_peptide_trypticity = 0
-                if (peptide[0] in ('K', 'R')
-                    and peptide[2] != 'P'):
+                if (peptide_flanks[0] in ('K', 'R')
+                    and peptide_stripped[0] != 'P'):
                     current_peptide_trypticity += 1
-                if (peptide[-3] in ('K', 'R')
-                    and peptide[-1] != 'P'):
+                if (peptide_stripped[-1] in ('K', 'R')
+                    and peptide_flanks[1] != 'P'):
                     current_peptide_trypticity += 1
         elif fs[0] == 'L':
             if current_delta == 0:
@@ -205,14 +194,12 @@ def read_sqt_info(decoy_prefix, is_laf, sqt_fns):
 
     # handle final spectrum, as above
     if (current_charge != None and
-        (not is_laf or passes_laf(current_peptide_length,
-                                  current_sp_rank,
-                                  current_peptide_trypticity))):
-        if current_score != None and len(current_state) == 1:
-            z_scores[current_charge].append((current_score,
-                                             current_delta,
-                                             current_state.pop()))
-        if current_charge != None:
+        current_peptide_trypticity >= minimum_trypticity):
+        if current_score != None:
+            if len(current_state) == 1:
+                z_scores[current_charge].append((current_score,
+                                                 current_delta,
+                                                 current_state.pop()))
             sp_scores.append((current_charge, current_score,
                               current_delta))
 
@@ -317,9 +304,12 @@ def main(args=sys.argv[1:]):
        metavar="PROPORTION")
     pa("-v", "--verbose", action="store_true", dest="verbose",
        help="be verbose")
-    pa("--laf", action="store_true", dest="laf",
-       help="drop peptides that have length < 7, Sp rank > 10,"
-       " or that are not fully tryptic")
+    pa("--list-peptides", action="store_true", dest="list_peptides",
+       help="print information about passing peptides")
+    pa("-t", "--minimum-trypticity", type="choice", choices=('0', '1', '2'),
+       default='0', dest="minimum_trypticity",
+       help="drop peptides with too few tryptic ends"
+       " (2=fully tryptic, 1=semi-tryptic, 0=any)", metavar="TRYPTICITY")
     #pa("--graph", dest="graph",
     #   help='create distribution graphs, using the specified prefix',
     #   metavar="PATH PREFIX")
@@ -352,7 +342,8 @@ def main(args=sys.argv[1:]):
         return
 
     z_scores, spectrum_scores = read_sqt_info(options.decoy_prefix,
-                                              options.laf, args)
+                                              int(options.minimum_trypticity),
+                                              args)
 
     if options.debug:
         print ('%s passing spectra, of which %s are not decoys'
