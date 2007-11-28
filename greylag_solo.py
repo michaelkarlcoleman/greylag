@@ -28,10 +28,6 @@ __copyright__ = '''
 '''
 
 
-# This might better be implemented as a shell script under Unix.  It's done in
-# Python here as a demonstration, and so that greylag can be easily run on
-# multiple CPUs under Windows.
-
 # This is not intended to be used on cluster nodes.  In particular, it just
 # naively divides the spectra into N parts and processes them separately,
 # making no further attempt at load balancing.
@@ -53,9 +49,8 @@ def usage():
     print >> sys.stderr, ('Usage: %s <processes>'
                           ' <greylag-grind-options-and-args>...'
                           '\n\n'
-                          '%s\n(see "greylag-grind --help" for more'
-                          ' information)'
-                          % (os.path.basename(sys.argv[0]), __doc__))
+                          '%s\n(see "%s --help" for more information)'
+                          % (sys.argv[0], __doc__, sys.argv[0]))
     sys.exit()
 
 
@@ -76,6 +71,17 @@ def slices(N):
         yield (round(w0,3), round(w1,3))
 
 
+def greylag_subprogram(name):
+    """If this program was called as '../greylag_solo.py', call
+    'greylag-grind' as '../greylag_grind.py', etc.  Otherwise call normally.
+    This allows testing without installing.
+    """
+    prefix = os.path.dirname(sys.argv[0])
+    if prefix:
+        return os.path.join(prefix, name.replace('-', '_') + '.py')
+    return name
+
+
 def run_parts_and_merge(processes, job_id, args):
     merge_fn = 'greylag-merge-%s.glw' % job_id
     work_fns = [ 'grind_%s_%s-%s.glw' % (job_id, w0, w1)
@@ -86,15 +92,17 @@ def run_parts_and_merge(processes, job_id, args):
         subprocs = []
         try:
             for w0, w1 in slices(processes):
-                p = subprocess.Popen(['greylag-grind', '--job-id='+job_id,
-                                      '-w', str(w0), str(w1)] + args)
+                p = subprocess.Popen([greylag_subprogram('greylag-grind'),
+                                      '--job-id='+job_id, '-w', str(w0),
+                                      str(w1)] + args)
                 subprocs.append(p)
             while subprocs:
                 p = subprocs.pop()
                 if p.wait():
                     raise EnvironmentError("error status")
         except EnvironmentError, e:
-            error("greylag-grind process failed [%s]" % e)
+            error("%s process failed [%s]"
+                  % (greylag_subprogram('greylag-grind'), e))
         finally:
             # upon error, try to kill any remaining processes
             try:
@@ -104,13 +112,14 @@ def run_parts_and_merge(processes, job_id, args):
             except Exception:
                 pass
 
-        ret = subprocess.call(['greylag-merge'] + work_fns + [merge_fn])
+        ret = subprocess.call([greylag_subprogram('greylag-merge')]
+                              + work_fns + [merge_fn])
         if ret:
-            error("greylag-merge failed")
+            error("%s failed" % greylag_subprogram('greylag-merge'))
 
-        ret = subprocess.call(['greylag-sqt', merge_fn])
+        ret = subprocess.call([greylag_subprogram('greylag-sqt'), merge_fn])
         if ret:
-            error("greylag-sqt failed")
+            error("%s failed" % greylag_subprogram('greylag-sqt'))
     finally:
         try:
             os.remove(merge_fn)
