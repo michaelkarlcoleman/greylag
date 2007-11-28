@@ -553,7 +553,7 @@ def parse_mod_term(s, is_potential=False):
         raise ValueError("invalid modification list specification"
                          " '%s' (duplicate residues prohibited)"
                          % residues)
-    return (mg[0] == '-' and -1 or 1, delta, mg[4] == '!', residues, mg[7],
+    return (1 if mg[0] != '-' else -1, delta, mg[4] == '!', residues, mg[7],
             mg[9])
 
 
@@ -709,7 +709,7 @@ def validate_parameters(parameters, parameter_info=PARAMETER_INFO):
     for p_name, p_info in sorted(parameter_info.items()):
         type_ = p_info[0]
         default = p_info[1]
-        check_fn = len(p_info) > 2 and p_info[2] or None
+        check_fn = p_info[2] if len(p_info) > 2 else None
 
         v = parameters.get(p_name)
         if v == None:
@@ -980,17 +980,17 @@ def search_all(options, context, mod_limit, mod_conjunct_triples,
                         pmrf = CP.parent_mass_regime[mr_index].fixed_residue_mass
                         fmrf = CP.fragment_mass_regime[mr_index].fixed_residue_mass
                         p_fx = (pmrf[ord('[')]
-                                + (N_cj and N_cj[0][6][mr_index][0] or 0)
+                                + (N_cj[0][6][mr_index][0] if N_cj else 0)
                                 + pmrf[ord(']')]
-                                + (C_cj and C_cj[0][6][mr_index][0] or 0)
+                                + (C_cj[0][6][mr_index][0] if C_cj else 0)
                                 + parent_delta + pca_parent_delta + PROTON_MASS)
                         context.parent_fixed_mass = p_fx
                         f_N_fx = (fmrf[ord('[')]
-                                  + (N_cj and N_cj[0][6][mr_index][1] or 0)
+                                  + (N_cj[0][6][mr_index][1] if N_cj else 0)
                                   + pca_frag_delta)
                         context.fragment_N_fixed_mass = f_N_fx
                         f_C_fx = (fmrf[ord(']')]
-                                  + (C_cj and C_cj[0][6][mr_index][1] or 0)
+                                  + (C_cj[0][6][mr_index][1] if C_cj else 0)
                                   + CP.fragment_mass_regime[mr_index].water_mass)
                         context.fragment_C_fixed_mass = f_C_fx
 
