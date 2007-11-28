@@ -968,9 +968,14 @@ def search_all(options, context, mod_limit, mod_conjunct_triples,
                     debug("cj_triple: N=%s C=%s R=%s", N_cj, C_cj, R_cj)
                     for delta_bag in generate_delta_bag_counts(mod_count,
                                                                len(R_cj)):
-                        # this clear() avoids an SWIG/STL bug!?
+                        # this clear() avoids a SWIG/STL bug!?
                         context.delta_bag_count.clear()
                         context.delta_bag_count[:] = delta_bag
+
+                        parent_delta = sum(count*r_cj[6][mr_index][0]
+                                           for count, r_cj
+                                           in zip(delta_bag, R_cj))
+                        debug("parent_delta: %s", parent_delta)
 
                         pmrf = CP.parent_mass_regime[mr_index].fixed_residue_mass
                         fmrf = CP.fragment_mass_regime[mr_index].fixed_residue_mass
@@ -978,7 +983,7 @@ def search_all(options, context, mod_limit, mod_conjunct_triples,
                                 + (N_cj and N_cj[0][6][mr_index][0] or 0)
                                 + pmrf[ord(']')]
                                 + (C_cj and C_cj[0][6][mr_index][0] or 0)
-                                + pca_parent_delta + PROTON_MASS)
+                                + parent_delta + pca_parent_delta + PROTON_MASS)
                         context.parent_fixed_mass = p_fx
                         f_N_fx = (fmrf[ord('[')]
                                   + (N_cj and N_cj[0][6][mr_index][1] or 0)
