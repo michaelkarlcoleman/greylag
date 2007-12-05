@@ -10,7 +10,8 @@ greylag_options="-v"
 
 # Divide this run into this many parts.  Currently, elapsed time seems to be
 # minimized if this is 5-10% larger than the number of cluster nodes (?).
-PARTS=${GREYLAG_PARTS:-1100}
+#PARTS=${GREYLAG_PARTS:-1300}
+PARTS=${GREYLAG_PARTS:-3000}
 
 
 p=`basename $0`
@@ -145,7 +146,7 @@ err commence search
 # time.
 
 qsub -sync y -r y -b y -S /bin/bash -cwd -V -hard -l virtual_free=100M \
-    -q all.q \
+    -q greylag.q \
     -t 1-$PARTS \
     -N "greylag-$jobbasedir-$jobname-$$" \
     -e 'grind.$TASK_ID.err' \
