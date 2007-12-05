@@ -112,8 +112,9 @@ def read_sqt_info(decoy_prefix, minimum_trypticity, sqt_fns):
     for each spectrum.  Spectra lacking minimum_trypticity are dropped.
     """
 
-    # charge -> [ (score, delta, state), ... ]
+    # charge -> [ (score, delta, state, spectrum_name, peptide), ... ]
     #   where state is either 'real' or 'decoy'
+    #     and peptide is the peptide as first seen, with mods, no flanks
     z_scores = defaultdict(list)
 
     # [ (charge, score, delta), ... ]
@@ -126,6 +127,8 @@ def read_sqt_info(decoy_prefix, minimum_trypticity, sqt_fns):
     current_state = set()               # 'real', 'decoy' or both
     highest_rank_seen = 0
     best_peptide_seen = None
+    current_peptide = None
+    spectrum_name = None
 
     for line in fileinput.input(sqt_fns):
         fs = line.split('\t')
@@ -136,7 +139,9 @@ def read_sqt_info(decoy_prefix, minimum_trypticity, sqt_fns):
                     if len(current_state) == 1:
                         z_scores[current_charge].append((current_score,
                                                          current_delta,
-                                                         current_state.pop()))
+                                                         current_state.pop(),
+                                                         spectrum_name,
+                                                         current_peptide))
                     sp_scores.append((current_charge, current_score,
                                       current_delta))
             current_charge = int(fs[3])
@@ -146,6 +151,8 @@ def read_sqt_info(decoy_prefix, minimum_trypticity, sqt_fns):
             current_state = set()
             highest_rank_seen = 0
             best_peptide_seen = None
+            current_peptide = None
+            spectrum_name = '.'.join((fileinput.filename(), fs[1], fs[2], fs[3]))
         elif fs[0] == 'M':
             rank = int(fs[1])
             delta = float(fs[4])
@@ -166,17 +173,22 @@ def read_sqt_info(decoy_prefix, minimum_trypticity, sqt_fns):
 
             if best_peptide_seen == None:
                 best_peptide_seen = peptide_stripped
+            if current_peptide == None:
+                current_peptide = peptide
 
-            if delta == 0:
-                assert current_delta == 0
-                current_score = score
-            elif (current_delta == 0 or best_peptide_seen == None
-                  or best_peptide_seen == peptide_stripped):
-                current_delta = delta
-                if best_peptide_seen != peptide_stripped:
-                    # once we've seen a non-equivalent peptide, don't set
-                    # delta if we see further equivalent peptides
-                    best_peptide_seen = '####'
+            # MyriMatch gives delta=0 when score=0, even if there are better
+            # scores!
+            if score > 0:
+                if delta == 0:
+                    assert current_delta == 0
+                    current_score = score
+                elif (current_delta == 0 or best_peptide_seen == None
+                      or best_peptide_seen == peptide_stripped):
+                    current_delta = delta
+                    if best_peptide_seen != peptide_stripped:
+                        # once we've seen a non-equivalent peptide, don't set
+                        # delta if we see further equivalent peptides
+                        best_peptide_seen = '####'
             if current_peptide_trypticity == None:
                 current_peptide_trypticity = 0
                 if (peptide_flanks[0] in ('K', 'R')
@@ -199,25 +211,35 @@ def read_sqt_info(decoy_prefix, minimum_trypticity, sqt_fns):
             if len(current_state) == 1:
                 z_scores[current_charge].append((current_score,
                                                  current_delta,
-                                                 current_state.pop()))
+                                                 current_state.pop(),
+                                                 spectrum_name,
+                                                 current_peptide))
             sp_scores.append((current_charge, current_score,
                               current_delta))
 
     return (z_scores, sp_scores)
 
 
-def specificity(positives, negatives):
-    return float(positives - negatives) / positives
+def PPV(reals, decoys):
+    """Returns the estimated Positive Predictive Value (== 1 - FDR), given
+    counts of reals and decoys."""
+
+    # We know that the decoys are false positives, and we estimate that an
+    # equal number of the "reals" are actually false, too.
+    false_positives = 2*decoys
+    true_positives = reals - decoys
+
+    return float(true_positives) / (true_positives + false_positives)
 
 
 def calculate_inner_threshold(fdr, charge, spinfo):
-    specificity_goal = 1 - fdr
+    ppv_goal = 1 - fdr
 
     spinfo = sorted(spinfo, key=lambda x: x[0])
 
-    epsilon = -1e-9
+    epsilon = +1e-6
 
-    real_count = sum(1 for x in spinfo if x[-1] == 'real')
+    real_count = sum(1 for x in spinfo if x[2] == 'real')
     decoy_count = len(spinfo) - real_count
 
     current_threshold = -1e100      # allow all spectra
@@ -225,10 +247,10 @@ def calculate_inner_threshold(fdr, charge, spinfo):
         if real_count == 0:
             return (None, real_count, decoy_count) # give up
 
-        specificity_est = specificity(real_count, decoy_count)
-        if specificity_est >= specificity_goal:
+        ppv_est = PPV(real_count, decoy_count)
+        if ppv_est >= ppv_goal:
             break
-        if sp[-1] == 'real':
+        if sp[2] == 'real':
             real_count -= 1
         else:
             decoy_count -= 1
@@ -243,7 +265,7 @@ def calculate_inner_threshold(fdr, charge, spinfo):
 def calculate_combined_thresholds(options, z_scores):
     """Find best score/delta thresholds for each charge."""
 
-    specificity_goal = 1 - options.fdr
+    ppv_goal = 1 - options.fdr
 
     # Rather than search every possible value of delta, we're only going to
     # "sample" at this granularity.  This cuts search time dramatically (and
@@ -253,6 +275,8 @@ def calculate_combined_thresholds(options, z_scores):
 
     # charge -> (score, delta, passing_reals, passing_decoys)
     thresholds = {}
+
+    total_reals, total_decoys = 0, 0
 
     for charge, spinfo in z_scores.iteritems():
         spinfo0 = sorted(spinfo, key=lambda x: x[1], reverse=True)
@@ -277,14 +301,29 @@ def calculate_combined_thresholds(options, z_scores):
             spinfo0.pop()
 
         if charge in thresholds:
-            print ("%+d: score %s, delta %s -> %s real ids, %s decoys"
-                   " (fdr %.4f)"
-                   % (charge, thresholds[charge][0], thresholds[charge][1],
-                      thresholds[charge][2], thresholds[charge][3],
-                      1 - specificity(thresholds[charge][2],
-                                      thresholds[charge][3])))
+            score_threshold, delta_threshold = thresholds[charge][0:2]
+
+            if options.list_peptides:
+                for (score, delta, state,
+                     spectrum_name, peptide) in z_scores[charge]:
+                    if score >= score_threshold and delta >= delta_threshold:
+                        print "%+d %s %s %s" % (charge, spectrum_name, state,
+                                                peptide)
+            else:
+                reals, decoys = thresholds[charge][2], thresholds[charge][3]
+                total_reals += reals
+                total_decoys += decoys
+                print ("%+d: score %s, delta %s -> %s real ids, %s decoys"
+                       " (fdr %.4f)"
+                       % (charge, score_threshold, delta_threshold,
+                          reals, decoys,
+                          1 - PPV(thresholds[charge][2],
+                                  thresholds[charge][3])))
         else:
             warn("could not calculate thresholds for %+d" % charge)
+
+    if not options.list_peptides:
+        print "# total: %s real ids, %s decoys" % (total_reals, total_decoys)
 
     return thresholds
 
