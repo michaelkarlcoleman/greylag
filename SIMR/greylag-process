@@ -13,6 +13,10 @@ greylag_options="-v"
 #PARTS=${GREYLAG_PARTS:-1300}
 PARTS=${GREYLAG_PARTS:-3000}
 
+# Make this many attempts to run greylag-grind on the cluster nodes, in case
+# the jobs fail on the nodes for whatever reason.
+RETRIES=10
+
 
 p=`basename $0`
 
@@ -145,22 +149,32 @@ err commence search
 # It's important that the same ms2 arguments be given (in the same order) each
 # time.
 
-qsub -sync y -r y -b y -S /bin/bash -cwd -V -hard -l virtual_free=100M \
-    -q greylag.q \
-    -t 1-$PARTS \
-    -N "greylag-$jobbasedir-$jobname-$$" \
-    -e 'grind.$TASK_ID.err' \
-    -o 'grind.$TASK_ID.out' \
-    greylag-grind $greylag_options \
-    --work-slice '$(greylag-sge-slice ${SGE_TASK_ID} ${SGE_TASK_LAST})' \
-    "$config" "$@"
-qsub_status=$?
-cat $(find . -name 'grind-*.out' -o -name 'grind-*.err' | sort -t . -k 2n,3) /dev/null
+done_count=0
+for ((try=1; try <= $RETRIES; try++)); do
+    err try $try, $((PARTS - done_count)) parts left
+    qsub -sync y -r y -b y -S /bin/bash -cwd -V -hard -l virtual_free=100M \
+	-q greylag.q \
+	-t 1-$PARTS \
+	-N "greylag-$jobbasedir-$jobname-$$" \
+	-e 'grind.$TASK_ID.err' \
+	-o 'grind.$TASK_ID.out' \
+	greylag-grind $greylag_options \
+	--work-slice '$(greylag-sge-slice ${SGE_TASK_ID} ${SGE_TASK_LAST})' \
+	--skip-if-done \
+	"$config" "$@"
+    qsub_status=$?
+    cat $(find . -name 'grind-*.out' -o -name 'grind-*.err' | sort -t . -k 2n,3) /dev/null
+    done_count=$(find . -name '*.glw' | wc -l)
+    if [ $done_count = $PARTS ]; then
+	break
+    fi
+done
+
 if [ "$qsub_status" != 0 ]; then
-    die "grind on nodes failed"
+    die "qsub of grind on nodes failed"
 fi
 
-if [ "$(find . -name '*.glw' | wc -l)" != $PARTS ]; then
+if [ $done_count != $PARTS ]; then
     die "SGE/grind on nodes failed"
 fi
 

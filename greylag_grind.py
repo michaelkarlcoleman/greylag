@@ -1120,6 +1120,8 @@ def main(args=sys.argv[1:]):
     pa("-w", "--work-slice", nargs=2, type="float", dest="work_slice",
        help="search a subinterval [L:U) of the work space"
        " (where 0 <= L <= U <= 1) in standalone mode", metavar="L U")
+    pa("--skip-if-done", action="store_true", dest="skip_if_done",
+       help="in standalone mode, just exit if output file is already present")
     pa("--job-id", dest="job_id", default="unknown",
        help="used to generate unique output filenames [default 'unknown']")
     pa("-q", "--quiet", action="store_true", dest="quiet", help="no warnings")
@@ -1165,6 +1167,13 @@ def main(args=sys.argv[1:]):
     logging.basicConfig(level=log_level, datefmt='%b %e %H:%M:%S',
                         format='%(asctime)s %(levelname)s: %(message)s')
     info("starting on %s", gethostname())
+
+    # FIX: this is only for standalone mode
+    result_fn = 'grind_%s_%s-%s.glw' % (options.job_id, options.work_slice[0],
+                                        options.work_slice[1])
+    if options.skip_if_done and os.path.exists(result_fn):
+        info("results file already exists, exiting")
+        return
 
     # check spectrum basename uniqueness, as corresponding sqt files will be
     # in a single directory
@@ -1318,9 +1327,6 @@ def main(args=sys.argv[1:]):
         return
 
     info("writing result file")
-    # FIX: this is only for standalone mode
-    result_fn = 'grind_%s_%s-%s.glw' % (options.job_id, options.work_slice[0],
-                                        options.work_slice[1])
 
     d = { 'version' : __version__,
           'matches' : results_dump(score_statistics,
