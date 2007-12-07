@@ -754,7 +754,9 @@ def pythonize_swig_object(o, only_fields=None, skip_fields=[]):
     avoid infinite recursion).
 
     >>> pprint(pythonize_swig_object(cgreylag.score_stats(1, 1)))
-    {'best_matches': [[{'conjunct_index': -1,
+    {'best_matches': [[{'C_peptide_flank': '-',
+                        'N_peptide_flank': '-',
+                        'conjunct_index': -1,
                         'mass_regime_index': -1,
                         'mass_trace': [],
                         'pca_delta': 0.0,
@@ -1011,48 +1013,49 @@ def search_all(options, context, mod_limit, mod_conjunct_triples,
          score_statistics.candidate_spectrum_count)
 
 
-def get_prefix_sequence(begin_pos, run_offset, sequence):
+def fix_up_flanking_residues(fasta_db, best_matches):
+    """For each peptide match, choose one of the match loci and update the
+    N_peptide_flank and C_peptide_flank residues according to the flanking
+    residues at that locus.  If there are multiple loci, choose the most
+    tryptic.  (Use '-' if there is no flanking residue or it is unknown.)
     """
-    >>> get_prefix_sequence(0, 0, 'abcdefghi')
-    '['
-    >>> get_prefix_sequence(1, 0, 'abcdefghi')
-    '[a'
-    >>> get_prefix_sequence(3, 0, 'abcdefghi')
-    '[abc'
-    >>> get_prefix_sequence(4, 0, 'abcdefghi')
-    'abcd'
-    >>> get_prefix_sequence(4, 2, 'abcdefghi')
-    'cdef'
 
-    """
-    prefix_start = run_offset + begin_pos - 4
-    s = sequence[max(0, prefix_start):prefix_start+4]
-    if len(s) < 4:
-        s = '[' + s
-    return s
+    locus_sequence_by_name = dict((locusname, seq)
+                                  for (locusname, defline, seq, filename)
+                                  in fasta_db)
 
-def get_suffix_sequence(end_pos, run_offset, sequence):
-    """
-    >>> get_suffix_sequence(0, 0, 'abcdefghi')
-    'abcd'
-    >>> get_suffix_sequence(4, 0, 'abcdefghi')
-    'efgh'
-    >>> get_suffix_sequence(6, 0, 'abcdefghi')
-    'ghi]'
-    >>> get_suffix_sequence(8, 0, 'abcdefghi')
-    'i]'
-    >>> get_suffix_sequence(4, 2, 'abcdefghi')
-    'ghi]'
+    def check_residue(r):
+        return r if r in RESIDUES else '-'
 
-    """
-    suffix_start = run_offset + end_pos
-    s = sequence[suffix_start:suffix_start+4]
-    if len(s) < 4:
-        s = s + ']'
-    return s
+    def count_tryptic_pairs(l):
+        return sum(1 for N,C in l if N in ('K', 'R', '-') and C not in ('P',))
+
+    for spectrum_best_matches in best_matches:
+        for m in spectrum_best_matches:
+            if not m['peptide_sequence']:
+                continue
+            N_residue = check_residue(m['peptide_sequence'][0])
+            C_residue = check_residue(m['peptide_sequence'][-1])
+            candidate_flanks = []
+            for locus_index in range(len(m['sequence_name'])):
+                l_sequence_name = m['sequence_name'][locus_index]
+                l_peptide_begin = m['peptide_begin'][locus_index]
+
+                locus_sequence = locus_sequence_by_name[l_sequence_name]
+                N_flank = (locus_sequence[l_peptide_begin-1]
+                           if l_peptide_begin > 0 else '-')
+                peptide_end = l_peptide_begin+len(m['peptide_sequence'])
+                C_flank = (locus_sequence[peptide_end]
+                           if peptide_end < len(locus_sequence) else '-')
+                candidate_flanks.append([(N_flank, N_residue),
+                                         (C_residue, C_flank)])
+
+            best_candidate = max(candidate_flanks, key=count_tryptic_pairs)
+            m['N_peptide_flank'] = best_candidate[0][0]
+            m['C_peptide_flank'] = best_candidate[-1][-1]
 
 
-def results_dump(score_statistics, searchable_spectra):
+def results_dump(fasta_db, score_statistics, searchable_spectra):
     """Return a result dict mapping spectrum names to (spectrum_metadata,
     best_matches) pairs.
 
@@ -1075,6 +1078,9 @@ def results_dump(score_statistics, searchable_spectra):
     py_matches = pythonize_swig_object(score_statistics.best_matches,
                                        skip_fields=['spectrum_index'])
     assert len(py_s_spectra) == len(py_matches)
+
+    # FIX: doing this here because it's much easier after pythonizing
+    fix_up_flanking_residues(fasta_db, py_matches)
 
     # note that both strip functions modify their argument
     def strip_meta(meta):
@@ -1168,6 +1174,8 @@ def main(args=sys.argv[1:]):
                         format='%(asctime)s %(levelname)s: %(message)s')
     info("starting on %s", gethostname())
 
+    # FIX: assume standalone mode (for now)
+    assert options.work_slice
     # FIX: this is only for standalone mode
     result_fn = 'grind_%s_%s-%s.glw' % (options.job_id, options.work_slice[0],
                                         options.work_slice[1])
@@ -1234,9 +1242,6 @@ def main(args=sys.argv[1:]):
             if idx['file size'] != os.path.getsize(spfn):
                 error("index '%s' needs rebuilding" % idxfn)
             spectrum_offset_indices.append(idx['offsets'])
-
-    # FIX: assume standalone mode (for now)
-    assert options.work_slice
 
     # read spectra per work slice
     spectra = read_spectra_slice(spectrum_fns, spectrum_offset_indices,
@@ -1329,7 +1334,7 @@ def main(args=sys.argv[1:]):
     info("writing result file")
 
     d = { 'version' : __version__,
-          'matches' : results_dump(score_statistics,
+          'matches' : results_dump(fasta_db, score_statistics,
                                    cgreylag.cvar.spectrum_searchable_spectra),
           'total comparisons' : score_statistics.candidate_spectrum_count,
           'spectrum files' : base_spectrum_fns,

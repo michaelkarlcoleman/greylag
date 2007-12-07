@@ -126,9 +126,12 @@ def print_spectrum(f, mod_name_map, sp_name, sp_matches):
                               ["M", rank, rank,
                                round(match['predicted_parent_mass'], 5),
                                round(score_delta, 4), round(-score, 4), 0,
-                               # 1 of 2 ions found--keep DTASelect happy
+                               # FIX: 1 of 2 ions found--keep DTASelect happy
                                1, 2,
-                               "-.%s.-" % marked_sequence, 'U'])
+                               '.'.join((match['N_peptide_flank'],
+                                         marked_sequence,
+                                         match['C_peptide_flank'])),
+                               'U'])
         if match.get('mass_regime_index', 0) != 0:
             print >> f, "AR\t%s" % match['mass_regime_index']
         if match.get('pca_delta', 0) != 0:

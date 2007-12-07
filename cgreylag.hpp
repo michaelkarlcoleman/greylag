@@ -294,6 +294,7 @@ public:
   double score;
   int spectrum_index;
   std::string peptide_sequence;
+  char N_peptide_flank, C_peptide_flank; // adjacent residues; '-' if none
   double predicted_parent_mass;
 
   int mass_regime_index;
@@ -306,7 +307,8 @@ public:
   std::vector<int> peptide_begin; // absolute position within locus
   std::vector<std::string> sequence_name;
 
-  match() : score(0), spectrum_index(-1), predicted_parent_mass(0),
+  match() : score(0), spectrum_index(-1), N_peptide_flank('-'),
+	    C_peptide_flank('-'), predicted_parent_mass(0),
 	    mass_regime_index(-1), conjunct_index(-1), pca_delta(0) { }
 };
 
