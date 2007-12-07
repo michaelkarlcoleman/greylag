@@ -4,7 +4,7 @@
 .DELETE_ON_ERROR:
 
 
-DEST = /n/site/inst/Linux-i686/bioinfo/greylag/
+DEST = /n/site/inst/Linux-x86_64/bioinfo/greylag/
 
 install::
 	[ -d $(DEST) ] || install -d $(DEST)
