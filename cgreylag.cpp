@@ -1,10 +1,11 @@
 // C++ module for greylag
 
-//     Copyright (C) 2006-2007, Stowers Institute for Medical Research
+//     greylag, a collection of programs for MS/MS protein analysis
+//     Copyright (C) 2006-2008  Stowers Institute for Medical Research
 //
-//     This program is free software; you can redistribute it and/or modify
+//     This program is free software: you can redistribute it and/or modify
 //     it under the terms of the GNU General Public License as published by
-//     the Free Software Foundation; either version 2 of the License, or
+//     the Free Software Foundation, either version 3 of the License, or
 //     (at your option) any later version.
 //
 //     This program is distributed in the hope that it will be useful,
@@ -12,9 +13,14 @@
 //     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 //     GNU General Public License for more details.
 //
-//     You should have received a copy of the GNU General Public License along
-//     with this program; if not, write to the Free Software Foundation, Inc.,
-//     51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+//     You should have received a copy of the GNU General Public License
+//     along with this program.  If not, see <http://www.gnu.org/licenses/>.
+//
+//     Contact: Mike Coleman
+//              Stowers Institute for Medical Research
+//              1000 East 50th Street
+//              Kansas City, Missouri  64110
+//              USA
 
 
 #include "cgreylag.hpp"
@@ -135,15 +141,13 @@ check_past_end(FILE *f, const long offset_end) {
 // reading, seek to absolute position offset_begin.  If offset_end != -1, any
 // spectra that begin after position offset_end in the file are not read.
 
-// Multiply charge spectra (e.g., +2/+3) are split into separate spectra
+// Multiply charged spectra (e.g., +2/+3) are split into separate spectra
 // having the same physical id.  Note that depending on
 // offset_begin/offset_end, we may end up with the first charge and not the
 // second, or vice versa.
 
 // The peak list is initially sorted by mz.  Throws an exception on invalid
-// input.  Error checking is the most stringent in this function.  Other
-// readers can be a little looser since all ms2 files eventually get read here
-// anyway.
+// input.  Error checking is stringent in this function.
 
 // This is pretty hideous.  Is there a simpler way to read, reasonably
 // efficiently, catching any input error?

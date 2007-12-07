@@ -10,11 +10,12 @@ files with validation marks set to 'N' for filtered-out spectra.
 from __future__ import with_statement
 
 __copyright__ = '''
-    greylag, Copyright (C) 2006-2007, Stowers Institute for Medical Research
+    greylag, a collection of programs for MS/MS protein analysis
+    Copyright (C) 2006-2008  Stowers Institute for Medical Research
 
-    This program is free software; you can redistribute it and/or modify
+    This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
-    the Free Software Foundation; either version 2 of the License, or
+    the Free Software Foundation, either version 3 of the License, or
     (at your option) any later version.
 
     This program is distributed in the hope that it will be useful,
@@ -22,9 +23,14 @@ __copyright__ = '''
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
 
-    You should have received a copy of the GNU General Public License along
-    with this program; if not, write to the Free Software Foundation, Inc.,
-    51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+    Contact: Mike Coleman
+             Stowers Institute for Medical Research
+             1000 East 50th Street
+             Kansas City, Missouri  64110
+             USA
 '''
 
 __version__ = "0.0"
