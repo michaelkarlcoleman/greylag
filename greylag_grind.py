@@ -272,11 +272,11 @@ def initialize_spectrum_parameters(options, mass_regimes, fixed_mod_map):
                for rn in range(len(mass_regimes)) ])
     for r in RESIDUES:
         for rn in range(len(mass_regimes)):
-            # physically impossible (and results would be garbage)
+            # check for physically impossible/meaningless masses
             if CP.parent_mass_regime[rn].fixed_residue_mass[ord(r)] < 1.0:
                 raise ValueError('bogus parent mass specification for %s' % r)
             if CP.fragment_mass_regime[rn].fixed_residue_mass[ord(r)] < 1.0:
-                raise ValueError('bogus parent mass specification for %s' % r)
+                raise ValueError('bogus fragment mass specification for %s' % r)
 
     CP.parent_mass_tolerance_1 = GLP["parent_mz_tolerance"]
     CP.parent_mass_tolerance_max = (GLP["parent_mz_tolerance"]
