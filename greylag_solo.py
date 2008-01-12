@@ -1,4 +1,4 @@
-#!/usr/bin/env greylag-python
+#!/usr/bin/env python
 
 '''Run a greylag job split across multiple local processes.  This is not for
 use on a cluster, but useful if you have just one multi-CPU machine, or for

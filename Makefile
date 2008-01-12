@@ -1,29 +1,25 @@
 # Makefile for cgreylag module
 
-# SWIG is still experiencing rapid development--1.3.31 or later is required.
+# The SWIG Python/STL interface is pretty new, so SWIG 1.3.31 or later is
+# required.
 # Python 2.5 or later is required.
 # A reasonably recent g++/libstdc++ may also be required.
 
 # Developed with swig 1.3.31, g++ 3.4.6/4.1.2, libstdc++.so.6
 
 
-.PHONY: all pycheck modsyms install clean tags check
+.PHONY: all modsyms install clean tags check release
 .DELETE_ON_ERROR:
 
 
-# MARCH = pentium3
-# MARCH = pentium4
-# MARCH = prescott
-# MARCH = opteron
-MARCH = nocona
+DEST = /usr/local/lib/greylag/
 
+PYTHONFLAGS = $(shell python-config --include)
 
-DEST = /n/site/inst/Linux-x86_64/bioinfo/greylag/
+CXXBASEFLAGS = -Wall -g3 -fPIC
 
-PYTHONVER=2.5
-PYTHONFLAGS = $(shell python$(PYTHONVER)-config --include)
-
-CXXBASEFLAGS = -Wall -g3 -march=$(MARCH) -fPIC
+# use to add flags from the make command-line (e.g., -march, -mtune)
+CXXFASTFLAGS =
 
 # This makes it easy to compile different versions without editing this file.
 # 0=debug, 2=fast, 3=faster and less safe
@@ -39,8 +35,7 @@ CXXFLAGS = $(CXXBASEFLAGS) -O2 -ffast-math -mfpmath=sse
   else
     ifeq ($(SPEED),3)
 # for speed (fastest?, fewest checks)
-CXXFLAGS = $(CXXBASEFLAGS) -O3 -DNDEBUG -ffast-math -mfpmath=sse
-#CXXFASTFLAGS = -finline-limit=20000 --param inline-unit-growth=1000 --param large-function-growth=1000
+CXXFLAGS = $(CXXBASEFLAGS) -O3 -ffast-math -mfpmath=sse -DNDEBUG
     else
 CXXFLAGS = ---INVALID-SPEED
     endif
@@ -67,20 +62,18 @@ _$(MODULE).so : $(MODULE).o $(MODULE)_wrap.o
 	g++ $(CXXFLAGS) $(CXXFASTFLAGS) -shared $^ -o $@
 
 
-pycheck::
-	PYTHONVER=$(PYTHONVER) pychecker --limit 1000 greylag_grind.py
-
-# summary C++ modules symbols used by main script
-modsyms::
-	@sed -n -e 's/^.*\(cgreylag\.[a-zA-Z0-9_.]*\).*$$/\1/p' greylag_grind.py \
+# summary of C++ modules symbols used by main script
+modsyms ::
+	@sed -n -e 's/^.*\(cgreylag\.[a-zA-Z0-9_.]*\).*$$/\1/p' \
+			greylag_grind.py \
 		| sort | uniq -c
 
 tags :: TAGS
 TAGS : $(MODULE).cpp $(MODULE).hpp
-	etags --members $^
+	etags $^
 
 # FIX: we could compile the .py files here
-install::
+install :: all
 	[ -d $(DEST) ] || install -d $(DEST)
 	install -p _$(MODULE).so $(DEST)
 	install -p --mode=444 $(MODULE).py $(DEST)
@@ -90,12 +83,20 @@ install::
 	install -p greylag_sqt.py $(DEST)/greylag-sqt
 	install -p greylag_solo.py $(DEST)/greylag-solo
 	install -p greylag_validate.py $(DEST)/greylag-validate
-	@echo "# remember to link 'greylag-python' to your python $(PYTHONVER)"
 
-clean::
+clean ::
 	-rm -f $(MODULE).py $(MODULE)_wrap.cpp $(MODULE).o $(MODULE)_wrap.o \
-		_$(MODULE).so *.py[co] test/*.py[co] TAGS *~ .??*~ test/*~ \
-		test/tmp*
+		_$(MODULE).so *.py[co] TAGS *~ .??*~ \
+		test/*.py[co] test/*.idx test/*.glw test/*-bad.sqt test/tmp* \
+		test/*~
 
-check::
+check :: all
 	nosetests --exe --with-doctest $(NOSEFLAGS)
+
+
+release :: all
+	@echo "# did you update __version__ in greylag_grind.py?"
+	git-tag -l "v$(VERSION)" || false # no such tag
+	git-archive --format=tar --prefix=greylag-$(VERSION)/ v$(VERSION) \
+	    | gzip -9 > ../greylag-$(VERSION).tgz
+

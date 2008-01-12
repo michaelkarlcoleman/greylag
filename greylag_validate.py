@@ -1,4 +1,4 @@
-#!/usr/bin/env greylag-python
+#!/usr/bin/env python
 
 """
 Given a set of sqt files, determine a 'valid' set of identifications that

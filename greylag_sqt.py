@@ -1,4 +1,4 @@
-#!/usr/bin/env greylag-python
+#!/usr/bin/env python
 
 '''Generate a set of sqt files from the specified greylag search result
 file.  The sqt files will be created in the current directory, with names

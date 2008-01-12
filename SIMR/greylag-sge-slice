@@ -1,4 +1,4 @@
-#!/usr/bin/env greylag-python
+#!/usr/bin/env python
 
 """
 Given two arguments SGE_TASK_ID SGE_TASK_LAST, return the corresponding work
