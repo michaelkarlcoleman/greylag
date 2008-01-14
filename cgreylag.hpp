@@ -206,19 +206,6 @@ public:
 
   char *__repr__() const;
 
-  // for tinkering
-  void set_peaks_from_matrix(const std::vector< std::vector<double> > &m) {
-    peaks.resize(m.size());
-    std::vector<peak>::iterator p_it = peaks.begin();
-    for (std::vector< std::vector<double> >::const_iterator it = m.begin();
-	 it != m.end(); it++, p_it++) {
-      if (it->size() != 2)
-	throw std::invalid_argument("invalid matrix (must be size N x 2)");
-      p_it->mz = (*it)[0];
-      p_it->intensity = (*it)[1];
-    }
-  }
-
 
   // Read spectra from file in ms2 format, tagging them with file_id.  Before
   // reading, seek to absolute position offset_begin.  If offset_end != -1,

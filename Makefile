@@ -42,8 +42,7 @@ CXXFLAGS = ---INVALID-SPEED
   endif
 endif
 
-SWIGCXXFLAGS = $(CXXFLAGS) $(PYTHONFLAGS) -fno-strict-aliasing \
-		-Wno-unused-function -Wno-uninitialized
+SWIGCXXFLAGS = $(CXXFLAGS) $(PYTHONFLAGS) -fno-strict-aliasing
 
 MODULE = cgreylag
 
@@ -53,6 +52,7 @@ $(MODULE)_wrap.cpp : $(MODULE).i $(MODULE).hpp
 	swig -c++ -python -o $@ $<
 
 $(MODULE)_wrap.o : $(MODULE)_wrap.cpp $(MODULE).hpp
+	@echo "# some warnings expected here"
 	g++ $(SWIGCXXFLAGS) -c $<
 
 $(MODULE).o : $(MODULE).cpp $(MODULE).hpp

@@ -259,11 +259,11 @@ def initialize_spectrum_parameters(options, mass_regimes, fixed_mod_map):
             creg.fixed_residue_mass[ord('[')] += formula_mass("H")
             creg.fixed_residue_mass[ord(']')] += formula_mass("OH")
             if not n:
-                CP.parent_mass_regime.append(creg);
+                CP.parent_mass_regime.append(creg)
             else:
                 creg.fixed_residue_mass[ord('[')] -= CP.hydrogen_mass
                 creg.fixed_residue_mass[ord(']')] -= creg.hydroxyl_mass
-                CP.fragment_mass_regime.append(creg);
+                CP.fragment_mass_regime.append(creg)
     for r in RESIDUES_W_BRACKETS:
         info('fixed_mass %s: %s', r,
              [ "%.6f/%.6f"
@@ -415,8 +415,9 @@ def read_fasta_files(filenames):
         yield (locusname, defline, ''.join(seqs), fileinput.filename())
 
 
-def read_spectra_slice(spectrum_fns, offset_indices, slice):
-    s_l, s_u = slice
+def read_spectra_slice(spectrum_fns, offset_indices, work_slice):
+# FIX: docstring
+    s_l, s_u = work_slice
     assert 0 <= s_l <= s_u <= 1
 
     total_spectra = sum(len(oi) for oi in offset_indices)

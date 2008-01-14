@@ -55,8 +55,9 @@ def usage():
     print >> sys.stderr, ('Usage: %s <processes>'
                           ' <greylag-grind-options-and-args>...'
                           '\n\n'
-                          '%s\n(see "%s --help" for more information)'
-                          % (sys.argv[0], __doc__, sys.argv[0]))
+                          '%s\n'
+                          '(see "greylag-grind --help" for more information)'
+                          % (os.path.basename(sys.argv[0]), __doc__))
     sys.exit()
 
 
