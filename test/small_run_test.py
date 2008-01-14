@@ -10,20 +10,20 @@ import subprocess
 
 from nose.tools import *
 
-from greylag_grind import *
+from greylag_chase import *
 
 
 # greylag-solo parallel processes
 CPUS = 4
 
 # program locations
-GREYLAG_GRIND = '../greylag_grind.py'
+GREYLAG_CHASE = '../greylag_chase.py'
 GREYLAG_SOLO = '../greylag_solo.py'
 GREYLAG_SQT = '../greylag_sqt.py'
 GREYLAG_INDEX_SPECTRA = '../greylag_index_spectra.py'
 
 JOB_ID = 'tmp'
-DEFAULT_GLW = 'grind_%s_0.0-1.0.glw' % JOB_ID
+DEFAULT_GLW = 'chase_%s_0.0-1.0.glw' % JOB_ID
 
 # cd to the test directory, but restore when we're done
 SAVE_CWD = os.getcwd()
@@ -34,12 +34,12 @@ def teardown(self):
 
 
 def run_gl(conf, spectra):
-    "Run greylag-grind, checking for error return."
+    "Run greylag-chase, checking for error return."
     try:
         os.remove(DEFAULT_GLW)
     except:
         pass
-    subprocess.check_call([GREYLAG_GRIND, "-q", "-w", "0", "1",
+    subprocess.check_call([GREYLAG_CHASE, "-q", "-w", "0", "1",
                            "--job-id="+JOB_ID, conf] + spectra)
 
 def run_gl_solo(conf, spectra):
@@ -56,7 +56,7 @@ def run_gl_index_spectra(args):
 
 
 # This is currently kind of bogus because ../greylag_solo.py will end up
-# running the installed versions of greylag-grind, etc.  How to fix this?
+# running the installed versions of greylag-chase, etc.  How to fix this?
 
 def run_combination(combination=None):
     """Run a greylag test, as specified by combination.

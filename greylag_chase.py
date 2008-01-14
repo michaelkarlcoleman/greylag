@@ -1184,7 +1184,7 @@ def main(args=sys.argv[1:]):
     # FIX: assume standalone mode (for now)
     assert options.work_slice
     # FIX: this is only for standalone mode
-    result_fn = 'grind_%s_%s-%s.glw' % (options.job_id, options.work_slice[0],
+    result_fn = 'chase_%s_%s-%s.glw' % (options.job_id, options.work_slice[0],
                                         options.work_slice[1])
     if options.skip_if_done and os.path.exists(result_fn):
         info("results file already exists, exiting")

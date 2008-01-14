@@ -8,7 +8,7 @@ from pprint import pprint
 
 from nose.tools import *
 
-from greylag_grind import *
+from greylag_chase import *
 
 
 
@@ -27,30 +27,30 @@ class formula_mass_test:
 
 class read_fasta_files_test:
     def simple_test_0(self):
-        found = list(read_fasta_files(['test/scary.fa']))
-        wanted = [('ugly', 'ugly test fasta file', '', 'test/scary.fa'),
-                  ('1', '1', 'STALEMATING', 'test/scary.fa'),
-                  ('foo', ' foo', 'AARDVARKS AARDVARKSAARDVARKS', 'test/scary.fa'),
-                  ('gi|1234|', 'gi|1234| bleah', 'SISTERLIKE', 'test/scary.fa'),
-                  ('gi|12345|', 'gi|12345| bleah', 'SISTER*LIKE', 'test/scary.fa'),
-                  ('control-A', 'control-A here: [\x01]', '& HERE: [\x01]', 'test/scary.fa'),
-                  ('no', 'no final newline after F', 'ARF', 'test/scary.fa')]
+        found = list(read_fasta_files(['test/scary.fasta']))
+        wanted = [('ugly', 'ugly test fasta file', '', 'test/scary.fasta'),
+                  ('1', '1', 'STALEMATING', 'test/scary.fasta'),
+                  ('foo', ' foo', 'AARDVARKS AARDVARKSAARDVARKS', 'test/scary.fasta'),
+                  ('gi|1234|', 'gi|1234| bleah', 'SISTERLIKE', 'test/scary.fasta'),
+                  ('gi|12345|', 'gi|12345| bleah', 'SISTER*LIKE', 'test/scary.fasta'),
+                  ('control-A', 'control-A here: [\x01]', '& HERE: [\x01]', 'test/scary.fasta'),
+                  ('no', 'no final newline after F', 'ARF', 'test/scary.fasta')]
         assert found == wanted
 
     @raises(Exception)
     def bad_test_empty_locusname(self):
-        found = list(read_fasta_files(['test/bogus-0.fa']))
+        found = list(read_fasta_files(['test/bogus-0.fasta']))
 
     @raises(Exception)
     def bad_test_duplicate_locusnames(self):
-        found = list(read_fasta_files(['test/bogus-1.fa']))
+        found = list(read_fasta_files(['test/bogus-1.fasta']))
 
 
 # def read_taxonomy_test():
 #     found = sorted(read_taxonomy('test/test-taxonomy.xml').items())
-#     wanted = [('label', ['labeled.fa']),
-#               ('multiple', ['one.fa', 'two.fa', 'three.fa']),
-#               ('simple.fa', ['simple.fa'])]
+#     wanted = [('label', ['labeled.fasta']),
+#               ('multiple', ['one.fasta', 'two.fasta', 'three.fasta']),
+#               ('simple.fasta', ['simple.fasta'])]
 #     assert found == wanted
 
 

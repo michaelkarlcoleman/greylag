@@ -53,10 +53,10 @@ def error(s):
 
 def usage():
     print >> sys.stderr, ('Usage: %s <processes>'
-                          ' <greylag-grind-options-and-args>...'
+                          ' <greylag-chase-options-and-args>...'
                           '\n\n'
                           '%s\n'
-                          '(see "greylag-grind --help" for more information)'
+                          '(see "greylag-chase --help" for more information)'
                           % (os.path.basename(sys.argv[0]), __doc__))
     sys.exit()
 
@@ -80,7 +80,7 @@ def slices(N):
 
 def greylag_subprogram(name):
     """If this program was called as '../greylag_solo.py', call
-    'greylag-grind' as '../greylag_grind.py', etc.  Otherwise call normally.
+    'greylag-chase' as '../greylag_chase.py', etc.  Otherwise call normally.
     This allows testing without installing.
     """
     prefix = os.path.dirname(sys.argv[0])
@@ -91,7 +91,7 @@ def greylag_subprogram(name):
 
 def run_parts_and_merge(processes, job_id, args):
     merge_fn = 'greylag-merge-%s.glw' % job_id
-    work_fns = [ 'grind_%s_%s-%s.glw' % (job_id, w0, w1)
+    work_fns = [ 'chase_%s_%s-%s.glw' % (job_id, w0, w1)
                  for w0, w1 in slices(processes) ]
 
     try:
@@ -99,7 +99,7 @@ def run_parts_and_merge(processes, job_id, args):
         subprocs = []
         try:
             for w0, w1 in slices(processes):
-                p = subprocess.Popen([greylag_subprogram('greylag-grind'),
+                p = subprocess.Popen([greylag_subprogram('greylag-chase'),
                                       '--job-id='+job_id, '-w', str(w0),
                                       str(w1)] + args)
                 subprocs.append(p)
@@ -109,7 +109,7 @@ def run_parts_and_merge(processes, job_id, args):
                     raise EnvironmentError("error status")
         except EnvironmentError, e:
             error("%s process failed [%s]"
-                  % (greylag_subprogram('greylag-grind'), e))
+                  % (greylag_subprogram('greylag-chase'), e))
         finally:
             # upon error, try to kill any remaining processes
             try:

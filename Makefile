@@ -65,7 +65,7 @@ _$(MODULE).so : $(MODULE).o $(MODULE)_wrap.o
 # summary of C++ modules symbols used by main script
 modsyms ::
 	@sed -n -e 's/^.*\(cgreylag\.[a-zA-Z0-9_.]*\).*$$/\1/p' \
-			greylag_grind.py \
+			greylag_chase.py \
 		| sort | uniq -c
 
 tags :: TAGS
@@ -77,7 +77,7 @@ install :: all
 	[ -d $(DEST) ] || install -d $(DEST)
 	install -p _$(MODULE).so $(DEST)
 	install -p --mode=444 $(MODULE).py $(DEST)
-	install -p greylag_grind.py $(DEST)/greylag-grind
+	install -p greylag_chase.py $(DEST)/greylag-chase
 	install -p greylag_index_spectra.py $(DEST)/greylag-index-spectra
 	install -p greylag_merge.py $(DEST)/greylag-merge
 	install -p greylag_sqt.py $(DEST)/greylag-sqt
@@ -95,7 +95,7 @@ check :: all
 
 
 release :: all
-	@echo "# did you update __version__ in greylag_grind.py?"
+	@echo "# did you update __version__ in greylag_chase.py?"
 	git-tag -l "v$(VERSION)" || false # no such tag
 	git-archive --format=tar --prefix=greylag-$(VERSION)/ v$(VERSION) \
 	    | gzip -9 > ../greylag-$(VERSION).tgz

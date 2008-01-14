@@ -2,7 +2,7 @@
 
 """
 Given two arguments SGE_TASK_ID SGE_TASK_LAST, return the corresponding work
-slice, suitable for greylag-grind's -w flag.
+slice, suitable for greylag-chase's -w flag.
 
 For example, 'greylag-sge-slice 20 456' prints '0.04167 0.04386'.
 
