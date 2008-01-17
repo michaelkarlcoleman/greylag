@@ -100,8 +100,9 @@ def run_parts_and_merge(processes, job_id, args):
         try:
             for w0, w1 in slices(processes):
                 p = subprocess.Popen([greylag_subprogram('greylag-chase'),
-                                      '--job-id='+job_id, '-w', str(w0),
-                                      str(w1)] + args)
+                                      '--job-id='+job_id, '-w',
+                                      str(w0) + ':' + str(w1)]
+                                     + args)
                 subprocs.append(p)
             while subprocs:
                 p = subprocs.pop()

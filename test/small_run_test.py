@@ -39,7 +39,7 @@ def run_gl(conf, spectra):
         os.remove(DEFAULT_GLW)
     except:
         pass
-    subprocess.check_call([GREYLAG_CHASE, "-q", "-w", "0", "1",
+    subprocess.check_call([GREYLAG_CHASE, "-q", "-w", "0:1",
                            "--job-id="+JOB_ID, conf] + spectra)
 
 def run_gl_solo(conf, spectra):

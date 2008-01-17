@@ -34,4 +34,4 @@ def get_slice(N, M):
 N = int(sys.argv[1])
 M = int(sys.argv[2])
 
-print "%.5f %.5f" % get_slice(N, M)
+print "%.5f:%.5f" % get_slice(N, M)

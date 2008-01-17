@@ -1126,13 +1126,13 @@ def main(args=sys.argv[1:]):
                                    " <configuration-file> <ms2-file>...",
                                    description=__doc__, version=__version__)
     pa = parser.add_option
-    pa("-P", "--parameter", nargs=2, dest="parameters", action="append",
+    pa("-P", "--parameter", dest="parameters", action="append",
        default=[],
        help="override a parameter in <parameter-file>, may be used multiple"
-       " times", metavar="NAME VALUE")
-    pa("-w", "--work-slice", nargs=2, type="float", dest="work_slice",
+       " times", metavar="NAME=VALUE")
+    pa("-w", "--work-slice", dest="work_slice",
        help="search a subinterval [L:U) of the work space"
-       " (where 0 <= L <= U <= 1) in standalone mode", metavar="L U")
+       " (where 0 <= L <= U <= 1) in standalone mode", metavar="L:U")
     pa("--skip-if-done", action="store_true", dest="skip_if_done",
        help="in standalone mode, just exit if output file is already present")
     pa("--job-id", dest="job_id", default="unknown",
@@ -1163,7 +1163,16 @@ def main(args=sys.argv[1:]):
     configuration_fn = args[0]
     spectrum_fns = args[1:]
 
+    if options.work_slice:
+        try:
+            options.work_slice = [ float(x) for x
+                                   in options.work_slice.split(':', 1) ]
+        except:
+            parser.print_help()
+            sys.exit(1)
+
     if (any(True for f in spectrum_fns if not f.endswith('.ms2'))
+        or any(True for p in options.parameters if '=' not in p)
         or (options.work_slice
             and not (0 <= options.work_slice[0]
                      <= options.work_slice[1] <= 1))):
@@ -1181,8 +1190,10 @@ def main(args=sys.argv[1:]):
                         format='%(asctime)s %(levelname)s: %(message)s')
     info("starting on %s", gethostname())
 
-    # FIX: assume standalone mode (for now)
-    assert options.work_slice
+    # FIX: assuming standalone mode (for now)
+    if not options.work_slice:
+        error("--work-slice must be specified")
+
     # FIX: this is only for standalone mode
     result_fn = 'chase_%s_%s-%s.glw' % (options.job_id, options.work_slice[0],
                                         options.work_slice[1])
@@ -1195,6 +1206,8 @@ def main(args=sys.argv[1:]):
     base_spectrum_fns = [ os.path.basename(fn) for fn in spectrum_fns ]
     if len(base_spectrum_fns) != len(set(base_spectrum_fns)):
         error("base spectrum filenames must be unique")
+
+    options.parameters = [ p.split('=', 1) for p in options.parameters ]
 
     # check -P names for validity
     bad_names = (set(n for n,v in options.parameters)
