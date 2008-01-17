@@ -50,7 +50,6 @@ __version__ = "0.0"
 import ConfigParser
 import contextlib
 import cPickle
-import fileinput
 import gzip
 import logging
 from logging import debug, info, warning
@@ -83,12 +82,6 @@ def error(s, *args):
         raise Exception((s + " (fatal error)") % args)
     logging.error(s, *args)
     sys.exit(1)
-
-
-def fileerror(s, *args):
-    error(s + (", at line %s of file '%s'"
-               % (fileinput.filelineno(), fileinput.filename())),
-          *args)
 
 
 # name -> value map of processed greylag config parameters
@@ -384,35 +377,33 @@ def read_fasta_files(filenames):
     FASTA files (uppercasing sequence)."""
 
     loci_seen = set()
-    locusname, defline = None, None
-    seqs = []
 
-    # reset fileinput first, in case it's been called before
-    try:
-        fileinput.close()
-    except RuntimeError:
-        pass
-    for line in fileinput.input(filenames):
-        line = line.strip()
-        if line[:1] == '>':
-            if defline != None:
-                yield (locusname, defline, ''.join(seqs), fileinput.filename())
-            elif seqs:
-                fileerror("bad format: line precedes initial defline")
-            defline = line[1:]
-            locusname_rest = defline.split(None, 1)
-            if not locusname_rest:
-                error("empty locus name not allowed")
-            locusname = locusname_rest[0]
-            if locusname in loci_seen:
-                error("locus name '%s' is not unique in the search database(s)"
-                      % locusname)
-            loci_seen.add(locusname)
-            seqs = []
-        else:
-            seqs.append(line.upper())
-    if defline:
-        yield (locusname, defline, ''.join(seqs), fileinput.filename())
+    for filename in filenames:
+        locusname, defline = None, None
+        seqs = []
+        with open(filename) as f:
+            for line in f:
+                line = line.strip()
+                if line[:1] == '>':
+                    if defline != None:
+                        yield (locusname, defline, ''.join(seqs), filename)
+                    elif seqs:
+                        error("bad format: line precedes initial defline"
+                              " in '%s'" % filename)
+                    defline = line[1:]
+                    locusname_rest = defline.split(None, 1)
+                    if not locusname_rest:
+                        error("empty locus name not allowed in '%s'" % filename)
+                    locusname = locusname_rest[0]
+                    if locusname in loci_seen:
+                        error("locus name '%s' is not unique in the search"
+                              " database(s) in '%s'" % (locusname, filename))
+                    loci_seen.add(locusname)
+                    seqs = []
+                else:
+                    seqs.append(line.upper())
+            if defline:
+                yield (locusname, defline, ''.join(seqs), filename)
 
 
 def read_spectra_slice(spectrum_fns, offset_indices, work_slice):
