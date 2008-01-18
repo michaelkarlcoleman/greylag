@@ -84,7 +84,7 @@ def greylag_subprogram(name):
     This allows testing without installing.
     """
     prefix = os.path.dirname(sys.argv[0])
-    if prefix:
+    if prefix and not prefix.startswith('/'):
         return os.path.join(prefix, name.replace('-', '_') + '.py')
     return name
 
@@ -149,7 +149,7 @@ def main(args=sys.argv[1:]):
 
     # Keep naive users out of trouble.  This limit can be raised by setting
     # environment variable.
-    GREYLAGPROCESSES = os.environ.get('GREYLAGPROCESSES', 8)
+    GREYLAGPROCESSES = os.environ.get('GREYLAGPROCESSES', 32)
     if processes > GREYLAGPROCESSES:
         error("current limit is %s processes (see source code for more)"
               % GREYLAGPROCESSES)
