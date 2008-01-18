@@ -161,8 +161,7 @@ def main(args=sys.argv[1:]):
         merge_matches(matches, r1['matches'], keep)
         if options.verbose:
             print >> sys.stderr, "merged", additional_result_fn
-
-    del r1                              # free some memory
+        del r1                          # free some memory
 
     r0['matches'] = matches
     r0['total comparisons'] = total_comparisons
