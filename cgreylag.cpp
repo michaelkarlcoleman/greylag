@@ -671,7 +671,7 @@ choose_residue_mod(const search_context &context, match &m,
 	 <= m.peptide_sequence.size() - next_position_to_consider);
 
   if (remaining_positions_to_choose == 0) {
-    stats.combinations_searched += 1;
+    stats.evaluation_count += 1;
     evaluate_peptide(context, m, mtlp, mass_list, candidate_spectra, stats);
   } else {
     mass_trace_list mtl(mtlp);

@@ -311,7 +311,7 @@ public:
 class score_stats {
 public:
   score_stats(int spectrum_count, int best_result_count)
-    : candidate_spectrum_count(0), combinations_searched(0) {
+    : candidate_spectrum_count(0), evaluation_count(0) {
     best_matches.resize(spectrum_count);
     assert(best_result_count >= 1);
     for (int i=0; i<spectrum_count; i++)
@@ -327,9 +327,9 @@ public:
   // Statistics:
   // How many times was a spectrum scored against a peptide?
   unsigned long long candidate_spectrum_count; // may be > 2^32
-  // How many different mod combinations were searched? (e.g., A*ABC and AA*BC
-  // are two distinct combinations)
-  int combinations_searched;	// FIX: could be > 2^31?
+  // How many different peptides (with mod combinations) were scored?
+  // (e.g., A*ABC and AA*BC count as two distinct combinations)
+  int evaluation_count;		// FIX: could be > 2^31?
 };
 
 

@@ -258,10 +258,9 @@ def initialize_spectrum_parameters(options, mass_regimes, fixed_mod_map):
                 creg.fixed_residue_mass[ord(']')] -= creg.hydroxyl_mass
                 CP.fragment_mass_regime.append(creg)
     for r in RESIDUES_W_BRACKETS:
-        info('fixed_mass %s: %s', r,
-             [ "%.6f/%.6f"
-               % (CP.parent_mass_regime[rn].fixed_residue_mass[ord(r)],
-                  CP.fragment_mass_regime[rn].fixed_residue_mass[ord(r)])
+        info('fixed mass %s: %s', r,
+             [ ("%.6f" % CP.parent_mass_regime[rn].fixed_residue_mass[ord(r)],
+                "%.6f" % CP.fragment_mass_regime[rn].fixed_residue_mass[ord(r)])
                for rn in range(len(mass_regimes)) ])
     for r in RESIDUES:
         for rn in range(len(mass_regimes)):
@@ -407,7 +406,11 @@ def read_fasta_files(filenames):
 
 
 def read_spectra_slice(spectrum_fns, offset_indices, work_slice):
-# FIX: docstring
+    """Given lists of spectrum filenames (ms2 files) and offset indices (idx
+    files) and a work slice specification, return just the spectra that fall
+    within that work slice.
+    """
+
     s_l, s_u = work_slice
     assert 0 <= s_l <= s_u <= 1
 
@@ -582,6 +585,9 @@ def fixed_mod_list(specification):
 
 
 def parse_mod_basic_expression(s):
+    """Parse s looking for either a term or a parenthesized subexpression.
+    Return the pair (tree of modification tuples, unparsed suffix of s).
+    """
     s = s.strip()
     if s[0] == '(':
         tree, rest =  parse_mod_disjunction(s[1:])
@@ -599,6 +605,9 @@ def parse_mod_basic_expression(s):
     return parse_mod_term(term, is_potential=True), rest
 
 def parse_mod_conjunction(s):
+    """Parse s looking for a ','-separated sequence of subexpressions.  Return
+    the pair (tree of modification tuples, unparsed suffix of s).
+    """
     result = []
     while s:
         tree, s = parse_mod_basic_expression(s)
@@ -610,6 +619,10 @@ def parse_mod_conjunction(s):
     return result, s
 
 def parse_mod_disjunction(s):
+    """Parse s looking for a ';'-separated sequence of subexpressions.  Return
+    the pair (tree of modification tuples, unparsed suffix of s).
+    """
+
     result = []
     while s:
         tree, s = parse_mod_conjunction(s)
@@ -765,7 +778,7 @@ def pythonize_swig_object(o, only_fields=None, skip_fields=[]):
                         'sequence_name': [],
                         'spectrum_index': -1}]],
      'candidate_spectrum_count': 0,
-     'combinations_searched': 0}
+     'evaluation_count': 0}
 
     """
 
@@ -950,7 +963,7 @@ def search_all(options, context, mod_limit, mod_conjunct_triples,
     pca_table = get_pca_table(mass_regimes)
     debug("pca_table: %s", pca_table)
 
-    total_combinations_searched = 0
+    total_evaluation_count = 0
 
     for mod_count in range(mod_limit + 1):
         context.mod_count = mod_count
@@ -999,16 +1012,17 @@ def search_all(options, context, mod_limit, mod_conjunct_triples,
                         debug("p_fx %s f_N_fx %s f_C_fx %s"
                               % (p_fx, f_N_fx, f_C_fx))
 
-                        score_statistics.combinations_searched = 0
+                        score_statistics.evaluation_count = 0
                         cgreylag.spectrum.search_runs(context,
                                                       score_statistics)
-                        total_combinations_searched \
-                            += score_statistics.combinations_searched
-                        info("  %20s candidate spectra examined, this bag",
-                             score_statistics.combinations_searched)
+                        total_evaluation_count \
+                            += score_statistics.evaluation_count
+                        info("  %20s evaluations, this bag",
+                             score_statistics.evaluation_count)
 
     info('%s candidate spectra examined',
          score_statistics.candidate_spectrum_count)
+    info('%s total evaluations', score_statistics.evaluation_count)
 
 
 def fix_up_flanking_residues(fasta_db, best_matches):
@@ -1247,6 +1261,8 @@ def main(args=sys.argv[1:]):
     spectrum_offset_indices = []
     for spfn in spectrum_fns:
         idxfn = spfn + '.idx'
+        if not os.path.exists(idxfn):
+            error("index '%s' does not exist" % idxfn)
         with contextlib.closing(gzip.open(idxfn)) as idxf:
             idx = cPickle.load(idxf)
             # try to verify that index matches spectrum file
@@ -1267,11 +1283,15 @@ def main(args=sys.argv[1:]):
         return (counts[0], counts[int(n*0.25)], counts[int(n*0.5)],
                 counts[int(n*0.75)], counts[-1], sum(counts) / float(n))
 
-    if spectra:
-        info("read %s spectra (mass range %s - %s)", len(spectra),
+    def print_spectrum_statistics(spectra):
+        info("  %s spectra (mass range %s - %s)", len(spectra),
              spectra[0].mass, spectra[-1].mass)
         info("  peak stats: %s..%s..%s..%s..%s (mean=%.2f)"
              % peak_statistics(spectra))
+
+    if spectra:
+        info("read spectra:")
+        print_spectrum_statistics(spectra)
     else:
         warning("no input spectra")
 
@@ -1290,10 +1310,7 @@ def main(args=sys.argv[1:]):
 
     if spectra:
         info("after filtering:")
-        info("     %s spectra (mass range %s - %s)", len(spectra),
-             spectra[0].mass, spectra[-1].mass)
-        info("  peak stats: %s..%s..%s..%s..%s (mean=%.2f)"
-             % peak_statistics(spectra))
+        print_spectrum_statistics(spectra)
 
     cgreylag.spectrum.set_searchable_spectra(spectra)
     score_statistics = cgreylag.score_stats(len(spectra),
@@ -1342,7 +1359,7 @@ def main(args=sys.argv[1:]):
                % (score_statistics.candidate_spectrum_count / 439.0e6))
         return
 
-    info("writing result file")
+    info("writing result file '%s'", result_fn)
 
     d = { 'version' : __version__,
           'matches' : results_dump(fasta_db, score_statistics,
@@ -1361,7 +1378,7 @@ def main(args=sys.argv[1:]):
         pk.fast = 1                     # stipulate no circular references
         pk.dump(d)
 
-    info("finished, result file written to '%s'", result_fn)
+    info("finished")
 
 
 if __name__ == '__main__':
@@ -1403,7 +1420,3 @@ if __name__ == '__main__':
         sys.exit(1)
     finally:
         logging.shutdown()
-
-
-# FIXES:
-# - need to rigorously check for bad input in any file (fasta, spectrum, xml)
