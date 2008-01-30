@@ -158,7 +158,8 @@ def read_sqt_info(decoy_prefix, minimum_trypticity, sqt_fns):
             highest_rank_seen = 0
             best_peptide_seen = None
             current_peptide = None
-            spectrum_name = '.'.join((fileinput.filename(), fs[1], fs[2], fs[3]))
+            spectrum_name = '.'.join((fileinput.filename(),
+                                      fs[1], fs[2], fs[3]))
         elif fs[0] == 'M':
             rank = int(fs[1])
             delta = float(fs[4])

@@ -16,13 +16,13 @@ DEST = /usr/local/lib/greylag/
 
 PYTHONFLAGS = $(shell python-config --include)
 
-CXXBASEFLAGS = -Wall -g3 -fPIC
+CXXBASEFLAGS = -Wall -Werror -g3 -fPIC -pipe
 
-# use to add flags from the make command-line (e.g., -march, -mtune)
+# use to add flags from the make command-line
 CXXFASTFLAGS =
 
 # This makes it easy to compile different versions without editing this file.
-# 0=debug, 2=fast, 3=faster and less safe
+# 0=debug, 2=fast, 3=maybe faster (and less debuggable)
 SPEED := 2
 
 ifeq ($(SPEED),0)
@@ -31,18 +31,18 @@ CXXFLAGS = $(CXXBASEFLAGS) -O0 -D_GLIBCXX_DEBUG
 else
   ifeq ($(SPEED),2)
 # reasonably fast
-CXXFLAGS = $(CXXBASEFLAGS) -O2 -ffast-math -mfpmath=sse
+CXXFLAGS = $(CXXBASEFLAGS) -O2 -ffast-math
   else
     ifeq ($(SPEED),3)
 # for speed (fastest?, fewest checks)
-CXXFLAGS = $(CXXBASEFLAGS) -O3 -ffast-math -mfpmath=sse -DNDEBUG
+CXXFLAGS = $(CXXBASEFLAGS) -O3 -ffast-math -DNDEBUG
     else
 CXXFLAGS = ---INVALID-SPEED
     endif
   endif
 endif
 
-SWIGCXXFLAGS = $(CXXFLAGS) $(PYTHONFLAGS) -fno-strict-aliasing
+SWIGCXXFLAGS = $(CXXFLAGS) $(PYTHONFLAGS) -fno-strict-aliasing -Wno-error
 
 MODULE = cgreylag
 
@@ -52,14 +52,14 @@ $(MODULE)_wrap.cpp : $(MODULE).i $(MODULE).hpp
 	swig -c++ -python -o $@ $<
 
 $(MODULE)_wrap.o : $(MODULE)_wrap.cpp $(MODULE).hpp
-	@echo "# some warnings expected here"
-	g++ $(SWIGCXXFLAGS) -c $<
+	@echo "# some warnings possible here (compiling swig output)"
+	$(CXX) $(SWIGCXXFLAGS) -c $<
 
 $(MODULE).o : $(MODULE).cpp $(MODULE).hpp
-	g++ $(CXXFLAGS) $(CXXFASTFLAGS) -c $<
+	$(CXX) $(CXXFLAGS) $(CXXFASTFLAGS) -c $<
 
 _$(MODULE).so : $(MODULE).o $(MODULE)_wrap.o
-	g++ $(CXXFLAGS) $(CXXFASTFLAGS) -shared $^ -o $@
+	$(CXX) $(CXXFLAGS) $(CXXFASTFLAGS) -shared $^ -o $@
 
 
 # summary of C++ modules symbols used by main script

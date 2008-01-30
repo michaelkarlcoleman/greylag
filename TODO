@@ -20,12 +20,14 @@ MILESTONE M1:
 * Good first impression
 * Basic correctness
 * Handles at least LCQ input
-* Nonspecific cleavage only?
+* Handles nonspecific cleavage
 * Generates SQT output, usable in our pipeline, at least for non-N15 runs
 * Decent performance/efficiency on our clusters
 
 MILESTONE M2:
 
+* Handles tryptic/etc cleavage
+* Basic N15 handling
 * Basic public website/source release/git archive
 * Documentation (asciidoc/man pages)
 
@@ -33,74 +35,124 @@ MILESTONE M2:
 
 TASK QUEUE
 
-* MINI-GOAL: Get something working that can be tested against MM/SEQUEST
-* MINI-GOAL: basic greylag-process usable on our cluster (no mods)
+* SGE problems
+** Avoid relying on SGE correctness/robustness?
 
 
-* sqt-filter
-** implement --mark options
+* On processing large input file sets, the merge step requires huge RAM
+** Fix by splitting into sets of N (8 or so)?
 
-* Demo runs! (vs SEQUEST)  [DTASelect -t 0, Contrast]
-** no mod
+* greylag-validate/-merge/-sqt/-index should warn if no input files specified
 
-** one mod??
-** ASFP (multiple mods)
-** vs myrimatch, if run completes
-** caveats re differing parameters, behaviors, etc
+* Look for (user-visible) changes that are easy to make now but harder later...
 
-* Look at asciidoc
+* Create basic documentation in reST format
+** Need HTML (web and standalone), PDF?
+*** index page (what is it?  why should you care?  links)
+*** user guide
+**** installation
+**** cluster use
+*** theory of operation document
+**** basics of id search
+**** explanation of greylag algorithm
+**** greylag usage scenarios (solo, cluster)
+**** how does MuDPIT work?
+**** design choices, technology rationale (upsides/downsides)
+** Makefile, install-to-web targets
+
+* Test vs SEQUEST (MM?) on standard samples
+** If SEQUEST better, why?
+
+* Test no mod runs
+** Status: looks a bit better on one run
+
+* Test single mod runs
+** Status: looks a bit better on one run
+
+* Test multiple mod runs
+** Status: looks a bit worse on one run
+
+* Basic time/space performance vs SEQUEST/MM (Xtandem?)
+
+* Can we choose a tolerance that has similar valid id's and (we hope) speed?!!
+
+
+* Verify that our MM build is reading spectra correctly
+* Need myrimatch-process for testing?
+
+* Check in test suite/etc for complete release
+
+* Generate a set of sample .conf files
+** One long, commented template file?
 
 * Write release email
 ** What it does and doesn't yet do
 ** How to use it
 
-* need some greylag-merge test cases
-
-* Change the way mod limit works?  ({1,4} feature?)
-
-* Why aren't scores a little more stable?  (fast-math?)
-
-* add A1S2D1C3A1S2D1F4 marking form?
-
-* Evaluate performance differences vs SEQUEST/MM/Xtandem?
-
-* Design and implement greylag master process (work manifests?)
-
-* Compare greylag/SEQUEST/MM on test-myrimatch example (non-specific)
-** look at MM (whole file)
-** Note: SEQUEST parent tolerance differs
-
-* Basic optimization
-** look at callgrind output
-
-* Further test case updates/adds
-** enzymatic cleavage
 
 
 = M1 =========================================================================
 
+* Try greylag-validate refinement
+
+* Implement semi-tryptic cleavage
+** Reputed to be almost as good as tryptic (valid peptide count)?
+
+* Debian/Ubuntu package?
+
+* greylag-validate parent tolerance analysis
+
+* Add docstring for every function
+
+* Need some greylag-merge test cases
+
+* Basic optimization (just a quick further look for easy speedups)
+** callgrind
+** cachegrind
+
+* Change the way mod limit works?  ({1,4} feature?)
 
 
 * Update docstrings
 
 * calculate Ion%?
 
+* Further test case updates/adds
+** enzymatic cleavage
+
+* Use SHA1 digests to keep files in sync?
+
+* Design and implement greylag master process (work manifests?)
+
+* Why aren't scores a little more stable?  (fast-math?)
+
+* Add A1S2D1C3A1S2D1F4 marking form for isotope regimes?
+
+* Register copyright?
+
+
+
 
 = M2 =========================================================================
 
-* Implement MM smart +3 model?
-** Is it better?
 
-* Try to generate a valid MyriMatch (bombs on boost random assertion)
+* Maybe switch greylag-process to Python?
+
+* Evaluate performance differences vs Xtandem?
+
+* Try the MM smart +3 model--much improvement?
 
 * Try the MM precursor mass adjustment--much improvement?  even a good idea?
 
 * Test tolerance monotonicity
 
+* summarize differences between greylag-validate and DBValidate (see paper)
 
-* Examine DBValidate
-** Design similar statistical evaluation
-** Look at what we do here (paper)
+* [HOLD/NOT A PROBLEM???] glw files too slow, too big, other problems
+** maybe this is only a problem on small RAM machines?
+** just use modified SQT files?  put metadata in special header lines?
+*** greylag-merge, greylag-sqt become greylag-merge?
+*** may still need separate metadata files...
 
 
 * Add isotope jitter feature, for Orbitrap.
@@ -123,12 +175,10 @@ TASK QUEUE
 ** Fix or add assertions
 
 * Add duplicate peptide masking optimization
+** Problem: shuffled versions generally not identical.  Limits potential
+   speedup to 25-30%
 ** This will obviate the need to detect identical best matches at search time?
 ** Fix redundant peptide reporting
-
-
-* Create direct DTASelect.txt output?
-  (This seems to be sufficient to support most or all DTASelect output.)
 
 * Make a tool to compare greylag vs SEQUEST results by spectrum.  Want gross
   statistics--how many id's are the same, different, missing, etc.  For each
@@ -184,12 +234,12 @@ TASK QUEUE
 
 * Profiling to find slow spots, and for correctness?
 
-* Heavy optimization on inner loop.  Try running from both ends simultaneously.
+* Heavy optimization on inner loop.
+** Try running from both ends simultaneously.
+** Watch cache usage.
 
 * Should we try to guarantee that searching is equivalent for all mass regimes,
   to make comparisons more valid?
-
-* Try to switch FP code to use integers instead?
 
 * Rigorously check all values coming in from Python (at least by assert).
 
@@ -198,8 +248,6 @@ TASK QUEUE
   peptide multiple times (saving perhaps 30% runtime for one real database).
   Alternatively, maybe we could just generate a description of peptides to be
   masked out.
-
-* Look at moving C++ code to C+ctypes, or maybe pyrex?
 
 * Incrementalize the whole program.  Want to be able to take an existing run
   and spend more time on it to get more results, possibly concentrating on a
@@ -229,13 +277,8 @@ TASK QUEUE
   identifiable tag.  If so, could restrict further searching to peptides with
   that tag.
 
-
-TO FILE:
-
-* What is this C+57 mod called?  Carboxyamidomethyl?  +C2H3ON!
+* Could try switching FP code to use integers instead (but ugh)
 
 * Is there anything we can do with neutral losses?
 
-* test spectrum synthesis
-
-* test semi-tryptic cleavage
+* Need a way to test spectrum synthesis?

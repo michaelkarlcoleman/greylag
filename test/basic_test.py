@@ -252,13 +252,6 @@ class external_type_test:
         x = cgreylag.spectrum(1234.12, 2)
         assert repr(x) == "<spectrum #1 (phys #-1) '' 1234.1200/+2 [0 peaks]>"
 
-    def set_peaks_from_matrix_test(self):
-        reset_spectrum_ids()
-        x = cgreylag.spectrum()
-        x.set_peaks_from_matrix([(1.0,2.0), (3.5,4.5), (5.0,6.0)])
-        assert repr(x) == "<spectrum #0 (phys #-1) '' 0.0000/+0 [3 peaks]>"
-
-
 
 class spectrum_test:
     def simple_read_test(self):

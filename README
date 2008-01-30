@@ -1,106 +1,13 @@
-# README for greylag
+README for greylag
 
+See the files in the 'doc' directory for information about installing and
+using greylag.
 
-XXX add some desc here
+See 'COPYING' for greylag's copyright license.
 
+The 'test' directory contains the greylag test suite.
 
+The 'SIMR' directory contains some "glue" scripts that we use to run greylag
+searches on our cluster, which we schedule using SGE.  It's somewhat specific
+to our setup, but might be a good place to start.
 
-##############################################################################
-
-Features:
-
-- Can simultaneously search multiple potential modifications on the same
-residue (e.g., K+14, K+16, K+28).  [Both X!Tandem and SEQUEST silently fail to
-do this.  Myrimatch does it?  OMSSA?]
-
-- No limit on the number of simultaneous modifications searched (aside from
-user patience).  [SEQUEST limited to three deltas.  OMSSA limited to 32 sites
-per peptide.  Myrimatch limited to sizeof(int)-1 sites/kinds per peptide (and
-fails silently for more).]
-
-- Can simultaneously search multiple mass regimes in a single search.  (A
-"mass regime" is an assignment of residue masses.  Two common regimes would be
-"monoisotopic" and "monoisotopic with N15".)  [Currently X!Tandem supports
-isotopes searches in a manner similar to SEQUEST (requiring a follow-on
-merge), or by searching for isotopes as potential modifications.]  XXX
-
-- Can simultaneously search alternate potential modification sets.  So, for
-example, one can search for methylation of {K,S}, or acetylation of {K,S,T},
-without searching peptides that may have combinations of both.
-
-- Simultaneous search should improve statistical accuracy, as compared to
-separate search with a subsequent merge.  It also should be at least a little
-faster.
-
-- Modification limit is specified as a limit on modifications per peptide
-(similar to SEQUEST) (and Myrimatch?) rather than as a limit on the
-combinations searched per peptide (similar to X!Tandem and OMSSA).  (The
-greylag limit differs from SEQUEST in that a SEQUEST limit of N would allow N
-modifications for each delta in a peptide, whereas greylag allows N
-modifications total per peptide.)
-
-- Modifications can be specified by formula (e.g., +CH2 instead of +14 for
-methylation).  This allows the mass delta to be calculated more accurately,
-and correctly handles cases for which the delta depends on the mass regime
-(e.g., because the modification involves an isotope).  XXX
-
-- Modifications may be named ("14@K methylation,14@S methylation"), which
-simplifies modification tracking in downstream software.  XXX
-
-- Supports different mass regimes for parent and fragment mass calculations
-(e.g., average for parent and monoisotopic for fragment).  [X!Tandem currently
-only supports monoisotopic parent masses.]  XXX
-
-- Automatic search for PCA (pyrrolidone carboxyl acid) potential
-modifications, as X!Tandem does.  (SEQUEST apparently doesn't do this.)
-
-- Refinement steps, similar to X!Tandem.  XXX
-
-- Generates SQT output files (like SEQUEST).  These can be read by DTASelect,
-etc
-
-- Supports ms2 spectrum files.  [X!Tandem, OMSSA, Myrimatch require
-conversion.]
-
-- Supports multiple spectrum files.  [X!Tandem handles only one at a time.]
-
-- Parallel implementation works the same on single multiprocessor machines and
-clusters.  No external dependencies (e.g., MPI), and flexible enough to fit
-into a broad range of cluster scheduling architectures.  [X!Tandem has a
-multithreading feature that works on single machines, and an add-on cluster
-implementation.  Myrimatch uses multithreading and MPI.]
-
-- Source code is relatively small and simple (currently about 15-20% of
-X!Tandem's size).  Most functionality is implemented in a high-level
-interpreted language (Python), with low-level code (C++) used only for
-performance-critical sections.  This makes it much easier to understand, learn
-from, fix, and extend.
-
-- Carefully checks its input for correctness.  [X!Tandem ignores errors in
-many cases, leading to incorrect output.]
-
-- Implemented with numerical stability in mind, and all calculations performed
-in double-precision.  [X!Tandem has some issues with quantization and
-floating-point comparison, and uses single-precision in most places.]
-
-- Source code carefully examined for correctness.  [X!Tandem has mismatched
-new/delete, potential buffer overflows, etc.]
-
-- Competitive speed.  (Seems okay, but not yet tested or optimized.)
-
-- Platform independent design (though only tested on Linux so far).
-
-- Better progress logging.
-
-- Built-in profiling feature.
-
-
-XXX = feature not yet completed
-
-
-------------------------------------------------------------------------------
-Author:	Mike Coleman  (mkc ...at... stowers-institute ...dot... org)
-	Stowers Institute for Medical Research
-	1000 East 50th Street
-	Kansas City, MO 64110  USA
-------------------------------------------------------------------------------

@@ -117,7 +117,8 @@ mkdir $shared_d || die "'mkdir $shared_d' failed!"
 
 cp -p "$config" $shared_d/ || die "config cp failed!"
 
-err set up work directory, recreating indices if necessary
+err setting up work directory $shared_d
+err recreating indices if necessary
 for f in "$@"; do
     idx="$f.idx"
     if ! [ -e "$idx" -a "$idx" -nt "$f" ]; then

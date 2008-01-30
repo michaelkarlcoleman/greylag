@@ -38,7 +38,7 @@ xtandem:   cpp: 13058 (+ 1271 for parallel tandem -> 14329)
 omssa:     cpp:  7583 (plus an unknown, possibly large number from the NCBI
 		       toolkits [33 distinct headers])
 		      (the toolkits are 1000000 sloc, 65% cpp, 34% c)
-myrimatch: cpp:  6534 (not counting expat code)
+myrimatch: cpp:  9923 (2007-09-25)
 
 
 ------------------------------------------------------------------------------
