@@ -1,0 +1,55 @@
+H	SQTGenerator	greylag
+H	SQTGeneratorVersion	0.0
+H	Database	6323840_wSHUFFLED.fasta
+H	Parameter	TIC_cutoff_proportion	0.98
+H	Parameter	best_result_count	5
+H	Parameter	charge_limit	3
+H	Parameter	cleavage_motif	[X]|[X]
+H	Parameter	databases	6323840_wSHUFFLED.fasta
+H	Parameter	decoy_locus_prefix	SHUFFLED_
+H	Parameter	enable_pca_mods	False
+H	Parameter	fragment_mass_tolerance	0.5
+H	Parameter	intensity_class_count	3
+H	Parameter	intensity_class_ratio	2.0
+H	Parameter	mass_regimes	[[('AVG', []), ('MONO', [])]]
+H	Parameter	max_parent_spectrum_mass	10000.0
+H	Parameter	maximum_missed_cleavage_sites	1
+H	Parameter	min_parent_spectrum_mass	0.0
+H	Parameter	min_peptide_length	5
+H	Parameter	parent_mz_tolerance	1.25
+H	Parameter	pervasive_mods	[(1, 57.0, False, 'C', None, None)]
+H	Parameter	potential_mod_limit	2
+H	Parameter	potential_mods	[]
+R	0	A	71.0371137881
+R	0	C	103.009184479
+R	0	D	115.026943032
+R	0	E	129.042593097
+R	0	F	147.068413917
+R	0	G	57.0214637238
+R	0	H	137.058911863
+R	0	I	113.084063981
+R	0	K	128.094963018
+R	0	L	113.084063981
+R	0	M	131.040484608
+R	0	N	114.042927448
+R	0	P	97.0527638524
+R	0	Q	128.058577512
+R	0	R	156.101111029
+R	0	S	87.0320284102
+R	0	T	101.047678475
+R	0	V	99.0684139167
+R	0	W	186.079312954
+R	0	Y	163.063328539
+R	0	[	0
+R	0	]	0
+S	1439	1439	2	0	honk	1745.15	19.0173	0	55
+M	1	1	1746.03756	0.0	48.5347	0	1	2	R.HSEFVAYPIQLLVTK.E	U
+L	gi|6323840|ref|NP_013911.1|	196
+M	2	2	1746.07901	0.8192	8.7774	0	1	2	S.KKTFEISPKSPIIKE.L	U
+L	gi|6323840|ref|NP_013911.1|	605
+M	3	3	1744.0728	0.8514	7.2124	0	1	2	E.VNERIGRGTVLRLFL.K	U
+L	gi|6323840|ref|NP_013911.1|	162
+M	4	4	1743.12795	0.8564	6.97	0	1	2	T.DIRAIKFRIILIRD.T	U
+L	SHUFFLED_gi|6323840|ref|NP_013911.1|	370
+M	5	5	1746.02269	0.8613	6.7306	0	1	2	A.MLIRKPDDRLSNWT.S	U
+L	SHUFFLED_gi|6323840|ref|NP_013911.1|	256

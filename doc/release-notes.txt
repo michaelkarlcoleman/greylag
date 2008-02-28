@@ -1,0 +1,21 @@
+
+=============
+Release Notes
+=============
+
+
+Version 0.0
+-----------
+
+* Initial public release
+
+* Known issues:
+
+  - N15 is the only isotope currently supported.
+  - N- and C-terminal modification handling may not be correct.
+  - PCA modifications have not been tested.
+
+
+Version 0.1
+-----------
+

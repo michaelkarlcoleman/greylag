@@ -111,10 +111,11 @@ def run_combination(combination=None):
 
 
 class modless_run_tests:
-    def greylag_params_0__test_2_test(self):
-        run_combination()
-    def greylag_params_0__test_2_solo_test(self):
-        run_combination()
+    # this ms2 file is huge, so not checked in
+    #def greylag_params_0__test_2_test(self):
+    #    run_combination()
+    #def greylag_params_0__test_2_solo_test(self):
+    #    run_combination()
     def greylag_params_0__6323840_test(self):
         run_combination()
     def greylag_params_0__6323840_solo_test(self):
