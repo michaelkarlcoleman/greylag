@@ -1,15 +1,12 @@
 
-=======
-greylag
-=======
+=================================================================
+greylag: software for tandem mass spectrum peptide identification
+=================================================================
 
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-software for tandem mass spectrum peptide identification
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Greylag is a suite of programs for MS/MS peptide identification by sequence
-database search.  It solves the same basic problem as programs such as
-SEQUEST_, Mascot_, `X!Tandem`_, OMMSA_, and MyriMatch_.
+database search.  It solves the same basic problem that programs such as
+SEQUEST_, Mascot_, `X!Tandem`_, OMMSA_, and MyriMatch_ do.
 
 .. _SEQUEST: http://fields.scripps.edu/sequest/
 .. _Mascot: http://www.matrixscience.com/
@@ -27,26 +24,13 @@ License`_.
 Features
 --------
 
-- **Emphasis on correctness:** Greylag carefully checks the parameters
-  specified in the search configuration file and on the command line, and also
-  the format of the spectrum files.  Errors are never silently ignored--all
-  errors result in program termination with an appropriate diagnostic message.
-
-  Also, the greylag source code has been carefully vetted for errors.  Its
-  test suite includes dozens of unit tests.
-
-  Greylag is implemented with numerical stability in mind, and all
-  calculations performed using double-precision floating point.  Among other
-  things, this helps to avoid quantization problems.
-
 - **No arbitrary limits:** Greylag can search any number of modifications
   simultaneously, subject only to user patience.  It can also simultaneously
   search multiple potential modifications on the same residue (*e.g.*, K+14,
   K+16, K+28).
 
 - **User-friendly notation:** The search configuration file has a simple,
-  easy-to-read format.  Here is a typical configuration file that we use for
-  LCQ spectra::
+  easy-to-read format.  Here is a typical configuration file for LCQ spectra::
 
     [greylag]
 
@@ -54,17 +38,17 @@ Features
 
     mass_regimes = AVG/MONO
 
-    pervasive_mods = +57@C
+    pervasive_mods = +C2H3ON!@C carboxyamidomethylation
 
-    parent_mz_tolerance = 3.0
+    parent_mz_tolerance = 1.25
 
 
-  Modifications may be specified symbolically, *e.g.*, ``+CH2@KS
-  methylation``.  This is both easier to read and typically more accurate, as
-  the mass deltas are calculated using the best available figures from `US
-  NIST`_. (Modifications may also be specified numerically, like ``+14@KS``.)
+  Pervasive or potential modifications may be specified symbolically, as
+  above, or numerically.  The symbolic form is both easier to read and
+  typically more accurate, as the mass deltas are calculated using the best
+  available atomic mass measurements from `US NIST`_.
 
-  Similarly, isotope prevalence can be specified symbolically, like
+  Similarly, isotope prevalence can be specified symbolically, *e.g.*,
   ``MONO(N15@90%)``.
 
 - **Advanced search:** Greylag can simultaneously search alternate potential
@@ -78,14 +62,15 @@ Features
 
   Greylag can search multiple mass regimes simultaneously.  (A *mass regime*
   is an assignment of atomic masses, which in turn determines residue masses.
-  Two common regimes would be "monoisotopic" and "monoisotopic with 90% N15".)
-  Symbolic modifications masses are calculated according to the regime being
-  searched, which is important if the modification includes an isotope, for
-  example.
+  Common regimes would be "average", "monoisotopic", and "monoisotopic with
+  90% N15".)  Symbolic modifications masses are calculated according to the
+  regime being searched, which is important if the modification includes an
+  isotope, for example.
 
   Different mass regimes may be specified for parent and fragment mass
-  calculations.  For example, ``AVG/MONO`` means average masses for parent
-  calculations and monoisotopic masses for fragment calculations.
+  calculations.  For example, ``AVG/MONO`` means that average masses are used
+  for parent mass calculations and monoisotopic masses are used for fragment
+  mass calculations.
 
   Greylag also automatically searches for PCA (pyrrolidone carboxyl acid, also
   known as pyroglutamic acid) potential modifications, using the method of
@@ -94,29 +79,42 @@ Features
 - **Incremental search:** If a search for one set of modifications is
   performed, and then later a search for a second set of modification is
   done, the two can easily be combined, producing the same result as if the
-  entire search had been done initially.
+  entire search had been done all at once.
 
 - **Concise, high-level implementation:** Greylag is implemented using a
   high-level language for most code, with just performance-critical parts
-  implemented in a lower-level language.  The main search program,
-  ``greylag-chase`` comprises about 1400 lines of Python and 800 lines of C++
-  (as measured by David A. Wheeler's sloccount_).  This is around a quarter of
-  the size (or less) of other search programs, even though greylag has quite a
-  number of additional features.
+  implemented in a lower-level language.  The main search programs,
+  ``greylag-rally`` and ``greylag-chase`` comprise around 1600 lines of Python
+  and 700 lines of C++ (as measured by David A. Wheeler's sloccount_).  This
+  is less than a quarter of the size of other search programs for which source
+  code is available, even though greylag has quite a number of additional
+  features.
 
   Greylag's relatively small size, together with the fact that only a small
   part is written in a low-level language, makes it easier to understand,
-  debug, experiment with, and learn from.
-
-  Although it has not yet been extensively benchmarked, greylag's speed
-  appears to be reasonably competitive compared to the alternatives.
+  debug, experiment with, and (we hope) learn from.
 
 - **Integral parallel capability:** Greylag's parallel implementation works
   the same on single multiprocessor machines and clusters.  There are no
   external dependencies (*e.g.*, MPI_), and the design should be flexible
-  enough to fit into a broad range of cluster scheduling architectures.  The
-  included ``greylag-solo`` script can be used to fully utilize a single
-  multi-core host.
+  enough to fit into a broad range of cluster scheduling architectures.
+
+  The implementation is designed to be fault-tolerant.  The "master" program
+  (``greylag-rally``) will make use of whatever nodes/workers are available,
+  and is not bothered if they appear, disappear, crash, etc., during a
+  processing run.
+
+- **Emphasis on correctness:** Greylag carefully checks the parameters
+  specified in the search configuration file and on the command line, and also
+  the format of the spectrum files.  The goal is to never allow errors to pass
+  silently.
+
+  Greylag's source code has been carefully checked for errors, and its test
+  suite includes dozens of unit tests.
+
+  Greylag is implemented with numerical stability in mind, and all
+  calculations performed using double-precision floating point.  This helps to
+  avoid quantization problems and other errors.
 
 - **Compatibility:** Greylag currently supports search of spectrum files in
   MS2_ format and generates output in SQT_ format.  Other formats could easily
@@ -145,9 +143,9 @@ Installation
 Prerequisites
 -------------
 
-Greylag requires Python version 2.5 or later, SWIG 1.3.31 or later, and
-reasonably recent versions of g++ and libstdc++, and make.  Recent Linux
-distributions will likely have new enough versions, but you may have to
+Building greylag requires Python version 2.5 or later, SWIG 1.3.31 or later,
+and reasonably recent versions of g++ and libstdc++, and make.  Recent Linux
+distributions will likely have sufficiently new versions, but you may have to
 install some of them.  Under Ubuntu or Debian, this should suffice::
 
     $ sudo apt-get install python swig g++ make
@@ -181,7 +179,6 @@ You can also pull your own copy with
 
     $ git clone git://repo.or.cz/greylag.git
 
-
 .. _git : http://git.or.cz/
 
 
@@ -194,7 +191,7 @@ For a standard compile, just use
 
     $ make
 
-There are additional options you can specify for a little extra speed--see the
+There are additional options you can try for a little extra speed--see the
 Makefile for more details.
 
 Next, run the test suite::
@@ -223,6 +220,10 @@ command like
 
     $ cd /usr/local/bin
     $ ln -s ../lib/greylag/greylag-* .
+
+(The programs must be able to find the module files: ``greylag.py`` and the
+cgreylag shared library.  The easiest way to arrange this is to place them in
+the same directory as the programs, which the above steps accomplish.)
 
 If ``greylag-chase --help`` gives you a usage message rather than a Python
 error, your installation is probably correct.
@@ -266,17 +267,11 @@ code of MyriMatch, X!Tandem, and OMSSA, which their authors have made
 available under various Open Source licenses.
 
 Greylag's main spectrum filtering and scoring algorithms are currently based
-closely on those of MyriMatch.
+closely on those of MyriMatch.  The PCA modification method is based on that
+of X!Tandem.
 
-Greylag was written by
-
-| Mike Coleman  (mkc@stowers-institute.org)
-| Stowers Institute for Medical Research
-| 1000 East 50th Street
-| Kansas City, MO 64110  USA
-
-
-
+The initial greylag implementation was written by Mike Coleman at the Stowers
+Institute for Medical Research.
 
 
 .. raw:: html

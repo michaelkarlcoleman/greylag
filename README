@@ -6,8 +6,3 @@ using greylag.
 See 'COPYING' for greylag's copyright license.
 
 The 'test' directory contains the greylag test suite.
-
-The 'SIMR' directory contains some "glue" scripts that we use to run greylag
-searches on our cluster, which we schedule using SGE.  It's somewhat specific
-to our setup, but might be a good place to start.
-

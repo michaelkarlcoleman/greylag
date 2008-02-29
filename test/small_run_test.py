@@ -109,28 +109,27 @@ def run_combination(combination=None):
             os.rename(s, sok)
 
 
+# FIX
+# class modless_run_tests:
+#     def greylag_params_0__test_2_test(self):
+#         run_combination()
+#     def greylag_params_0__test_2_solo_test(self):
+#         run_combination()
+#     def greylag_params_0__6323840_test(self):
+#         run_combination()
+#     def greylag_params_0__6323840_solo_test(self):
+#         run_combination()
 
-class modless_run_tests:
-    # this ms2 file is huge, so not checked in
-    #def greylag_params_0__test_2_test(self):
-    #    run_combination()
-    #def greylag_params_0__test_2_solo_test(self):
-    #    run_combination()
-    def greylag_params_0__6323840_test(self):
-        run_combination()
-    def greylag_params_0__6323840_solo_test(self):
-        run_combination()
-
-    # these take forever, unfortunately
-    # def greylag_params_yeast_0__test_2_test(self):
-    #     run_combination()
-    # def greylag_params_yeast_0__test_2_solo_test(self):
-    #     run_combination()
+#     # these take forever, unfortunately
+#     # def greylag_params_yeast_0__test_2_test(self):
+#     #     run_combination()
+#     # def greylag_params_yeast_0__test_2_solo_test(self):
+#     #     run_combination()
 
 
-class methox_run_tests:
-    def methox__ScTAP_Ceg1_YPD_p1_Ti_108_007713_test(self):
-        run_combination()
-    def methox__ScTAP_Ceg1_YPD_p1_Ti_108_007713_solo_test(self):
-        run_combination()
+# class methox_run_tests:
+#     def methox__ScTAP_Ceg1_YPD_p1_Ti_108_007713_test(self):
+#         run_combination()
+#     def methox__ScTAP_Ceg1_YPD_p1_Ti_108_007713_solo_test(self):
+#         run_combination()
 

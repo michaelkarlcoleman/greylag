@@ -29,16 +29,16 @@ PUTATIVE INSIGHTS (things we think we've learned so far)
 
 ------------------------------------------------------------------------------
 
-One of our goals is to keep things simple and compact.  Here's a recent
+One of our goals is to keep things simple and concise.  Here's a
 comparison against similar programs (generated using David A. Wheeler's
 'SLOCCount'):
 
-greylag:   cpp:   813 py: 1367 (+205 sh to set up parallel jobs at SIMR)
-xtandem:   cpp: 13058 (+ 1271 for parallel tandem -> 14329)
+greylag:   cpp:   813 py: 1367
+xtandem:   cpp: 14426 (15697 with parallel tandem)
 omssa:     cpp:  7583 (plus an unknown, possibly large number from the NCBI
 		       toolkits [33 distinct headers])
 		      (the toolkits are 1000000 sloc, 65% cpp, 34% c)
-myrimatch: cpp:  9923 (2007-09-25)
+myrimatch: cpp: 10168
 
 
 ------------------------------------------------------------------------------
@@ -47,4 +47,3 @@ This is a nice way to print the source code three-up, in a fairly small font,
 which makes it easy to study off-line:
 
   enscript -E -B -3 -r -s 0 --borders -fCourier4.8 --mark-wrapped-lines=arrow
-           --margins=:30::

@@ -207,13 +207,23 @@ public:
   char *__repr__() const;
 
 
-  // Read spectra from file in ms2 format, tagging them with file_id.  Before
-  // reading, seek to absolute position offset_begin.  If offset_end != -1,
-  // any spectra that begin after position offset_end in the file are not
-  // read.
-  static std::vector<spectrum>
-  read_spectra_from_ms2(FILE *f, const int file_id, const long offset_begin,
-			const long offset_end);
+  // Set peaks from a tuple of mz/intensity pairs.
+  void set_peaks_from_matrix(const std::vector< std::vector<double> > &m) {
+    peaks.resize(m.size());
+    std::vector<peak>::iterator p_it = peaks.begin();
+    for (std::vector< std::vector<double> >::const_iterator it = m.begin();
+	 it != m.end(); it++, p_it++) {
+      if (it->size() != 2)
+	throw std::invalid_argument("invalid matrix (must be size N x 2)");
+      p_it->mz = (*it)[0];
+      p_it->intensity = (*it)[1];
+    }
+  }
+
+
+  // Read spectra from file in ms2 format, tagging them with file_id.
+  //static std::vector<spectrum>
+  //read_spectra_from_ms2(FILE *f, const int file_id);
 
 
   // Filter peaks to limit their number according to TIC_cutoff_proportion,
@@ -229,21 +239,18 @@ public:
   // Update the *_cache fields from the peaks field.
   void update_peak_cache();
 
-  void clear_peak_cache() {
-    if (peak_mz_cache) {
-      //delete[] peak_mz_cache;
-      peak_mz_cache = 0;
-    }
-    if (peak_intensity_class_cache) {
-      //delete[] peak_intensity_class_cache;
-      peak_intensity_class_cache = 0;
-    }
+  void clear_peak_cache() const { // FIX: is this const dodgy?
+    if (peak_mz_cache)
+      delete[] peak_mz_cache;
+    if (peak_intensity_class_cache)
+      delete[] peak_intensity_class_cache;
   }
 
   // Strictly speaking, we should release the cache on destruction.  This
   // would mean implementing bug-prone copy constructor and assignment
-  // constructor functions.  Instead, skip it.  This leaks memory if
-  // update_peak_cache() is called multiple times, but we don't do that.
+  // constructor functions.  (C++, argh.)  Instead, skip it.  The potential
+  // memory leak can be avoided by calling clear_peak_cache() before
+  // destruction.
   //
   // ~spectrum() { clear_peak_cache(); }
 
@@ -257,6 +264,7 @@ public:
 
   // conceptually these are 'protected:', but we're taking it easy here
 public:
+  // FIX: just delete id mgmt, as we're doing this from Python now
   void set_id() { id = next_id++; assert(next_id > 0); }
 
   static int next_id;

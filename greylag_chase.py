@@ -1,16 +1,21 @@
 #!/usr/bin/env python
 
-'''This program does the actual work to search mass spectra against a sequence
-database.  <job-id> is a unique identifier used as a prefix for work and
-output directories.  The <configuration-file> contains program options.  The
-spectra are in <ms2-file>s; greylag-index-spectra must already have been run
-on them.
+'''This program does the actual search of mass spectra against a sequence
+database.  It listens for a connection from greylag-rally, which sends all of
+the information necessary to do the search, and returns the search results on
+the same connection.  It will continue to process further search requests on
+the connection, timing out if none are received within the specified interval.
+Then new connections will be accepted, one at a time.  If there are no new
+connections within the specified interval, the program exits.
 
-This program can operate in standalone mode (useful for testing) or command
-mode.  If the --work-slice option is given, that slice will be searched in
-standalone mode, then the program will exit.  Otherwise, the program will
-process commands until an exit command is received.
+On startup, the program will attempt to listen on a sequence of ports,
+depending on the values of --port and --port-count.  If these are 12345 and 4,
+for example, it will try ports 12345, 12346, 12347, and 12348, using the first
+available.  Since only one process is allowed to listen on each port, this
+functions as a form of locking that will prevent more than --port-count
+occurrences of this program from running on the host simultaneously.
 
+At most, this program accesses the sequence databases through the filesystem.
 '''
 
 from __future__ import with_statement
@@ -39,40 +44,22 @@ __copyright__ = '''
              USA
 '''
 
-##############################################################################
-##    "Simplicity is prerequisite for reliability" - Edsger W. Dijkstra     ##
-##############################################################################
 
-
-__version__ = "0.0"
-
-
-import ConfigParser
-import contextlib
-import cPickle
-import gzip
-import logging
-from logging import debug, info, warning
-import math
+import asynchat
+import asyncore
+import cPickle as pickle
+import errno
+import logging; from logging import debug, info, warning
 import optparse
 import os
 from pprint import pprint, pformat
 import re
-from socket import gethostname
+import socket
 import sys
+import time
 
+from greylag import *
 import cgreylag
-
-
-# Try to drop dead immediately on SIGINT (control-C), instead of normal Python
-# KeyboardInterrupt processing, since we may spend long periods of time in
-# uninterruptible C++ calls.  Also die immediately on SIGPIPE.
-try:
-    import signal
-    signal.signal(signal.SIGINT, signal.SIG_DFL)
-    signal.signal(signal.SIGPIPE, signal.SIG_DFL)
-except:
-    pass
 
 
 def error(s, *args):
@@ -84,256 +71,19 @@ def error(s, *args):
     sys.exit(1)
 
 
+# Try to drop dead immediately on SIGINT (control-C), instead of normal Python
+# KeyboardInterrupt processing, since we may spend long periods of time in
+# uninterruptible C++ calls.
+try:
+    import signal
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+    #signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+except:
+    pass
+
+
 # name -> value map of processed greylag config parameters
 GLP = {}
-
-# handle to the singleton parameter object shared with the C++ module
-CP = cgreylag.cvar.parameters_the
-
-# FIX: is this mono or avg?  (possible error here is ~0.0007 amu)
-PROTON_MASS =   1.007276
-ELECTRON_MASS = 0.000549                # ?
-
-# Reference values from NIST (http://physics.nist.gov/PhysRefData/)
-MONOISOTOPIC_ATOMIC_MASS = {
-    'H' :  1.00782503214,
-    'C' : 12.00000000,
-    'N' : 14.00307400529,
-    'O' : 15.994914622115,
-    'P' : 30.9737615120,
-    'S' : 31.9720706912,
-    }
-
-# most prevalent only (1 in 1000)
-ISOTOPIC_ATOMIC_MASS = {                # prevalence (in %)
-    'C13' : 13.003354837810,            # 1.078
-    'N15' : 15.00010889849,             # 0.3687
-    'O18' : 17.99916049,                # 0.20514
-    'S33' : 32.9714585012,              # 0.762
-    'S34' : 33.9678668311,              # 4.2928
-    }
-
-AVERAGE_ATOMIC_MASS = {
-    'H' :  1.007947,
-    'C' : 12.01078,
-    'N' : 14.00672,
-    'O' : 15.99943,
-    'P' : 30.9737612,
-    'S' : 32.0655,
-    }
-
-# The xtandem average residue masses are about 0.002 amu higher than those
-# calculated directly from the above average atomic masses.  None of the
-# chemists consulted knew of any reason why, aside from lack of precision in
-# the average atomic mass estimates.  This shouldn't matter very much, as
-# fragmentation calculations should all be monoisotopic, and we can always
-# widen the parent tolerance window a bit.
-
-
-def formula_mass(formula, atomic_mass=MONOISOTOPIC_ATOMIC_MASS):
-    """Return the mass of formula, using the given mass regime (monoisotopic
-    by default).
-
-    >>> formula_mass('H2O', { 'H':1, 'O':16 })
-    18
-    >>> # monoisotopic mass of glycine
-    >>> str(round(formula_mass('C2H3ON'), 4))
-    '57.0215'
-
-    """
-    parts = [ p or '1' for p in re.split(r'([A-Z][a-z]*)', formula)[1:] ]
-    # parts for glycine = ['C', '2', 'H', '3', 'O', '1', 'N', '1']
-    return sum(atomic_mass[parts[i]] * int(parts[i+1])
-               for i in range(0, len(parts), 2))
-
-# FIX: selenocysteine (U), etc
-# residue -> formula
-RESIDUE_FORMULA = {
-    'A' : "C3H5ON",
-    'C' : "C3H5ONS",
-    'D' : "C4H5O3N",
-    'E' : "C5H7O3N",
-    'F' : "C9H9ON",
-    'G' : "C2H3ON",
-    'H' : "C6H7ON3",
-    'I' : "C6H11ON",
-    'K' : "C6H12ON2",
-    'L' : "C6H11ON",
-    'M' : "C5H9ONS",
-    'N' : "C4H6O2N2",
-    'P' : "C5H7ON",
-    'Q' : "C5H8O2N2",
-    'R' : "C6H12ON4",
-    'S' : "C3H5O2N",
-    'T' : "C4H7O2N",
-    'V' : "C5H9ON",
-    'W' : "C11H10ON2",
-    'Y' : "C9H9O2N",
-    }
-
-RESIDUES = sorted(RESIDUE_FORMULA.keys())
-RESIDUES_W_BRACKETS = RESIDUES + ['[', ']']
-
-
-# accessed as a global variable (FIX?)
-# [0][1] -> 'H' -> fragment mass of H for regime 0
-MASS_REGIME_ATOMIC_MASSES = []
-
-
-def mass_regime_atomic_masses(spec):
-    """Given a regime spec like ('MONO', [('N15', 0.9)]), return a map of atom
-    names to masses.
-    """
-    name, isotopes = spec
-    assert name in ['MONO', 'AVG'] and len(isotopes) <= 1
-    if name == 'MONO':
-        r = MONOISOTOPIC_ATOMIC_MASS.copy()
-    else:
-        r = AVERAGE_ATOMIC_MASS.copy()
-    if isotopes:
-        iname, prevalence = isotopes[0]
-        assert iname == 'N15' and 0 <= prevalence <= 1
-        # this is a simplification, but additional accuracy pointless?
-        if name == 'MONO':
-            r['N'] = ISOTOPIC_ATOMIC_MASS['N15']
-        else:
-            r['N'] += (ISOTOPIC_ATOMIC_MASS['N15'] - r['N']) * prevalence
-    return r
-
-
-def initialize_spectrum_parameters(options, mass_regimes, fixed_mod_map):
-    """Initialize parameters known to the spectrum module.
-    fixed_mod_map maps, for example, 'M' to (1, 'O', False, 'M', 'oxidation').
-    """
-
-    # This is the size of vectors that are indexed by residues (A-Z) or
-    # special characters ('[]').
-    RESIDUE_LIMIT = max(ord(c) for c in 'Z[]') + 1
-
-    # These are currently monoisotopic.  (deuterium pointless?)
-    CP.proton_mass = PROTON_MASS
-    CP.hydrogen_mass = formula_mass("H")
-
-    regime_manifest = []
-
-    global MASS_REGIME_ATOMIC_MASSES
-    for rn, regime_pair in enumerate(mass_regimes):
-        assert len(regime_pair) == 2    # parent and fragment
-        info('mass regime: %s', regime_pair)
-        MASS_REGIME_ATOMIC_MASSES.append([])
-        for n, regime in enumerate(regime_pair):
-            atmass = mass_regime_atomic_masses(regime)
-            MASS_REGIME_ATOMIC_MASSES[-1].append(atmass)
-            creg = cgreylag.mass_regime_parameters()
-
-            creg.hydroxyl_mass = formula_mass("OH", atmass)
-            creg.water_mass = formula_mass("H2O", atmass)
-            creg.ammonia_mass = formula_mass("NH3", atmass)
-
-            creg.fixed_residue_mass.resize(RESIDUE_LIMIT)
-
-            for r in RESIDUES_W_BRACKETS:
-                m = 0
-                if r in RESIDUES:
-                    m = formula_mass(RESIDUE_FORMULA[r], atmass)
-                if n == 1:
-                    regime_manifest.append((rn, r, m))
-                rmod = fixed_mod_map.get(r)
-                if rmod:
-                    if isinstance(rmod[1], str):
-                        if rmod[2]:
-                            m += rmod[0] * formula_mass(rmod[1])
-                        else:
-                            m += rmod[0] * formula_mass(rmod[1], atmass)
-                    else:
-                        m += rmod[0] * rmod[1]
-                creg.fixed_residue_mass[ord(r)] = m
-            # assuming these are monoisotopic (not regime)
-            creg.fixed_residue_mass[ord('[')] += formula_mass("H")
-            creg.fixed_residue_mass[ord(']')] += formula_mass("OH")
-            if not n:
-                CP.parent_mass_regime.append(creg)
-            else:
-                creg.fixed_residue_mass[ord('[')] -= CP.hydrogen_mass
-                creg.fixed_residue_mass[ord(']')] -= creg.hydroxyl_mass
-                CP.fragment_mass_regime.append(creg)
-    for r in RESIDUES_W_BRACKETS:
-        info('fixed mass %s: %s', r,
-             [ ("%.6f" % CP.parent_mass_regime[rn].fixed_residue_mass[ord(r)],
-                "%.6f" % CP.fragment_mass_regime[rn].fixed_residue_mass[ord(r)])
-               for rn in range(len(mass_regimes)) ])
-    for r in RESIDUES:
-        for rn in range(len(mass_regimes)):
-            # check for physically impossible/meaningless masses
-            if CP.parent_mass_regime[rn].fixed_residue_mass[ord(r)] < 1.0:
-                raise ValueError('bogus parent mass specification for %s' % r)
-            if CP.fragment_mass_regime[rn].fixed_residue_mass[ord(r)] < 1.0:
-                raise ValueError('bogus fragment mass specification for %s' % r)
-
-    CP.parent_mass_tolerance_1 = GLP["parent_mz_tolerance"]
-    CP.parent_mass_tolerance_max = (GLP["parent_mz_tolerance"]
-                                    * GLP["charge_limit"])
-
-    CP.fragment_mass_tolerance = GLP["fragment_mass_tolerance"]
-    CP.intensity_class_count = GLP["intensity_class_count"]
-
-    CP.minimum_peptide_length = GLP["min_peptide_length"]
-
-    # CP.ln_factorial[n] == ln(n!)
-    CP.ln_factorial.resize(int(GLP["max_parent_spectrum_mass"]
-                               / GLP["fragment_mass_tolerance"] + 100), 0.0)
-    for n in range(2, len(CP.ln_factorial)):
-        CP.ln_factorial[n] = CP.ln_factorial[n-1] + math.log(n)
-
-    CP.estimate_only = bool(options.estimate_only)
-    CP.show_progress = bool(options.show_progress)
-
-    return regime_manifest
-
-
-def cleavage_motif_re(motif):
-    """Return (regexp, pos), where regexp is a regular expression that will
-    match a cleavage motif, and pos is the position of the cleavage with
-    respect to the match (or None).  (The RE actually matches one character,
-    the rest matching as lookahead, so that re.finditer will find all
-    overlapping matches.)
-
-    >>> cleavage_motif_re('[KR]|{P}')
-    ('[KR](?=[^P])', 1)
-    >>> cleavage_motif_re('[X]|[X]')
-    ('.(?=.)', 1)
-
-    """
-    cleavage_pos = None
-    re_parts = []
-    motif_re = re.compile(r'(\||(\[(X|[A-WYZ]+)\])|({([A-WYZ]+)}))')
-    parts = [ p[0] for p in motif_re.findall(motif) ]
-    if ''.join(parts) != motif:
-        raise ValueError('invalid cleavage motif pattern')
-    i = 0
-    for part in parts:
-        if part == '|':
-            if cleavage_pos != None:
-                raise ValueError("invalid cleavage motif pattern"
-                                 " (multiple '|'s)")
-            cleavage_pos = i
-            continue
-        if part == '[X]':
-            re_parts.append('.')
-        elif part[0] == '[':
-            re_parts.append('[%s]' % part[1:-1])
-        elif part[0] == '{':
-            re_parts.append('[^%s]' % part[1:-1])
-        else:
-            assert False, "unknown cleavage motif syntax"
-        i += 1
-    if len(re_parts) == 0:
-        re_pattern = '.'
-    elif len(re_parts) == 1:
-        re_pattern = re_parts[0]
-    else:
-        re_pattern = re_parts[0] + '(?=' + ''.join(re_parts[1:]) + ')'
-    return (re_pattern, cleavage_pos)
 
 
 def generate_cleavage_points(cleavage_re, cleavage_pos, sequence):
@@ -352,454 +102,6 @@ def generate_cleavage_points(cleavage_re, cleavage_pos, sequence):
             yield p
     yield len(sequence)
 
-
-AA_SEQUENCE = re.compile(r'[ARNDCQEGHILKMFPSTWYV]+')
-
-def split_sequence_into_aa_runs(idno, locusname, defline, sequence, filename):
-    """Returns a tuple (idno, start, locusname, defline, seq, filename) for
-    each contiguous run of residues in sequence, where 'start' is the position
-    of 'seq' in 'sequence'.
-
-    >>> pprint(split_sequence_into_aa_runs(123, 'ln', 'ln defline',
-    ...                                    'STSS*DEFABA', 'filename'))
-    [(123, 0, 'ln', 'ln defline', 'STSS', 'filename'),
-     (123, 5, 'ln', 'ln defline', 'DEFA', 'filename'),
-     (123, 10, 'ln', 'ln defline', 'A', 'filename')]
-
-    """
-    return [ (idno, m.start(), locusname, defline, m.group(), filename)
-             for n, m in enumerate(AA_SEQUENCE.finditer(sequence)) ]
-
-
-def read_fasta_files(filenames):
-    """Yield (locusname, defline, sequence, filename) tuples as read from
-    FASTA files (uppercasing sequence)."""
-
-    loci_seen = set()
-
-    for filename in filenames:
-        locusname, defline = None, None
-        seqs = []
-        with open(filename) as f:
-            for line in f:
-                line = line.strip()
-                if line[:1] == '>':
-                    if defline != None:
-                        yield (locusname, defline, ''.join(seqs), filename)
-                    elif seqs:
-                        error("bad format: line precedes initial defline"
-                              " in '%s'" % filename)
-                    defline = line[1:]
-                    locusname_rest = defline.split(None, 1)
-                    if not locusname_rest:
-                        error("empty locus name not allowed in '%s'" % filename)
-                    locusname = locusname_rest[0]
-                    if locusname in loci_seen:
-                        error("locus name '%s' is not unique in the search"
-                              " database(s) in '%s'" % (locusname, filename))
-                    loci_seen.add(locusname)
-                    seqs = []
-                else:
-                    seqs.append(line.upper())
-            if defline:
-                yield (locusname, defline, ''.join(seqs), filename)
-
-
-def read_spectra_slice(spectrum_fns, offset_indices, work_slice):
-    """Given lists of spectrum filenames (ms2 files) and offset indices (idx
-    files) and a work slice specification, return just the spectra that fall
-    within that work slice.
-    """
-
-    s_l, s_u = work_slice
-    assert 0 <= s_l <= s_u <= 1
-
-    total_spectra = sum(len(oi) for oi in offset_indices)
-    sp_l = int(float(s_l) * total_spectra)
-    sp_u = int(float(s_u) * total_spectra)
-
-    seeing_l = 0
-    spectra = []
-
-    for f_no, (fn, oi) in enumerate(zip(spectrum_fns, offset_indices)):
-        seeing_u = seeing_l + len(oi)
-        f_l = max(sp_l, seeing_l)
-        f_u = min(sp_u, seeing_u)
-
-        if f_l < f_u:
-            b_l = oi[f_l - seeing_l]
-            b_u = oi[f_u - seeing_l] if f_u - seeing_l < len(oi) else -1 # oo
-
-            with open(fn) as f:
-                fsp = cgreylag.spectrum.read_spectra_from_ms2(f, f_no,
-                                                              b_l, b_u)
-                spectra.extend(fsp)
-        seeing_l = seeing_u
-
-    return spectra
-
-
-# XML parameter file processing
-
-# FIX: This parsing is way too complex.  How to simplify?
-
-def mass_regime_part(part_specification):
-    """Parse a single mass regime specification part.
-
-    >>> mass_regime_part('MONO')
-    ('MONO', [])
-    >>> mass_regime_part('AVG')
-    ('AVG', [])
-    >>> mass_regime_part('MONO(N15@87.5%)')
-    ('MONO', [('N15', 0.875)])
-
-    """
-    ps = [ x.strip() for x in part_specification.partition('(') ]
-    if ps[0] not in ('MONO', 'AVG'):
-        raise ValueError("invalid mass regime list specification"
-                         " (regime id must be 'MONO' or 'AVG')")
-    if not ps[1]:
-        return (ps[0], [])
-    if ps[2][-1] != ')':
-        raise ValueError("invalid mass regime list specification"
-                         " (expected ')')")
-    pps = [ x.strip() for x in ps[2][:-1].split(',') ]
-    if len(pps) > 1:
-        raise ValueError("invalid mass regime list specification"
-                         " (multiple isotopes not yet implemented)")
-    ppps = [ x.strip() for x in pps[0].partition('@') ]
-    if not ppps[1]:
-        raise ValueError("invalid mass regime list specification"
-                         " (expected '@')")
-    if ppps[0] not in ('N15',):
-        raise ValueError("invalid mass regime list specification"
-                         " (isotope id must currently be 'N15')")
-    if ppps[2][-1] != '%':
-        raise ValueError("invalid mass regime list specification"
-                         " (expected '%')")
-    prevalence = float(ppps[2][:-1]) / 100
-    if not (0 <= prevalence <= 1):
-        raise ValueError("invalid mass regime list specification"
-                         " (prevalence must be in range 0-100%)")
-    return (ps[0], [(ppps[0], prevalence)])
-
-
-def mass_regime_list(mass_regime_list_specification):
-    """Check and return a list of regime tuples (parent_regime,
-    fragment_regime), where each regime is a tuple (id, [(isotope_id,
-    prevalence), ...]). Multiple isotopes (when implemented) would be
-    comma-separated.
-
-    >>> pprint(mass_regime_list('AVG/MONO;MONO;MONO(N15@75%)'))
-    [[('AVG', []), ('MONO', [])],
-     [('MONO', []), ('MONO', [])],
-     [('MONO', [('N15', 0.75)]), ('MONO', [('N15', 0.75)])]]
-
-    """
-    result = []
-    for regspec in mass_regime_list_specification.split(';'):
-        halves = [ x.strip() for x in regspec.split('/') ]
-        if len(halves) > 2:
-            raise ValueError("invalid mass regime list specification"
-                             " (too many '/'?)")
-        pr = [ mass_regime_part(h) for h in halves ]
-        if len(pr) == 1:
-            pr = [ pr[0], pr[0] ]
-        result.append(pr)
-
-    # The first fragmentation regime should generally be MONO, so that
-    # formulaic deltas with '!' do the expected thing.
-    if result[0][1] != ('MONO', []):
-        raise ValueError("first fragmentation regime was something other than"
-                         " 'MONO' with no isotopes--this is almost certainly"
-                         " not what was intended")
-    return result
-
-
-def parse_mod_term(s, is_potential=False):
-    """Parse a modification term, returning a tuple (sign, mod, fixed_regime,
-    residues, description, marker).  The marker character must be printable
-    and non-alphabetic.
-
-    >>> parse_mod_term('-C2H3ON!@C')
-    (-1, 'C2H3ON', True, 'C', None, None)
-    >>> parse_mod_term("42@STY phosphorylation '*'", is_potential=True)
-    (1, 42.0, False, 'STY', 'phosphorylation', '*')
-
-    """
-
-    m = re.match(r'^\s*(-|\+)?(([1-9][0-9.]*)|([A-Z][A-Z0-9]*))(!?)'
-                 r'@([A-Z]+|\[|\])(\s+([A-Za-z0-9_]+))?'
-                 r"(\s+'([[-`!-@{-~])')?\s*$", s)
-    if not m:
-        raise ValueError("invalid modification term specification"
-                         " '%s'" % s)
-    mg = m.groups()
-    invalid_residues = set(mg[5]) - set(RESIDUES_W_BRACKETS)
-    if invalid_residues:
-        raise ValueError("invalid modification list specification"
-                         " (invalid residues %s)" % list(invalid_residues))
-    delta = mg[1]
-    if mg[2]:
-        delta = float(mg[1])
-        if is_potential and abs(delta) < 0.0001:
-            raise ValueError("invalid modification list specification"
-                             " (delta '%s' is too small)" % delta)
-    residues = mg[5]
-    if not is_potential and len(residues) != 1:
-        raise ValueError("invalid modification list specification '%s' (only"
-                         " potential modifications may have multiple residues)"
-                         % residues)
-    if len(residues) != len(set(residues)):
-        raise ValueError("invalid modification list specification"
-                         " '%s' (duplicate residues prohibited)"
-                         % residues)
-    return (1 if mg[0] != '-' else -1, delta, mg[4] == '!', residues, mg[7],
-            mg[9])
-
-
-def fixed_mod_list(specification):
-    """Check and return a list of modification tuples.
-
-    >>> fixed_mod_list('57@C')
-    [(1, 57.0, False, 'C', None, None)]
-    >>> fixed_mod_list("57@C '*',CH!@N desc")
-    [(1, 57.0, False, 'C', None, '*'), (1, 'CH', True, 'N', 'desc', None)]
-    >>> fixed_mod_list('57@C,58@C')
-    Traceback (most recent call last):
-        ...
-    ValueError: invalid modification list specification '['C', 'C']' (duplicate residues prohibited)
-
-    """
-    if not specification:
-        return []
-    result = [ parse_mod_term(s) for s in specification.split(',') ]
-    residues = [ x[3] for x in result ]
-    # this check is across terms; the one above is within terms
-    if len(residues) != len(set(residues)):
-        raise ValueError("invalid modification list specification"
-                         " '%s' (duplicate residues prohibited)"
-                         % residues)
-    debug("fixed_mod_list:\n%s", pformat(result))
-    return result
-
-
-def parse_mod_basic_expression(s):
-    """Parse s looking for either a term or a parenthesized subexpression.
-    Return the pair (tree of modification tuples, unparsed suffix of s).
-    """
-    s = s.strip()
-    if s[0] == '(':
-        tree, rest =  parse_mod_disjunction(s[1:])
-        rest = rest.lstrip()
-        if rest[:1] != ')':
-            raise ValueError("invalid modification list specification"
-                             " (expected matching ')')")
-        return tree, rest[1:]
-    parts = re.split(r'([;,()])', s, 1)
-    if len(parts) == 1:
-        term, rest = s, ''
-    else:
-        assert len(parts) == 3
-        term, rest = parts[0], parts[1]+parts[2]
-    return parse_mod_term(term, is_potential=True), rest
-
-def parse_mod_conjunction(s):
-    """Parse s looking for a ','-separated sequence of subexpressions.  Return
-    the pair (tree of modification tuples, unparsed suffix of s).
-    """
-    result = []
-    while s:
-        tree, s = parse_mod_basic_expression(s)
-        result.append(tree)
-        s = s.lstrip()
-        if s[:1] != ',':
-            break
-        s = s[1:]
-    return result, s
-
-def parse_mod_disjunction(s):
-    """Parse s looking for a ';'-separated sequence of subexpressions.  Return
-    the pair (tree of modification tuples, unparsed suffix of s).
-    """
-
-    result = []
-    while s:
-        tree, s = parse_mod_conjunction(s)
-        result.append(tree)
-        s = s.lstrip()
-        if s[:1] != ';':
-            break
-        s = s[1:]
-    return result, s
-
-def potential_mod_list(specification):
-    """Check and return a tree of potential modification tuples.  Nodes at
-    even (odd) levels are disjunctions (conjunctions).  (The top list is a
-    disjunction.)
-
-    >>> potential_mod_list('')
-    []
-    >>> pprint(potential_mod_list('PO3H@STY; C2H2O@KST'))
-    [[(1, 'PO3H', False, 'STY', None, None)],
-     [(1, 'C2H2O', False, 'KST', None, None)]]
-    >>> pprint(potential_mod_list('PO3H@STY, C2H2O@KST'))
-    [[(1, 'PO3H', False, 'STY', None, None),
-      (1, 'C2H2O', False, 'KST', None, None)]]
-    >>> pprint(potential_mod_list('''(PO3H@STY phosphorylation '*';
-    ...                               C2H2O@KST acetylation '^';
-    ...                               CH2@AKST methylation '#'),
-    ...                              O@M oxidation '@'
-    ...                           '''))
-    [[[[(1, 'PO3H', False, 'STY', 'phosphorylation', '*')],
-       [(1, 'C2H2O', False, 'KST', 'acetylation', '^')],
-       [(1, 'CH2', False, 'AKST', 'methylation', '#')]],
-      (1, 'O', False, 'M', 'oxidation', '@')]]
-
-    """
-    if not specification:
-        return []
-    tree, remainder = parse_mod_disjunction(specification)
-    if remainder:
-        raise ValueError("invalid modification list specification"
-                         " (unexpected '%s')" % remainder)
-    debug("potential_mod_list:\n%s", pformat(tree))
-    return tree
-
-
-def p_positive(x): return x > 0
-def p_negative(x): return x < 0
-def p_nonnegative(x): return x >= 0
-def p_proportion(x): return 0 <= x <= 1
-
-# Configuration file parameter specification
-#
-# name -> (type, default, check_fn)
-# type may be bool, int, float, str, modlist, or a tuple of values
-# default, as a string value, or None if value must be explicitly specified
-# check_fn is an optional function that returns True iff the value is valid
-
-PARAMETER_INFO = {
-    "databases" : (str, None),
-    "decoy_locus_prefix" : (str, "SHUFFLED_"),
-    "mass_regimes" : (mass_regime_list, "MONO"),
-    "pervasive_mods" : (fixed_mod_list, ""),
-    "potential_mods" : (potential_mod_list, ""),
-    "potential_mod_limit" : (int, 2, p_nonnegative),
-    "enable_pca_mods" : (bool, "no"),
-    "charge_limit" : (int, 3, p_positive),
-    "min_peptide_length" : (int, 5, p_positive),
-    "cleavage_motif" : (str, "[X]|[X]"),
-    "maximum_missed_cleavage_sites" : (int, 1, p_nonnegative),
-    "min_parent_spectrum_mass" : (float, 0, p_nonnegative),
-    "max_parent_spectrum_mass" : (float, 10000, p_nonnegative),
-    "TIC_cutoff_proportion" : (float, 0.98, p_proportion),
-    "parent_mz_tolerance" : (float, 1.25, p_nonnegative),
-    "fragment_mass_tolerance" : (float, 0.5, p_nonnegative),
-    "intensity_class_count" : (int, 3, p_positive),
-    "intensity_class_ratio" : (float, 2.0, p_positive), # really > 1.0?
-    "best_result_count" : (int, 5, p_positive),
-    }
-
-
-def validate_parameters(parameters, parameter_info=PARAMETER_INFO):
-    """Verify that parameters are valid, have valid values, and correspond to
-    currently implemented functionality.  Values are converted, default values
-    are filled in, and the resulting name/value dict returned.
-
-    >>> sorted(validate_parameters({'spectrum, total peaks' : '40'},
-    ...                            {'spectrum, total peaks'
-    ...                             : (int, '50', p_positive),
-    ...                             'output, spectra'
-    ...                             : (bool, 'no')}).items())
-    [('output, spectra', False), ('spectrum, total peaks', 40)]
-
-    """
-
-    pmap = {}
-    for p_name, p_info in sorted(parameter_info.items()):
-        type_ = p_info[0]
-        default = p_info[1]
-        check_fn = p_info[2] if len(p_info) > 2 else None
-
-        v = parameters.get(p_name)
-        if v == None:
-            if default != None:
-                debug("parameter '%s' defaulting to '%s'", p_name, default)
-                v = default
-            else:
-                error("missing required parameter '%s'" % p_name)
-        if isinstance(type_, tuple):
-            if not v in type_:
-                error("parameter '%s' value '%s' not in %s (feature not"
-                      " implemented?)" % (p_name, v, type_))
-        elif type_ == bool:
-            v = { 'yes' : True, 'no' : False }.get(v)
-            if v == None:
-                error("parameter '%s' requires a value of 'yes' or 'no'")
-        else:
-            try:
-                v = type_(v)
-            except ValueError, e:
-                error("parameter '%s' has value '%s' with invalid format [%s]"
-                      % (p_name, v, e))
-        if check_fn and not check_fn(v):
-            error("parameter '%s' has invalid value '%s' (or feature not"
-                  " implemented)" % (p_name, v))
-        pmap[p_name] = v
-
-    unknown_parameters = set(parameters) - set(parameter_info)
-    if unknown_parameters:
-        warning("%s unknown parameter(s):\n %s"
-                % (len(unknown_parameters),
-                   pformat(sorted(list(unknown_parameters)))))
-    return pmap
-
-
-def pythonize_swig_object(o, only_fields=None, skip_fields=[]):
-    """Creates a pure Python copy of a SWIG object, so that it can be easily
-    pickled, or printed (for debugging purposes).  Each SWIG object is
-    pythonized as a dictionary, for convenience.  If provided, 'only_fields',
-    limits the copy to the list of fields specified.  Otherwise,
-    'skip_fields' if given is a list of methods not to include (this helps
-    avoid infinite recursion).
-
-    >>> pprint(pythonize_swig_object(cgreylag.score_stats(1, 1)))
-    {'best_matches': [[{'C_peptide_flank': '-',
-                        'N_peptide_flank': '-',
-                        'conjunct_index': -1,
-                        'mass_regime_index': -1,
-                        'mass_trace': [],
-                        'pca_delta': 0.0,
-                        'peptide_begin': [],
-                        'peptide_sequence': '',
-                        'predicted_parent_mass': 0.0,
-                        'score': 0.0,
-                        'sequence_name': [],
-                        'spectrum_index': -1}]],
-     'candidate_spectrum_count': 0,
-     'evaluation_count': 0}
-
-    """
-
-    if isinstance(o, str):
-        return o
-    try:
-        len(o)
-    except TypeError:
-        pass
-    else:
-        return list(pythonize_swig_object(x, only_fields, skip_fields)
-                    for x in o)
-    if hasattr(o, '__swig_getmethods__'):
-        s = {}
-        for a in o.__swig_getmethods__:
-            if (only_fields != None and a in only_fields
-                or only_fields == None and a not in skip_fields):
-                s[a] = pythonize_swig_object(getattr(o, a), only_fields,
-                                             skip_fields)
-        return s
-    return o
 
 # A possible PCA (pyrrolidone carboxyl acid) modification accounts for
 # circularization of the peptide N-terminal.  PCA mods are excluded if a
@@ -822,80 +124,6 @@ def get_pca_table(mass_regimes):
                    -1 * CP.fragment_mass_regime[r].ammonia_mass)]
                  for r in range(len(mass_regimes)) ]
     return [ [('', 0, 0)] for r in range(len(mass_regimes)) ]
-
-
-def enumerate_conjunction(mod_tree, limit, conjuncts=[]):
-    if not mod_tree:
-        if 0 < len(conjuncts) <= limit:
-            yield conjuncts
-        return
-    first, rest = mod_tree[0], mod_tree[1:]
-    if isinstance(first, list):
-        for x in enumerate_disjunction(first, limit):
-            for y in enumerate_conjunction(rest, limit, conjuncts + x):
-                yield y
-    else:
-        for y in enumerate_conjunction(rest, limit, conjuncts):
-            yield y
-        for y in enumerate_conjunction(rest, limit, conjuncts + [first]):
-            yield y
-
-def enumerate_disjunction(mod_tree, limit=sys.maxint):
-    """Generates the conjuncts for mod_tree that are no longer than limit.
-
-    >>> list(enumerate_disjunction([['a'],['b'],['c']]))
-    [[], ['a'], ['b'], ['c']]
-    >>> list(enumerate_disjunction([[1,2,3]]))
-    [[], [3], [2], [2, 3], [1], [1, 3], [1, 2], [1, 2, 3]]
-    >>> list(enumerate_disjunction([[1,2,3],[4,5]]))
-    [[], [3], [2], [2, 3], [1], [1, 3], [1, 2], [1, 2, 3], [5], [4], [4, 5]]
-    >>> list(enumerate_disjunction([[1,2,3],[4,5]], limit=2))
-    [[], [3], [2], [2, 3], [1], [1, 3], [1, 2], [5], [4], [4, 5]]
-    >>> list(enumerate_disjunction([[1,2,3],[4,5]], limit=0))
-    [[]]
-
-    """
-    assert isinstance(mod_tree, list)
-    yield []
-    for b in mod_tree:
-        for s in enumerate_conjunction(b, limit):
-            yield s
-
-def get_mod_conjunct_triples(mod_tree, limit):
-    """Return a triple (N, C, rest), where N (C) is a tuple of at most one N
-    (C) conjunct, and rest is a tuple of conjuncts in a canonical order,
-    ordered by increasing number of conjuncts, and with duplicates within and
-    across removed.  A mass table is also appended to each conjunct.
-    """
-    # FIX: is there a more elegant way or place for all this?
-    def enmass(t):
-        def rmass(regime_index, par_frag, sign, delta, is_mono):
-            global MASS_REGIME_ATOMIC_MASSES
-            if isinstance(delta, str):
-                if is_mono:
-                    regime_index = 0
-                return (sign * formula_mass(delta,
-                           MASS_REGIME_ATOMIC_MASSES[regime_index][par_frag]))
-            else:
-                return sign * delta
-
-        sign, delta, is_mono = t[:3]
-        return t + (tuple((rmass(r, 0, sign, delta, is_mono),
-                           rmass(r, 1, sign, delta, is_mono))
-                          for r in range(len(GLP["mass_regimes"]))),)
-
-    def triple(c):
-        Ns = tuple(frozenset(enmass(x) for x in c if x[3] == '['))
-        Cs = tuple(frozenset(enmass(x) for x in c if x[3] == ']'))
-        assert len(Ns) <= 1 and len(Cs) <= 1
-        rest = [ enmass(x) for x in c if x[3] not in '[]' ]
-        rest = tuple(sorted(list(frozenset(rest))))
-        return (Ns, Cs, rest)
-
-    return sorted(list(frozenset(triple(conjunct)
-                                 for conjunct
-                                 in enumerate_disjunction(mod_tree, limit))),
-                  key=lambda x: (sum(len(y) for y in x), x))
 
 
 def gen_delta_bag_counts(i, remainder, bag):
@@ -955,8 +183,7 @@ def set_context_conjuncts(context, mass_regime_index, N_cj, C_cj, R_cj):
                 = context.delta_bag_lookup[ord(r)] + (n,)
 
 
-def search_all(options, context, mod_limit, mod_conjunct_triples,
-               score_statistics):
+def search_all(context, mod_limit, mod_conjunct_triples, score_statistics):
     """Search sequence database against searchable spectra."""
 
     mass_regimes = GLP["mass_regimes"]
@@ -1025,6 +252,24 @@ def search_all(options, context, mod_limit, mod_conjunct_triples,
     info('%s total evaluations', score_statistics.evaluation_count)
 
 
+AA_SEQUENCE = re.compile(r'[ARNDCQEGHILKMFPSTWYV]+')
+
+def split_sequence_into_aa_runs(idno, locusname, defline, sequence, filename):
+    """Returns a tuple (idno, start, locusname, defline, seq, filename) for
+    each contiguous run of residues in sequence, where 'start' is the position
+    of 'seq' in 'sequence'.
+
+    >>> pprint(split_sequence_into_aa_runs(123, 'ln', 'ln defline',
+    ...                                    'STSS*DEFABA', 'filename'))
+    [(123, 0, 'ln', 'ln defline', 'STSS', 'filename'),
+     (123, 5, 'ln', 'ln defline', 'DEFA', 'filename'),
+     (123, 10, 'ln', 'ln defline', 'A', 'filename')]
+
+    """
+    return [ (idno, m.start(), locusname, defline, m.group(), filename)
+             for n, m in enumerate(AA_SEQUENCE.finditer(sequence)) ]
+
+
 def fix_up_flanking_residues(fasta_db, best_matches):
     """For each peptide match, choose one of the match loci and update the
     N_peptide_flank and C_peptide_flank residues according to the flanking
@@ -1067,6 +312,53 @@ def fix_up_flanking_residues(fasta_db, best_matches):
             m['C_peptide_flank'] = best_candidate[-1][-1]
 
 
+def pythonize_swig_object(o, only_fields=None, skip_fields=[]):
+    """Creates a pure Python copy of a SWIG object, so that it can be easily
+    pickled, or printed (for debugging purposes).  Each SWIG object is
+    pythonized as a dictionary, for convenience.  If provided, 'only_fields',
+    limits the copy to the list of fields specified.  Otherwise,
+    'skip_fields' if given is a list of methods not to include (this helps
+    avoid infinite recursion).  Callable sub-objects are skipped.
+
+    >>> pprint(pythonize_swig_object(cgreylag.score_stats(1, 1)))
+    {'best_matches': [[{'C_peptide_flank': '-',
+                        'N_peptide_flank': '-',
+                        'conjunct_index': -1,
+                        'mass_regime_index': -1,
+                        'mass_trace': [],
+                        'pca_delta': 0.0,
+                        'peptide_begin': [],
+                        'peptide_sequence': '',
+                        'predicted_parent_mass': 0.0,
+                        'score': 0.0,
+                        'sequence_name': [],
+                        'spectrum_index': -1}]],
+     'candidate_spectrum_count': 0,
+     'evaluation_count': 0}
+
+    """
+
+    if isinstance(o, str):
+        return o
+    try:
+        len(o)
+    except TypeError:
+        pass
+    else:
+        return list(pythonize_swig_object(x, only_fields, skip_fields)
+                    for x in o)
+    if hasattr(o, '__swig_getmethods__'):
+        s = {}
+        for a in o.__swig_getmethods__:
+            if (not callable(getattr(o, a))
+                and (only_fields != None and a in only_fields
+                     or only_fields == None and a not in skip_fields)):
+                s[a] = pythonize_swig_object(getattr(o, a), only_fields,
+                                             skip_fields)
+        return s
+    return o
+
+
 def results_dump(fasta_db, score_statistics, searchable_spectra):
     """Return a result dict mapping spectrum names to (spectrum_metadata,
     best_matches) pairs.
@@ -1083,7 +375,7 @@ def results_dump(fasta_db, score_statistics, searchable_spectra):
     # speeds things up a bit.
 
     r = {}
-    spectrum_metadata_fs = set(['name', 'file_id', 'mass', 'charge',
+    spectrum_metadata_fs = set(['id', 'name', 'file_id', 'mass', 'charge',
                                 'total_ion_current', 'comparisons'])
     py_s_spectra = pythonize_swig_object(searchable_spectra,
                                          only_fields=spectrum_metadata_fs)
@@ -1096,9 +388,10 @@ def results_dump(fasta_db, score_statistics, searchable_spectra):
 
     # note that both strip functions modify their argument
     def strip_meta(meta):
-        del meta['file_id']
-        del meta['name']
-        del meta['charge']
+        # these fields are redundant, could strip them
+        #del meta['file_id']
+        #del meta['name']
+        #del meta['charge']
         return meta
 
     def strip_match(match):
@@ -1116,8 +409,8 @@ def results_dump(fasta_db, score_statistics, searchable_spectra):
         return match
 
     for sp_metadata, sp_matches in zip(py_s_spectra, py_matches):
-        sp_key = (sp_metadata['file_id'], sp_metadata['name'])
-        assert sp_key not in r, "duplicate spectrum name"
+        sp_key = sp_metadata['id']
+        assert sp_key not in r, "duplicate spectrum id"
         sp_matches_stripped = [ strip_match(m) for m in sp_matches ]
         sp_matches_stripped = [ m for m in sp_matches_stripped if m != None ]
         r[sp_key] = (strip_meta(sp_metadata), sp_matches_stripped)
@@ -1125,122 +418,46 @@ def results_dump(fasta_db, score_statistics, searchable_spectra):
     return r
 
 
-def main(args=sys.argv[1:]):
-    parser = optparse.OptionParser(usage=
-                                   "usage: %prog [options]"
-                                   " <configuration-file> <ms2-file>...",
-                                   description=__doc__, version=__version__)
-    pa = parser.add_option
-    pa("-P", "--parameter", dest="parameters", action="append",
-       default=[],
-       help="override a parameter in <parameter-file>, may be used multiple"
-       " times", metavar="NAME=VALUE")
-    pa("-w", "--work-slice", dest="work_slice",
-       help="search a subinterval [L:U) of the work space"
-       " (where 0 <= L <= U <= 1) in standalone mode", metavar="L:U")
-    pa("--skip-if-done", action="store_true", dest="skip_if_done",
-       help="in standalone mode, just exit if output file is already present")
-    pa("--job-id", dest="job_id", default="unknown",
-       help="used to generate unique output filenames [default 'unknown']")
-    pa("-q", "--quiet", action="store_true", dest="quiet", help="no warnings")
-    pa("-p", "--show-progress", action="store_true", dest="show_progress",
-       help="show running progress")
-    pa("--estimate", action="store_true", dest="estimate_only",
-       help="just estimate the time required for the search")
-    pa("-v", "--verbose", action="store_true", dest="verbose",
-       help="be verbose")
-    pa("--copyright", action="store_true", dest="copyright",
-       help="print copyright and exit")
-    pa("--debug", action="store_true", dest="debug",
-       help="output debugging info")
-    pa("--profile", action="store_true", dest="profile",
-       help="dump Python profiling output to './greylag.prof.<pid>'")
-    (options, args) = parser.parse_args(args=args)
+def set_parameters(arg, options):
+    warning("FIX: make sure commands reset old state (leaks?)")
 
-    if options.copyright:
-        print __copyright__
-        sys.exit(0)
-
-    if len(args) < 2:
-        parser.print_help()
-        sys.exit(1)
-
-    configuration_fn = args[0]
-    spectrum_fns = args[1:]
-
-    if options.work_slice:
-        try:
-            options.work_slice = [ float(x) for x
-                                   in options.work_slice.split(':', 1) ]
-        except:
-            parser.print_help()
-            sys.exit(1)
-
-    if (any(True for f in spectrum_fns if not f.endswith('.ms2'))
-        or any(True for p in options.parameters if '=' not in p)
-        or (options.work_slice
-            and not (0 <= options.work_slice[0]
-                     <= options.work_slice[1] <= 1))):
-        parser.print_help()
-        sys.exit(1)
-
-    log_level = logging.WARNING
-    if options.quiet:
-        log_level = logging.ERROR
-    if options.verbose:
-        log_level = logging.INFO
-    if options.debug:
-        log_level = logging.DEBUG
-    logging.basicConfig(level=log_level, datefmt='%b %e %H:%M:%S',
-                        format='%(asctime)s %(levelname)s: %(message)s')
-    info("starting on %s", gethostname())
-
-    # FIX: assuming standalone mode (for now)
-    if not options.work_slice:
-        error("--work-slice must be specified")
-
-    # FIX: this is only for standalone mode
-    result_fn = 'chase_%s_%s-%s.glw' % (options.job_id, options.work_slice[0],
-                                        options.work_slice[1])
-    if options.skip_if_done and os.path.exists(result_fn):
-        info("results file already exists, exiting")
-        return
-
-    # check spectrum basename uniqueness, as corresponding sqt files will be
-    # in a single directory
-    base_spectrum_fns = [ os.path.basename(fn) for fn in spectrum_fns ]
-    if len(base_spectrum_fns) != len(set(base_spectrum_fns)):
-        error("base spectrum filenames must be unique")
-
-    options.parameters = [ p.split('=', 1) for p in options.parameters ]
-
-    # check -P names for validity
-    bad_names = (set(n for n,v in options.parameters)
-                 - set(PARAMETER_INFO.keys()))
-    if bad_names:
-        error("bad -P parameter names %s" % list(bad_names))
-
-    # read params
-    cp = ConfigParser.RawConfigParser()
-    cp.optionxform = str                # be case-sensitive
-    with open(configuration_fn) as configuration_file:
-        cp.readfp(configuration_file)
-    if not cp.has_section('greylag'):
-        error("%s has no [greylag] section" % configuration_fn)
-    parameters = dict(cp.items('greylag'))
-    parameters.update(dict(options.parameters)) # command-line override
     global GLP
-    GLP = validate_parameters(parameters)
-
+    GLP = arg
     fixed_mod_map = dict((r[3], r) for r in GLP["pervasive_mods"])
-    regime_manifest = initialize_spectrum_parameters(options,
+    regime_manifest = initialize_spectrum_parameters(options, GLP,
                                                      GLP["mass_regimes"],
                                                      fixed_mod_map)
+    mod_conjunct_triples = get_mod_conjunct_triples(GLP["potential_mods"],
+                                                    GLP["potential_mod_limit"],
+                                                    GLP["mass_regimes"])
+    GLP[">mod_conjunct_triples"] = mod_conjunct_triples
 
-    # read sequence dbs
-    databases = GLP["databases"].split()
-    # [(locusname, defline, seq, filename), ...]
-    fasta_db = list(read_fasta_files(databases))
+    info("%s unique potential modification conjuncts",
+         len(mod_conjunct_triples))
+    debug("mod_conjunct_triples (unique):\n%s",
+          pformat(mod_conjunct_triples))
+
+    # (cleavage_re, position of cleavage in cleavage_re)
+    cleavage_pattern, cleavage_position \
+                      = cleavage_motif_re(GLP["cleavage_motif"])
+    if cleavage_position == None:
+        error("cleavage site '%s' is missing '|'",
+              GLP["protein, cleavage site"])
+    cleavage_pattern = re.compile(cleavage_pattern)
+    GLP[">cleavage_pattern"] = cleavage_pattern
+    GLP[">cleavage_position"] = cleavage_position
+
+
+def set_sequences(arg):
+    assert arg[0] in ('name', 'value')
+    if arg[0] == 'name':
+        checked = [ (db, file_sha1(db)) for db, cksum in arg[1] ]
+        if checked != arg[1]:
+            error("database checksum does not match [%s]" % (checked, arg[1]))
+        # [(locusname, defline, seq, filename), ...]
+        fasta_db = list(read_fasta_files([db for db, cksum in arg[1]]))
+    else:
+        fasta_db = arg[1]
     # [(idno, offset, locusname, defline, seq, seq_filename), ...]
     db = []
     for idno, (locusname, defline, sequence, filename) in enumerate(fasta_db):
@@ -1252,30 +469,56 @@ def main(args=sys.argv[1:]):
          db_residue_count)
     max_run_length = max(len(r[3]) for r in db)
     info("max run length is %s residues", max_run_length)
-    if max_run_length > 2**31 - 1:
+    if max_run_length > sys.maxint:
         error("runs longer than %s not yet supported", max_run_length)
     if not db:
         error("no database sequences")
 
-    # read spectrum offset indices
-    spectrum_offset_indices = []
-    for spfn in spectrum_fns:
-        idxfn = spfn + '.idx'
-        if not os.path.exists(idxfn):
-            error("index '%s' does not exist" % idxfn)
-        with contextlib.closing(gzip.open(idxfn)) as idxf:
-            idx = cPickle.load(idxf)
-            # try to verify that index matches spectrum file
-            if idx['file size'] != os.path.getsize(spfn):
-                error("index '%s' needs rebuilding" % idxfn)
-            spectrum_offset_indices.append(idx['offsets'])
+    context = cgreylag.search_context()
+    context.nonspecific_cleavage = (GLP["cleavage_motif"] == "[X]|[X]")
+    for idno, offset, locusname, defline, seq, seq_filename in db:
+        cp = []
+        if not context.nonspecific_cleavage:
+            cp = list(generate_cleavage_points(GLP[">cleavage_pattern"],
+                                               GLP[">cleavage_position"], seq))
+        sr = cgreylag.sequence_run(idno, offset, seq, cp, locusname)
+        context.sequence_runs.append(sr)
+    context.maximum_missed_cleavage_sites = GLP["maximum_missed_cleavage_sites"]
+    return context, fasta_db
 
-    # read spectra per work slice
-    spectra = read_spectra_slice(spectrum_fns, spectrum_offset_indices,
-                                 options.work_slice)
-    del spectrum_offset_indices
+
+def make_swig_spectrum(py_spectrum):
+    """Given a spectrum tuple (file_index, physical_index, index, name, mass,
+    charge, peaks), return an equivalent SWIG spectrum object.
+    """
+    sp = cgreylag.spectrum(float(py_spectrum[4]), int(py_spectrum[5]))
+    sp.file_id, sp.physical_id, sp.id, sp.name = py_spectrum[:4]
+
+    peaks_as_string = py_spectrum[6]
+    assert peaks_as_string[-1] == '\n', "malformed spectrum file"
+    # ( (mz0, intensity0), (mz1, intensity1), ... )
+    peaks = tuple(tuple(float(v) for v in pkline.split(None, 1))
+                  for pkline in peaks_as_string.split('\n')[:-1])
+    #debug("py_spectrum: %s" % (py_spectrum,))
+    #debug("peaks: %s" % (peaks,))
+    sp.set_peaks_from_matrix(peaks)
+    return sp
+
+
+def set_spectra(arg):
+    # [ (file_index, physical_index, index, name, mass, charge, peaks), ... ]
+    py_spectra = arg
+
+    # FIX: how to handle input errors???
+
+    ### create SWIG spectrum objects, for C++ access
+    # FIX: are physical_index and index even needed?
+    debug("parsing %s spectra" % len(py_spectra))
+    spectra = [ make_swig_spectrum(sp) for sp in py_spectra ]
+    debug("parsed")
     spectra.sort(key=lambda x: x.mass)
 
+    # FIX: send stats back to master?  move common code?
     def peak_statistics(spectra):
         counts = [ len(sp.peaks) for sp in spectra ]
         counts.sort()
@@ -1304,81 +547,272 @@ def main(args=sys.argv[1:]):
 
     min_psm = GLP["min_parent_spectrum_mass"]
     max_psm = GLP["max_parent_spectrum_mass"]
+
+    # search only spectra that are of good enough quality
     # FIX: also filter by 1 + 2 + 4 rule?
-    spectra = [ sp for sp in spectra
-                if len(sp.peaks) >= 10 and min_psm <= sp.mass <= max_psm ]
+    good_spectra = [ sp for sp in spectra
+                     if (len(sp.peaks) >= 10
+                         and min_psm <= sp.mass <= max_psm) ]
+    noise_spectrums_ids = (set(sp.id for sp in spectra)
+                           - set(sp.id for sp in good_spectra))
 
-    if spectra:
+    if good_spectra:
         info("after filtering:")
-        print_spectrum_statistics(spectra)
+        print_spectrum_statistics(good_spectra)
+    else:
+        info("no spectra pass filters")
 
-    cgreylag.spectrum.set_searchable_spectra(spectra)
-    score_statistics = cgreylag.score_stats(len(spectra),
+    cgreylag.spectrum.set_searchable_spectra(good_spectra)
+    return noise_spectrums_ids
+
+
+def perform_search(context, fasta_db, noise_spectrum_ids):
+    results = { 'modification conjuncts' : GLP[">mod_conjunct_triples"],
+                'argv' : sys.argv, 'noise_spectrum_ids' : noise_spectrum_ids,
+                'matches' : {}, 'total comparisons' : 0 }
+
+    spectra_count = len(cgreylag.cvar.spectrum_searchable_spectra)
+
+    if not spectra_count:
+        info("no spectra after filtering--search skipped")
+        return results
+
+    score_statistics = cgreylag.score_stats(spectra_count,
                                             GLP["best_result_count"])
 
-    mod_limit = GLP["potential_mod_limit"]
-    mod_conjunct_triples = get_mod_conjunct_triples(GLP["potential_mods"],
-                                                    mod_limit)
-    info("%s unique potential modification conjuncts",
-         len(mod_conjunct_triples))
-    debug("mod_conjunct_triples (unique):\n%s",
-          pformat(mod_conjunct_triples))
+    info("searching")
+    search_all(context, GLP["potential_mod_limit"],
+               GLP[">mod_conjunct_triples"], score_statistics)
 
-    if spectra:
-        del spectra                     # release memory
+    info("returning result")
+    results['matches'] = results_dump(fasta_db, score_statistics,
+                                      cgreylag.cvar.spectrum_searchable_spectra)
+    results['total comparisons'] = score_statistics.candidate_spectrum_count
 
-        # (cleavage_re, position of cleavage in cleavage_re)
-        cleavage_pattern, cleavage_pos \
-                          = cleavage_motif_re(GLP["cleavage_motif"])
-        if cleavage_pos == None:
-            error("cleavage site '%s' is missing '|'",
-                  GLP["protein, cleavage site"])
-        cleavage_pattern = re.compile(cleavage_pattern)
+    #debug("sending search results:\n%s" % pformat(results))
 
-        context = cgreylag.search_context()
-        context.nonspecific_cleavage = (GLP["cleavage_motif"] == "[X]|[X]")
-        for idno, offset, locusname, defline, seq, seq_filename in db:
-            cp = []
-            if not context.nonspecific_cleavage:
-                cp = list(generate_cleavage_points(cleavage_pattern,
-                                                   cleavage_pos, seq))
-            sr = cgreylag.sequence_run(idno, offset, seq, cp, locusname)
-            context.sequence_runs.append(sr)
-        context.maximum_missed_cleavage_sites \
-            = GLP["maximum_missed_cleavage_sites"]
+    #     if options.estimate_only:
+    #         # this factor is just an empirical guess
+    #         print ("%.2f generic CPU hours"
+    #                % (score_statistics.candidate_spectrum_count / 439.0e6))
+    #         return
 
-        info("searching")
-        search_all(options, context, mod_limit, mod_conjunct_triples,
-                   score_statistics)
-    else:
-        warning("no spectra after filtering--search skipped")
+    return results
 
-    if options.estimate_only:
-        # this factor is just an empirical guess
-        print ("%.2f generic CPU hours"
-               % (score_statistics.candidate_spectrum_count / 439.0e6))
-        return
 
-    info("writing result file '%s'", result_fn)
 
-    d = { 'version' : __version__,
-          'matches' : results_dump(fasta_db, score_statistics,
-                                   cgreylag.cvar.spectrum_searchable_spectra),
-          'total comparisons' : score_statistics.candidate_spectrum_count,
-          'spectrum files' : base_spectrum_fns,
-          'databases' : databases,
-          'parameters' : GLP,
-          'mass regime atomic masses' : MASS_REGIME_ATOMIC_MASSES,
-          'mass regime manifest' : sorted(regime_manifest),
-          'proton mass' : PROTON_MASS,
-          'modification conjuncts' : mod_conjunct_triples,
-          'argv' : sys.argv }
-    with contextlib.closing(open(result_fn, 'w')) as result_file:
-        pk = cPickle.Pickler(result_file, cPickle.HIGHEST_PROTOCOL)
-        pk.fast = 1                     # stipulate no circular references
-        pk.dump(d)
 
-    info("finished")
+class chase_listener(asyncore.dispatcher):
+
+    def __init__(self, port, port_count):
+        asyncore.dispatcher.__init__(self)
+        self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.set_reuse_addr()
+        for p in range(port, port+port_count):
+            try:
+                self.bind(('', p))      # socket.INADDR_ANY?
+                self.listen(5)
+                info("listening on port %s" % p)
+                break
+            except socket.error, e:
+                if e[0] == errno.EADDRINUSE:
+                    continue
+                raise
+        else:
+            error("could not listen, all specified ports in use")
+
+
+    def writable(self):
+        return False                    # is this needed?
+
+    def handle_accept(self):
+        sock, addr = self.accept()
+        info("received connection from %s" % (addr,))
+        chase_server(sock, addr)
+
+
+# FIX: give cleaner diagnostics on protocol failure?
+
+class chase_server(asynchat.async_chat):
+
+    # The user we're already serving, or None.  If we're serving someone,
+    # further connections will be disconnected after a quick status message
+    now_serving = None
+
+    # optparse options
+    options = None
+
+
+    def __init__(self, sock, addr):
+        asynchat.async_chat.__init__(self, conn=sock)
+        self.addr = addr
+
+        self.ibuffer = []
+        self.set_terminator('\n')
+
+        self.set_keep_alive()
+
+        self.push('greylag %s ' % VERSION)
+        if self.now_serving != None:
+            self.push('serving %s count %s\n' % (self.now_serving, 0))
+            info("busy--closing connection from %s" % (self.addr,))
+            self.close_when_done()
+            return
+
+        # Set to a command word (e.g., 'search') if we've read the command and
+        # are now looking for its argument.
+        command = None
+
+        self.__class__.now_serving = 'somebody'
+        self.push('ready (honk) count %s\n' % 0)
+
+    def set_keep_alive(self):
+        # try to better notice reboots, net failures, etc
+        try:
+            self.socket.setsockopt(
+                socket.SOL_SOCKET, socket.SO_KEEPALIVE,
+                self.socket.getsockopt(socket.SOL_SOCKET,
+                                       socket.SO_KEEPALIVE) | 1
+                )
+        except socket.error:
+            pass
+
+
+    def readable(self):
+        return self.now_serving != None and not self.writable()
+
+
+    def _receive_response(self):
+        r = ''.join(self.ibuffer)
+        self.ibuffer = []
+        return r
+
+    def handle_expt(self):
+        #self.handle_error()
+        pass
+
+    def handle_error(self):
+        info("closing connection from %s (connection error)" % (self.addr,))
+        self.__class__.now_serving = None
+        asynchat.async_chat.handle_error(self)
+
+    def handle_close(self):
+        info("closing connection from %s" % (self.addr,))
+        self.__class__.now_serving = None
+        asynchat.async_chat.handle_close(self)
+
+
+    def collect_incoming_data(self, data):
+        self.ibuffer.append(data)
+
+    def found_terminator(self):
+        if self.get_terminator() == '\n':
+            command_line = self._receive_response()
+            command_words = command_line.split()
+            assert len(command_words) == 2
+            self.command = command_words[0]
+            self.set_terminator(int(command_words[1]))
+            return
+        assert self.command
+        arg = pickle.loads(self._receive_response())
+        r = self._handle_command(self.command, arg)
+        self.command = None
+        self.set_terminator('\n')
+        if not r:
+            return
+        response, response_arg = r
+        assert response in ('found', 'error')
+        if response == 'error':
+            self.push('error %s\n' % response_arg)
+            self.close_when_done()
+            return
+        self.push('found ')
+        pickled_argument = pickle.dumps(response_arg)
+        self.push("%s\n" % len(pickled_argument))
+        self.push(pickled_argument)
+
+
+    def _reset_state(self):
+        self.fasta_db = None
+        self.context = None
+        cgreylag.spectrum.set_searchable_spectra([])
+
+
+    def _handle_command(self, command, arg):
+        """Handle received command/arg.  Returns a pair (response, arg) or
+        None.
+        """
+        if command == 'parameters':
+            self._reset_state()
+            set_parameters(arg, self.options)
+            return None
+        elif command == 'sequences':
+            self.context, self.fasta_db = set_sequences(arg)
+            return None
+        elif command == 'spectra':
+            self.noise_spectrum_ids = set_spectra(arg)
+            return None
+        elif command == 'search':
+            #currently ignore arg
+            results = perform_search(self.context, self.fasta_db,
+                                     self.noise_spectrum_ids)
+            return 'found', results
+        else:
+            assert False, "unknown command '%s'" % command
+
+
+def main(args=sys.argv[1:]):
+    parser = optparse.OptionParser(usage=
+                                   "usage: %prog [options]",
+                                   description=__doc__, version=VERSION)
+    pa = parser.add_option
+    DEFAULT_PORT = 10078
+    pa("--port", dest="port", type="int", default=DEFAULT_PORT,
+       help="first listener port [default=%s]" % DEFAULT_PORT)
+    DEFAULT_PORT_COUNT = 4
+    pa("--port-count", dest="port_count", type="int",
+       default=DEFAULT_PORT_COUNT,
+       help="number of ports to try [default=%s]" % DEFAULT_PORT_COUNT)
+    DEFAULT_TIMEOUT = 600
+    pa("--timeout", dest="timeout", type="int",
+       default=DEFAULT_TIMEOUT,
+       help="inactivity timeout [default=%ss]" % DEFAULT_TIMEOUT)
+    pa("-q", "--quiet", action="store_true", dest="quiet", help="no warnings")
+    pa("-p", "--show-progress", action="store_true", dest="show_progress",
+       help="show running progress")
+    pa("-v", "--verbose", action="store_true", dest="verbose",
+       help="be verbose")
+    pa("-l", "--logfile", dest="logfile",
+       help="log to FILE instead of stderr", metavar="FILE")
+    pa("--copyright", action="store_true", dest="copyright",
+       help="print copyright and exit")
+    pa("--debug", action="store_true", dest="debug",
+       help="output debugging info")
+    pa("--profile", action="store_true", dest="profile",
+       help="dump Python profiling output to './greylag-chase.prof.<pid>'")
+    (options, args) = parser.parse_args(args=args)
+
+    if options.copyright:
+        print __copyright__
+        sys.exit(0)
+
+    if len(args) > 0:
+        parser.print_help()
+        sys.exit(1)
+
+    set_logging(options)
+
+    info("starting on %s", socket.gethostname())
+
+    chase_server.options = options
+    chase_listener(options.port, options.port_count)
+
+    # FIX: if we're not making progress, drop connection (optionally exit)
+    while True:
+        asyncore.loop(timeout=options.timeout, count=1, use_poll=True)
+        time.sleep(0.01)                # FIX: failsafe
+
+    info("exiting")
 
 
 if __name__ == '__main__':
@@ -1394,7 +828,7 @@ if __name__ == '__main__':
         if '--profile' in sys.argv:
             import cProfile
             import pstats
-            report_fn = "greylag.prof.%s" % os.getpid()
+            report_fn = "greylag-chase.prof.%s" % os.getpid()
             data_fn = report_fn + ".tmp"
             prof = cProfile.run('main()', data_fn)
             with open(report_fn, 'w') as report_f:

@@ -4,12 +4,13 @@
 .PHONY: all html pdf install publish clean
 .DELETE_ON_ERROR:
 
-DEST = /usr/local/lib/greylag/
+DEST = /usr/local/lib/greylag/doc/
 
 DOCS = index.txt release-notes.txt user-guide.txt theory-of-operation.txt
+IMAGES = favicon.png
 HTML = $(addsuffix .html,$(basename $(DOCS)))
 PDF = $(addsuffix .pdf,$(basename $(DOCS)))
-ALL = $(DOCS) $(HTML) $(PDF)
+ALL = $(DOCS) $(IMAGES) $(HTML) $(PDF)
 
 RST2HTML = rst2html --exit-status=warning --generator --date --source-link \
 	--initial-header-level=2 --cloak-email-addresses
@@ -23,7 +24,8 @@ pdf :: $(PDF)
 
 
 %.html : %.txt
-	$(RST2HTML) $^ $@
+	$(RST2HTML) $^ $@.tmp
+	sed -e 's|</title>|</title><link rel="shortcut icon" href="favicon.png" />|' $@.tmp > $@
 
 %.pdf : %.tex
 	pdflatex $^
@@ -45,5 +47,5 @@ publish :: $(ALL)
 	rsync -v -t $(ALL) shell.sf.net:greylag/htdocs/
 
 clean ::
-	-rm -f $(HTML) $(PDF) *.tex *.log *.dvi *.out *~
+	-rm -f $(HTML) *.tmp $(PDF) *.tex *.log *.dvi *.out *.aux *~
 

@@ -77,25 +77,25 @@ install :: all
 	[ -d $(DEST) ] || install -d $(DEST)
 	install -p _$(MODULE).so $(DEST)
 	install -p --mode=444 $(MODULE).py $(DEST)
+	install -p --mode=444 greylag.py $(DEST)
+	install -p greylag_shuffle_database.py $(DEST)/greylag-shuffle-database
 	install -p greylag_chase.py $(DEST)/greylag-chase
-	install -p greylag_index_spectra.py $(DEST)/greylag-index-spectra
+	install -p greylag_rally.py $(DEST)/greylag-rally
 	install -p greylag_merge.py $(DEST)/greylag-merge
 	install -p greylag_sqt.py $(DEST)/greylag-sqt
-	install -p greylag_solo.py $(DEST)/greylag-solo
 	install -p greylag_validate.py $(DEST)/greylag-validate
 
 clean ::
 	-rm -f $(MODULE).py $(MODULE)_wrap.cpp $(MODULE).o $(MODULE)_wrap.o \
 		_$(MODULE).so *.py[co] TAGS *~ .??*~ \
-		test/*.py[co] test/*.idx test/*.glw test/*-bad.sqt test/tmp* \
-		test/*~
+		test/*.py[co] test/*.glw test/*-bad.sqt test/tmp* test/*~
 
 check :: all
 	nosetests --exe --with-doctest $(NOSEFLAGS)
 
 
 release :: all
-	@echo "# did you update __version__ in greylag_chase.py?"
+	@echo "# did you update VERSION in greylag.py?"
 	git-tag -l "v$(VERSION)" || false # no such tag
 	git-archive --format=tar --prefix=greylag-$(VERSION)/ v$(VERSION) \
 	    | gzip -9 > ../greylag-$(VERSION).tgz

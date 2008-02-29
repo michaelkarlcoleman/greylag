@@ -91,10 +91,9 @@ spectrum::__repr__() const {
 }
 
 
-// FIX: does this actually help inlining?
 // Return ln of n_C_k.
 static inline double
-ln_combination_(unsigned int n, unsigned int k) {
+ln_combination(unsigned int n, unsigned int k) {
   // Occasionally happens due to problems in scoring function. (FIX)
   if (n < k)
     return 0;
@@ -102,171 +101,122 @@ ln_combination_(unsigned int n, unsigned int k) {
   assert(0 <= k and k <= n and n < CP.ln_factorial.size());
   return CP.ln_factorial[n] - CP.ln_factorial[k] - CP.ln_factorial[n-k];
 }
-double
-ln_combination(unsigned int n, unsigned int k) {
-  return ln_combination(n, k);
-}
 
 
-
-// This is an error exit for read_spectra*.
-static inline void
-io_error(FILE *f, const char *message="") {
-  if (ferrorX(f))
-    message = "I/O error while reading (or writing) spectrum file";
-  throw std::ios_base::failure(message);
-}
-
-
-// true iff s consists entirely of whitespace
-static bool
-at_eol(const char *s) {
-  return s[strspn(s, " \t\r\n\f\v")] == 0;
-}
+// FIX: Currently we're reading spectrum files in Python, which is fast enough?
+// // This is an error exit for read_spectra*.
+// static inline void
+// io_error(FILE *f, const char *message="") {
+//   if (ferrorX(f))
+//     message = "I/O error while reading (or writing) spectrum file";
+//   throw std::ios_base::failure(message);
+// }
 
 
-// Check whether we've past the end offset, throwing exception on I/O error.
-static inline bool
-check_past_end(FILE *f, const long offset_end) {
-  if (offset_end == -1)
-    return false;
-  long pos = std::ftell(f);
-  if (pos == -1)
-    io_error(f);
-  return pos >= offset_end;
-}
+// // true iff s consists entirely of whitespace
+// static inline bool
+// at_eol(const char *s) {
+//   return s[strspn(s, " \t\r\n\f\v")] == 0;
+// }
 
 
-// Read spectra from file in ms2 format, tagging them with file_id.  Before
-// reading, seek to absolute position offset_begin.  If offset_end != -1, any
-// spectra that begin after position offset_end in the file are not read.
+// // Read spectra from file in ms2 format, tagging them with file_id.
 
-// Multiply charged spectra (e.g., +2/+3) are split into separate spectra
-// having the same physical id.  Note that depending on
-// offset_begin/offset_end, we may end up with the first charge and not the
-// second, or vice versa.
+// // Multiply charged spectra (e.g., +2/+3) are split into separate spectra
+// // having the same physical id.  Note that depending on
+// // offset_begin/offset_end, we may end up with the first charge and not the
+// // second, or vice versa.
 
-// The peak list is initially sorted by mz.  Throws an exception on invalid
-// input.  Error checking is stringent in this function.
+// // The peak list is initially sorted by mz.  Throws an exception on invalid
+// // input.  Error checking is stringent in this function.
 
-// This is pretty hideous.  Is there a simpler way to read, reasonably
-// efficiently, catching any input error?
+// // This is pretty hideous.  Is there a simpler way to read, reasonably
+// // efficiently, catching any input error?
 
-std::vector<spectrum>
-spectrum::read_spectra_from_ms2(FILE *f, const int file_id,
-				const long offset_begin,
-				const long offset_end) {
-  std::vector<spectrum> spectra;
+// std::vector<spectrum>
+// spectrum::read_spectra_from_ms2(FILE *f, const int file_id) {
+//   std::vector<spectrum> spectra;
 
-  const int bufsiz = 1024;
-  char buf[bufsiz];
-  char *endp;
+//   const int bufsiz = 1024;
+//   char buf[bufsiz];
+//   char *endp;
 
-  // first seek to offset_begin and synchronize at next "\n:"
-  if (offset_begin > 0) {
-    if (std::fseek(f, offset_begin-1, SEEK_SET) == -1)
-      io_error(f);
-    int c = getcX(f);
-    while (c != '\n' and c != EOF)
-      c = getcX(f);
-    if (ferrorX(f))
-      io_error(f);
-    if (c == '\n') {
-      do {
-	c = getcX(f);
-      } while (c != ':' and c != EOF);
-      if (ferrorX(f))
-	io_error(f);
-      if (c == ':')
-	std::ungetc(c, f);
-    }
-  }
-  // at this point we expect to read the first ':' of a header, or EOF
+//   char *result = fgetsX(buf, bufsiz, f);
+//   while (true) {
+//     std::vector<std::string> names;
+//     std::vector<double> masses;
+//     std::vector<int> charges;
 
-  bool past_end = check_past_end(f, offset_end);
-  char *result = fgetsX(buf, bufsiz, f);
-  while (true) {
-    std::vector<std::string> names;
-    std::vector<double> masses;
-    std::vector<int> charges;
+//     // read headers
+//     while (true) {
+//       if (ferrorX(f))
+// 	io_error(f);
+//       if (not result or buf[0] != ':')
+// 	break;
+//       names.push_back(std::string(buf+1, buf+std::strlen(buf)-1));
+//       if (not fgetsX(buf, bufsiz, f))
+// 	io_error(f, "bad ms2 format: mass/charge line expected");
+//       errno = 0;
+//       double mass = std::strtod(buf, &endp); // need double accuracy here
+//       masses.push_back(mass);
+//       if (errno or endp == buf or mass <= 0)
+// 	io_error(f, "bad ms2 format: bad mass");
+//       const char *endp0 = endp;
+//       int charge = std::strtol(endp0, &endp, 10);
+//       charges.push_back(charge);
+//       if (errno or endp == endp0 or charge <= 0)
+// 	io_error(f, "bad ms2 format: bad charge");
+//       if (not at_eol(endp))
+// 	io_error(f, "bad ms2 format: junk at end of mass/charge line");
+//       result = fgetsX(buf, bufsiz, f);
+//     }
+//     if (not result) {
+//       if (not names.empty())
+// 	io_error(f, "bad ms2 format: spectrum has no peaks (file truncated?)");
+//       break;
+//     }
+//     // read peaks
+//     std::vector<peak> peaks;
+//     while (true) {
+//       peak p;
+//       errno = 0;
+//       p.mz = strtod(buf, &endp);
+//       if (errno or endp == buf or p.mz <= 0)
+// 	io_error(f, "bad ms2 format: bad peak mz");
+//       const char *endp0 = endp;
+//       p.intensity = strtod(endp0, &endp);
+//       if (errno or endp == endp0 or p.intensity <= 0)
+// 	io_error(f, "bad ms2 format: bad peak intensity");
+//       if (not at_eol(endp))
+// 	io_error(f, "bad ms2 format: junk at end of peak line");
+//       peaks.push_back(p);
 
-    // read headers
-    while (true) {
-      if (ferrorX(f))
-	io_error(f);
-      if (not result or buf[0] != ':')
-	break;
-      if (not past_end)
-	names.push_back(std::string(buf+1, buf+std::strlen(buf)-1));
-      if (not fgetsX(buf, bufsiz, f))
-	io_error(f, "bad ms2 format: mass/charge line expected");
-      errno = 0;
-      double mass = std::strtod(buf, &endp); // need double accuracy here
-      if (not past_end)
-	masses.push_back(mass);
-      if (errno or endp == buf or mass <= 0)
-	io_error(f, "bad ms2 format: bad mass");
-      const char *endp0 = endp;
-      int charge = std::strtol(endp0, &endp, 10);
-      if (not past_end)
-	charges.push_back(charge);
-      if (errno or endp == endp0 or charge <= 0)
-	io_error(f, "bad ms2 format: bad charge");
-      if (not at_eol(endp))
-	io_error(f, "bad ms2 format: junk at end of mass/charge line");
-      past_end = past_end or check_past_end(f, offset_end);
-      result = fgetsX(buf, bufsiz, f);
-    }
-    if (names.empty() and past_end)
-      break;
-    if (not result) {
-      if (not names.empty())
-	io_error(f, "bad ms2 format: spectrum has no peaks (file truncated?)");
-      break;
-    }
-    // read peaks
-    std::vector<peak> peaks;
-    while (true) {
-      peak p;
-      errno = 0;
-      p.mz = strtod(buf, &endp);
-      if (errno or endp == buf or p.mz <= 0)
-	io_error(f, "bad ms2 format: bad peak mz");
-      const char *endp0 = endp;
-      p.intensity = strtod(endp0, &endp);
-      if (errno or endp == endp0 or p.intensity <= 0)
-	io_error(f, "bad ms2 format: bad peak intensity");
-      if (not at_eol(endp))
-	io_error(f, "bad ms2 format: junk at end of peak line");
-      peaks.push_back(p);
+//       result = fgetsX(buf, bufsiz, f);
+//       if (ferrorX(f))
+// 	io_error(f);
+//       if (not result or buf[0] == ':')
+// 	break;
+//     }
 
-      past_end = past_end or check_past_end(f, offset_end);
-      result = fgetsX(buf, bufsiz, f);
-      if (ferrorX(f))
-	io_error(f);
-      if (not result or buf[0] == ':')
-	break;
-    }
+//     // add spectra to vector
+//     if (names.empty() and not peaks.empty())
+//       io_error(f, "bad ms2 format: missing header lines?");
 
-    // add spectra to vector
-    if (names.empty() and not peaks.empty())
-      io_error(f, "bad ms2 format: missing header lines?");
+//     std::sort(peaks.begin(), peaks.end(), peak::less_mz);
 
-    std::sort(peaks.begin(), peaks.end(), peak::less_mz);
-
-    for (std::vector<double>::size_type i=0; i<names.size(); i++) {
-      spectrum sp(masses[i], charges[i]);
-      sp.peaks = peaks;
-      sp.name = names[i];
-      sp.file_id = file_id;
-      sp.physical_id = next_physical_id;
-      spectra.push_back(sp);
-    }
-    if (file_id != -1)
-      spectrum::next_physical_id += 1;
-  }
-  return spectra;
-}
+//     for (std::vector<double>::size_type i=0; i<names.size(); i++) {
+//       spectrum sp(masses[i], charges[i]);
+//       sp.peaks = peaks;
+//       sp.name = names[i];
+//       sp.file_id = file_id;
+//       sp.physical_id = next_physical_id;
+//       spectra.push_back(sp);
+//     }
+//     if (file_id != -1)
+//       spectrum::next_physical_id += 1;
+//   }
+//   return spectra;
+// }
 
 
 // Filter peaks to limit their number according to TIC_cutoff_proportion, and
@@ -373,7 +323,11 @@ spectrum::update_peak_cache() {
 // build spectrum_mass_index.
 void
 spectrum::set_searchable_spectra(const std::vector<spectrum> &spectra) {
+  for (std::vector<spectrum>::size_type i=0; i<spectra.size(); i++)
+    spectra[i].clear_peak_cache();
   searchable_spectra = spectra;
+
+  spectrum_mass_index.clear();
   for (std::vector<spectrum>::size_type i=0; i<spectra.size(); i++) {
     spectrum_mass_index.insert(std::make_pair(spectra[i].mass, i));
     searchable_spectra[i].update_peak_cache();
@@ -522,11 +476,11 @@ score_spectrum(const spectrum &x,
   const int peak_misses = valid_theoretical_peaks - total_peak_hits;
   assert(peak_misses >= 0);
 
-  double score = ln_combination_(x.empty_peak_bins, peak_misses);
+  double score = ln_combination(x.empty_peak_bins, peak_misses);
   for (unsigned int i=0; i<intensity_class_count; i++)
-    score += ln_combination_(x.intensity_class_counts[i],
-			     peak_hit_histogram[i]);
-  score -= ln_combination_(x.total_peak_bins, valid_theoretical_peaks);
+    score += ln_combination(x.intensity_class_counts[i],
+			    peak_hit_histogram[i]);
+  score -= ln_combination(x.total_peak_bins, valid_theoretical_peaks);
 
   return score;
 }

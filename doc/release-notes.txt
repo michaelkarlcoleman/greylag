@@ -4,18 +4,21 @@ Release Notes
 =============
 
 
-Version 0.0
+Version 0.1
 -----------
 
-* Initial public release
+* Initial internal release
 
 * Known issues:
 
+  - ``greylag-merge`` is currently not working
+  - some fields of the SQT output are not calculated
   - N15 is the only isotope currently supported.
   - N- and C-terminal modification handling may not be correct.
-  - PCA modifications have not been tested.
+
+See also the TODO file.
 
 
-Version 0.1
+Version 0.2
 -----------
 

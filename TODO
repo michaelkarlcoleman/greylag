@@ -23,6 +23,7 @@ MILESTONE M1:
 * Handles nonspecific cleavage
 * Generates SQT output, usable in our pipeline, at least for non-N15 runs
 * Decent performance/efficiency on our clusters
+* Basic how-to-use-it documentation
 
 MILESTONE M2:
 
@@ -35,16 +36,13 @@ MILESTONE M2:
 
 TASK QUEUE
 
-* SGE problems
-** Avoid relying on SGE correctness/robustness?
+* Clean up and check in working part of test suite
 
-
-* On processing large input file sets, the merge step requires huge RAM
-** Fix by splitting into sets of N (8 or so)?
-
-* greylag-validate/-merge/-sqt/-index should warn if no input files specified
+* Check that greylag-* errors if no input files specified
 
 * Look for (user-visible) changes that are easy to make now but harder later...
+
+* Add missing-feature matrix (wrt other programs, etc)
 
 * Create basic documentation in reST format
 ** Need HTML (web and standalone), PDF?
@@ -60,27 +58,6 @@ TASK QUEUE
 **** design choices, technology rationale (upsides/downsides)
 ** Makefile, install-to-web targets
 
-* Test vs SEQUEST (MM?) on standard samples
-** If SEQUEST better, why?
-
-* Test no mod runs
-** Status: looks a bit better on one run
-
-* Test single mod runs
-** Status: looks a bit better on one run
-
-* Test multiple mod runs
-** Status: looks a bit worse on one run
-
-* Basic time/space performance vs SEQUEST/MM (Xtandem?)
-
-* Can we choose a tolerance that has similar valid id's and (we hope) speed?!!
-
-
-* Verify that our MM build is reading spectra correctly
-* Need myrimatch-process for testing?
-
-* Check in test suite/etc for complete release
 
 * Generate a set of sample .conf files
 ** One long, commented template file?
@@ -90,8 +67,19 @@ TASK QUEUE
 ** How to use it
 
 
+* Try DTASelect on greylag SQT files
+** plus mod case
+** sqt-index works?
+** spectrum viewing works?
+** astoria?
+
 
 = M1 =========================================================================
+
+* Rework test suite
+** check in for complete release
+
+
 
 * Try greylag-validate refinement
 
@@ -105,6 +93,7 @@ TASK QUEUE
 * Add docstring for every function
 
 * Need some greylag-merge test cases
+** Test RAM requirements on large files
 
 * Basic optimization (just a quick further look for easy speedups)
 ** callgrind
@@ -122,38 +111,34 @@ TASK QUEUE
 
 * Use SHA1 digests to keep files in sync?
 
-* Design and implement greylag master process (work manifests?)
-
-* Why aren't scores a little more stable?  (fast-math?)
+* Check on score stability
 
 * Add A1S2D1C3A1S2D1F4 marking form for isotope regimes?
 
 * Register copyright?
 
 
+* More testing of SIMR cases
+** no mods
+** single mods
+** multiple mods
+** multiple regimes
+
+* Think about how to implement LAFs PTM pipeline
+
+
+* Try to test against MyriMatch (results should be similar)
+
 
 
 = M2 =========================================================================
 
-
-* Maybe switch greylag-process to Python?
 
 * Evaluate performance differences vs Xtandem?
 
 * Try the MM smart +3 model--much improvement?
 
 * Try the MM precursor mass adjustment--much improvement?  even a good idea?
-
-* Test tolerance monotonicity
-
-* summarize differences between greylag-validate and DBValidate (see paper)
-
-* [HOLD/NOT A PROBLEM???] glw files too slow, too big, other problems
-** maybe this is only a problem on small RAM machines?
-** just use modified SQT files?  put metadata in special header lines?
-*** greylag-merge, greylag-sqt become greylag-merge?
-*** may still need separate metadata files...
-
 
 * Add isotope jitter feature, for Orbitrap.
 
@@ -175,15 +160,16 @@ TASK QUEUE
 ** Fix or add assertions
 
 * Add duplicate peptide masking optimization
-** Problem: shuffled versions generally not identical.  Limits potential
-   speedup to 25-30%
+** Problem: shuffled versions generally not identical.
+*** Limits potential speedup to 25-30%
 ** This will obviate the need to detect identical best matches at search time?
 ** Fix redundant peptide reporting
 
-* Make a tool to compare greylag vs SEQUEST results by spectrum.  Want gross
-  statistics--how many id's are the same, different, missing, etc.  For each
-  spectrum, want to see what each program did, and how many times the assigned
-  locus was otherwise id'ed.
+* Make a tool to compare greylag vs SEQUEST results by spectrum.
+
+  Want gross statistics--how many id's are the same, different, missing, etc.
+  For each spectrum, want to see what each program did, and how many times the
+  assigned locus was otherwise id'ed.
 
 * PPM error tolerances (MyriMatch doesn't implement this?)
 
@@ -200,23 +186,14 @@ TASK QUEUE
   newer than params file and ms2 file arguments, and that all ms2 file
   arguments were estimated.)
 
-* Maybe --part-split should generate a downramp of sizes?  It definitely
-  should take into account spectra filtered out (== no work), but this
-  requires reading all spectra before splitting (which takes more time).
-
 * Fix "cleavage C-terminal mass change" issue.  Should this be interpreted as
   MONO, ! (first fragment regime), or by regime.  Look for similar problems
   elsewhere.
 
 * Make static '[' mod exclude PCA mods.
 
-* Code cleanup, especially in new Python code.  Maybe put some stuff in
-  classes.  Could split into multiple source files.
-
 * Mine OMSSA and myrimatch for ideas.  Look again at X!Tandem and SEQUEST
   papers.
-
-* Need tool to compare two runs, for regression testing purposes.
 
 * Add refinement.  (like xtandem?)
 
@@ -238,16 +215,7 @@ TASK QUEUE
 ** Try running from both ends simultaneously.
 ** Watch cache usage.
 
-* Should we try to guarantee that searching is equivalent for all mass regimes,
-  to make comparisons more valid?
-
 * Rigorously check all values coming in from Python (at least by assert).
-
-* We can now pre-build a peptide index if we want to.  The main utility of this
-  is that it would allow us to avoid searching a spectrum against the same
-  peptide multiple times (saving perhaps 30% runtime for one real database).
-  Alternatively, maybe we could just generate a description of peptides to be
-  masked out.
 
 * Incrementalize the whole program.  Want to be able to take an existing run
   and spend more time on it to get more results, possibly concentrating on a
@@ -259,23 +227,6 @@ TASK QUEUE
 * Isotope S34 and C13 are common (4%, 1%).  Is there a good way to look for
   them?  We could look for singleton occurrences pretty cheaply using a delta
   mod type procedure.
-
-* Splitting idea: Rather than having all parts be equal, maybe its better for
-  the parts processed first to be bigger, with smallest parts processed last,
-  so that they can fill in the final gaps (leading all processors to finish at
-  about the same time).  What should the split curve look like?  Linear, but
-  what slope?  No split should be smaller than one spectrum (after
-  filtering).
-
-* Possible generation optimization: Figure out the maximum number of mods,
-  which would be the number that could be added to the smallest, lightest
-  peptide without exceeding the mass of the largest spectrum parent mass.
-  Probably not worth doing?  Similarly, if we know all bags of size N are too
-  large, and all deltas are positive, we can skip larger bags.
-
-* If we see a good hit for a spectrum, we could try to see if there's an
-  identifiable tag.  If so, could restrict further searching to peptides with
-  that tag.
 
 * Could try switching FP code to use integers instead (but ugh)
 

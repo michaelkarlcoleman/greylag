@@ -5,6 +5,11 @@ Given a set of sqt files, determine a 'valid' set of identifications that
 satisfy the specified FDR (false discovery rate).  Optionally rewrite the sqt
 files with validation marks set to 'N' for filtered-out spectra.
 
+Note that a peptide end with an invalid flanking residue (currently any of
+BJOUXZ) is not considered tryptic if it's an N-terminal end and is considered
+tryptic if it's a C-terminal end and otherwise qualifies.  (Flanking '-' is
+always considered tryptic.)
+
 """
 
 from __future__ import with_statement
@@ -54,9 +59,9 @@ def fileerror(s, *args):
           *args)
 
 def inplace_warning():
-    warn("!!!\nan error occurred while modifying .sqt files in-place--it may"
+    warn("\n!!!\nan error occurred while modifying .sqt files in-place--it may"
          " be necessary to recover some or all of the .sqt files from the"
-         " corresponding .sqt.bak files.\n!!!")
+         " corresponding .sqt.bak files.\n!!!\n")
 
 
 def reset_marks(options, sqt_fns):
@@ -80,17 +85,21 @@ def mark(options, thresholds, sp_scores, sqt_fns):
     score and delta thresholds."""
 
     spectrum_no = -1
-    mark_spectrum = False
+    mark_spectrum = False               # mark this spectrum 'N'
 
     try:
         for line in fileinput.input(sqt_fns, inplace=1, backup='.bak'):
             if line.startswith("S\t"):
                 spectrum_no += 1
-                charge, score, delta = sp_scores[spectrum_no]
-                mark_spectrum = (charge in thresholds
-                                 and score != None
-                                 and (score < thresholds[charge][0]
-                                      or delta < thresholds[charge][1]))
+                sps = sp_scores[spectrum_no]
+                if sps:
+                    charge, score, delta = sp_scores[spectrum_no]
+                    mark_spectrum = (charge in thresholds
+                                     and score != None
+                                     and (score < thresholds[charge][0]
+                                          or delta < thresholds[charge][1]))
+                else:
+                    mark_spectrum = True
             elif line.startswith("M\t") and mark_spectrum:
                 fs = line.split("\t")
                 if len(fs) >= 11:
@@ -123,7 +132,9 @@ def read_sqt_info(decoy_prefix, minimum_trypticity, sqt_fns):
     #     and peptide is the peptide as first seen, with mods, no flanks
     z_scores = defaultdict(list)
 
-    # [ (charge, score, delta), ... ]
+    # information about spectra, in file order--None iff spectrum was filtered
+    # out
+    # [ (charge, score, delta) or None, ... ]
     sp_scores = []
 
     current_charge = None
@@ -139,6 +150,7 @@ def read_sqt_info(decoy_prefix, minimum_trypticity, sqt_fns):
     for line in fileinput.input(sqt_fns):
         fs = line.split('\t')
         if fs[0] == 'S':
+            sps = None
             if (current_charge != None and
                 current_peptide_trypticity >= minimum_trypticity):
                 if current_score != None:
@@ -148,8 +160,9 @@ def read_sqt_info(decoy_prefix, minimum_trypticity, sqt_fns):
                                                          current_state.pop(),
                                                          spectrum_name,
                                                          current_peptide))
-                    sp_scores.append((current_charge, current_score,
-                                      current_delta))
+                    sps = (current_charge, current_score, current_delta)
+            if current_charge != None:
+                sp_scores.append(sps)
             current_charge = int(fs[3])
             current_score = None
             current_delta = 0
@@ -199,10 +212,12 @@ def read_sqt_info(decoy_prefix, minimum_trypticity, sqt_fns):
             if current_peptide_trypticity == None:
                 current_peptide_trypticity = 0
                 if (peptide_flanks[0] in ('K', 'R')
-                    and peptide_stripped[0] != 'P'):
+                    and peptide_stripped[0] != 'P'
+                    or peptide_flanks[0] == '-'):
                     current_peptide_trypticity += 1
                 if (peptide_stripped[-1] in ('K', 'R')
-                    and peptide_flanks[1] != 'P'):
+                    and peptide_flanks[1] != 'P'
+                    or peptide_flanks[1] == '-'):
                     current_peptide_trypticity += 1
         elif fs[0] == 'L':
             if current_delta == 0:
@@ -212,6 +227,8 @@ def read_sqt_info(decoy_prefix, minimum_trypticity, sqt_fns):
                     current_state.add('real')
 
     # handle final spectrum, as above
+    # FIX: factor out this common code (using a generator?)
+    sps = None
     if (current_charge != None and
         current_peptide_trypticity >= minimum_trypticity):
         if current_score != None:
@@ -221,9 +238,9 @@ def read_sqt_info(decoy_prefix, minimum_trypticity, sqt_fns):
                                                  current_state.pop(),
                                                  spectrum_name,
                                                  current_peptide))
-            sp_scores.append((current_charge, current_score,
-                              current_delta))
-
+            sps = (current_charge, current_score, current_delta)
+    if current_charge != None:
+        sp_scores.append(sps)
     return (z_scores, sp_scores)
 
 
@@ -344,9 +361,10 @@ def main(args=sys.argv[1:]):
     pa("--decoy-prefix", dest="decoy_prefix", default=DEFAULT_DECOY_PREFIX,
        help='prefix given to locus name of decoy (e.g., shuffled) database'
        ' sequences [default=%r]' % DEFAULT_DECOY_PREFIX, metavar="PREFIX")
-    DEFAULT_FDR = 0.02
+    DEFAULT_FDR = 0.01
     pa("--fdr", dest="fdr", type="float", default=DEFAULT_FDR,
-       help="false discovery rate [default=%s]" % DEFAULT_FDR,
+       help="false discovery rate [default=%s] (Note that this is the"
+       " final resulting FDR after the decoys have been removed" % DEFAULT_FDR,
        metavar="PROPORTION")
     pa("-v", "--verbose", action="store_true", dest="verbose",
        help="be verbose")
@@ -378,14 +396,19 @@ def main(args=sys.argv[1:]):
         parser.print_help()
         sys.exit(1)
 
-    if not (0.0 <= options.fdr <= 1.0):
-        error("--fdr must be within range [0.0, 1.0]")
+    if not (0.0 <= options.fdr < 0.5):
+        error("--fdr must be within range [0.0, 0.5)")
     if options.mark and options.reset_marks:
         error("only one of --mark and --reset-marks may be specified")
 
     if options.reset_marks:
         reset_marks(options, args)
         return
+
+    # This is to translate the "effective" FDR, which is the rate after decoys
+    # have been stripped out of the results (which is what users really care
+    # about), into our internal FDR, which includes decoys.
+    options.fdr *= 2
 
     z_scores, spectrum_scores = read_sqt_info(options.decoy_prefix,
                                               int(options.minimum_trypticity),

@@ -6,51 +6,66 @@ Greylag User Guide
 Overview
 --------
 
-The basic workflow is to search spectra using ``greylag-chase``, which takes a
-configuration file and a set of spectrum files as input, and generates a glw
-file as output.  If the search has been broken into multiple pieces,
-``greylag-merge`` can be used to merge the resulting glw files into a single
-glw file that represents the best matches found.  Finally ``greylag-sqt`` is
-used to generate the corresponding sqt output files (one for each input
-spectrum file).
+The basic workflow of greylag is as follows.  First, the spectra are searched
+using ``greylag-rally``, which takes a configuration file and a set of
+spectrum files as input, and generates a glw file as output.  Then, if the
+search has been broken into multiple pieces, ``greylag-merge`` can be used to
+merge the resulting glw files into a single glw file that represents the best
+matches found in all of the spectrum files.  Finally ``greylag-sqt`` is used
+to generate the corresponding sqt output files (one for each input spectrum
+file).
 
-The wrapper script ``greylag-solo`` can be used to run the above programs on a
-single host, using a specified number of processors.  Alternatively, to run on
-a cluster, a script like ``greylag-process`` will be needed--this will need to
-be adapted to use the cluster's scheduling mechanism.
+The ``greylag-rally`` program connects to one or more ``greylag-chase``
+programs running on the same or different hosts, and these worker programs do
+the actual search.  The ``greylag-chase`` programs can be started using any
+convienient means.
 
-Before being searched, spectrum files must be indexed, which is done by
-``greylag-index-spectra``, which writes an idx file for each spectrum file.
-Currently spectrum files must be in ms2 format.
+After the search, the program ``greylag-validate`` can be used to determine a
+set of "valid" identifications that satisfy a specified false discovery rate
+(FDR), assuming that the spectra have been searched against a decoy database.
 
-The program ``greylag-validate`` can be used to determine a set of "valid"
-identifications that satisfy a specified false discovery rate (FDR), assuming
-that the spectra have been searched against a decoy database.
+
+Host File
+---------
+
+The host file read by ``greylag-rally`` consists of a series of lines like
+
+    ``host1234:10078``
+
+which indicates that a ``greylag-chase`` program is (potentially) running on
+host ``host1234`` and listening for connections on port ``10078``.  While
+``greylag-rally`` is running, it will attempt to connect (and reconnect, if
+later disconnected) to each of these ``greylag-chase`` instances, once per
+minute.
 
 
 Configuration File
 ------------------
 
 The configuration file specifies the search parameters and is read by
-``greylag-chase``.  It uses a simple, readable format similar to the format of
-Windows .ini files.  The file must begin with a section marker ``[greylag]``.
-See the included example configuration files.
+``greylag-rally``.  It uses a simple, readable format similar to the format of
+Windows .ini files.  The file must begin with the section marker ``[greylag]``.
+See the included example configuration file.
 
-Except for ``databases``, all parameters have a reasonable default, so none
-need be specified.  If a parameter is specified more than once in the
-configuration file, the final occurrence takes precedence.
+Except for ``databases`` and probably ``pervasive_mods``, all parameters have
+reasonable defaults and often need not be specified.  If a parameter is
+specified more than once in the configuration file, the final occurrence takes
+precedence.
 
 Here is a detailed description of each parameter.
 
 ``databases``
 -------------
 
-This is a whitespace-separated list of filenames.  Each file should contain a
-set of sequences in FASTA format.  Locus names must be unique across all
-database files, to avoid confusion.  Sequence characters are uppercased for
-uniformity.  Non-amino-acid sequences characters are interpreted as
-"breaks"--candidate peptides do not cross these breaks.  Specifically, only
-the residues
+This is a whitespace-separated list of filenames.  Each filename may be an
+absolute or relative path, and the named file must be visible to both
+``greylag-rally`` and ``greylag-chase`` processes.
+
+Each file should contain a set of sequences in FASTA format.  Locus names must
+be unique across all database files, to avoid confusion.  Sequence characters
+are uppercased for uniformity.  Non-amino-acid sequence characters are
+interpreted as "breaks"--candidate peptides do not cross these breaks.
+Specifically, only the residues
 
     ``A C D E F G H I K L M N P Q R S T V W Y``
 
@@ -59,21 +74,14 @@ are recognized.
 This parameter must be specified--there is no default.
 
 
-``decoy_locus_prefix``
-----------------------
-
-This is the locus name prefix that indicates that a locus is a decoy.  It
-defaults to ``SHUFFLED_``.  (This is currently unused.)
-
-
 ``mass_regimes``
 ----------------
 
 This specifies the mass regimes to be searched.  A *mass regime* is an
-assignment of masses to atoms, which in turn determines residue masses.  The
-two most familiar mass regimes are monoisotopic masses, denoted ``MONO``, and
-average masses, denoted ``AVG``.  The former uses atomic masses that
-correspond to the most commonly found element isotopes.  The latter uses
+assignment of masses to atoms, which in turn determines the mass of each
+residue.  The two most familiar mass regimes are monoisotopic masses, denoted
+``MONO``, and average masses, denoted ``AVG``.  The former uses atomic masses
+that correspond to the most commonly found element isotopes.  The latter uses
 atomic masses that are weighted averages, weighted according to the relative
 prevalence of the isotopes for each element (according to US NIST figures).
 
@@ -116,7 +124,8 @@ the purpose of the search.  For example
 
 is the preferred form of the typical C+57 fixed modification specifier.
 Instead of a symbolic formula (``+C2H3ON``), a specific numeric value such as
-+57.  In this case, the same value is used for all mass regimes.
++57 may be specified.  In this case, the same value is used for all mass
+regimes.
 
 The ``!`` indicates that this formula is to be evaluated using the first mass
 regime and that that value should be used everywhere.  This is useful when one
@@ -125,15 +134,15 @@ question is caused by a later chemical modification that is *not*
 isotope-enriched.
 
 The label (*e.g.*, ``carboxyamidomethylation``) is optional, but must be
-unique if specified.  It is used to mark modification in the output, which
-makes it easier for downstream software to track modifications.
+unique if specified.  It is used to mark modifications in the output, which
+makes them easier for downstream software to track.
 
 Each specifier may specify the modification for only a single residue (``C``
 in the above example), or ``[`` or ``]`` (the peptide N- and C-terminii,
 respectively).  Each residue (or terminus) may have at most one specifier.
 
 The value of this parameter is a comma-separated list of modification
-specifiers.  The default is empty--no pervasive modifications.
+specifiers.  The default is empty, but usually some value will be needed.
 
 
 ``potential_mods``
@@ -195,6 +204,8 @@ The default is empty--no potential modifications.
 
 This parameter is non-negative integer that specifies the maximum number of
 potential modifications (*i.e.*, modified residues) sought for a peptide.
+(Terminal modifications, including PCA modifications, are not counted in this
+limit.)
 
 In general, run time is an exponential function of this search depth, so large
 values are likely to be prohibitive.
@@ -206,7 +217,7 @@ The default is ``2``.
 -------------------
 
 This parameter determines whether PCA modifications are searched for, and must
-be ``yes`` or ``no`` (the default).
+be ``yes`` (the default) or ``no``.
 
 This feature is borrowed from the `X!Tandem implementation`__.  Roughly, a PCA
 is a special kind of N-terminal modification.
@@ -254,7 +265,7 @@ The default value is ``[X]|[X]``.
 
 This parameter is a non-negative integer specifying the maximum number of
 missed cleavage sites in a candidate peptide.  (If non-specific cleavage is
-being used, the value of this parameter is irrelevant.)
+being used, the value of this parameter is not used.)
 
 The default value is ``1``.
 
@@ -318,8 +329,8 @@ The default value is ``1.25``.
 ---------------------------
 
 This parameter is a non-negative floating point value, measured in Daltons.
-It determines how close together a real and a predicted peak have to be to be
-counted as overlapping (or matching).
+It determines how close together a real and a predicted fragment peak have to
+be to be counted as overlapping (or matching).
 
 The default value is ``0.5``.
 
@@ -370,26 +381,4 @@ Detailed Command Descriptions
 -----------------------------
 
 
-Usage: greylag_chase.py [options] <configuration-file> <ms2-file>...
-
-Options:
-
-  --version             show program's version number and exit
-  -h, --help            show this help message and exit
-  -P NAME=VALUE, --parameter=NAME=VALUE
-                        override a parameter in <parameter-file>, may be used
-                        multiple times
-  -w L:U, --work-slice=L:U
-                        search a subinterval [L:U) of the work space (where 0
-                        <= L <= U <= 1) in standalone mode
-  --skip-if-done        in standalone mode, just exit if output file is
-                        already present
-  --job-id=JOB_ID       used to generate unique output filenames [default
-                        'unknown']
-  -q, --quiet           no warnings
-  -p, --show-progress   show running progress
-  --estimate            just estimate the time required for the search
-  -v, --verbose         be verbose
-  --copyright           print copyright and exit
-  --debug               output debugging info
-  --profile             dump Python profiling output to './greylag.prof.<pid>'
+Usage: ``greylag-rally [options] <configuration-file> <ms2-file>...``

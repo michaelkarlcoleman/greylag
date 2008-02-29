@@ -5,6 +5,9 @@ Greylag Theory of Operation
 ===========================
 
 
+    Simplicity is prerequisite for reliability --Edsger W. Dijkstra
+
+
 
 Design Goals
 ------------
@@ -12,16 +15,16 @@ Design Goals
 * Use a high-level language where possible, with performance-critical portions
   implemented in a suitable low-level language.
 
-* An implementation that is a tool for learning.  The code should be easy to
-  follow and easy to play around with and extend.
+* Create an implementation that is a tool for learning.  The code should be
+  easy to follow and easy to play around with and extend.
 
 * Try to incorporate the best features from other existing search programs.
 
 * Design for single-host and cluster parallelism.
 
-* Reasonable performance: Run time within a factor of two versus programs
-  implemented entirely in C or C++.  Memory profile good enough for current
-  hardware.
+* Aim for reasonable performance: Run time within a factor of two versus
+  programs implemented entirely in C or C++, and memory profile good enough
+  for current hardware.
 
 
 Inside-Out Search
@@ -46,6 +49,8 @@ A straightforward search algorithm might work something like this
 6.  Score the chosen candidate spectrum against the modified candidate
     peptide, keeping track of the highest-scoring peptides for each spectrum.
 
+We have not exhaustively investigated other programs, but we suspect that they
+all use algorithms similar to this.
 
 Greylag's search algorithm looks like this
 
@@ -57,17 +62,18 @@ Greylag's search algorithm looks like this
     ``PO3H@STY phosphorylation``, ``C2H2O@KST acetylation`` }, which specifies
     that there will be at least one phosphorylation and at least one
     acetylation.  The N- and C-terminal modifications, if any, are also
-    chosen.
+    similarly chosen.
 5.  Choose the "delta bag".  This is a choice of the number of each kind of
     residue modification.  For example, if we chose three modifications in
     step one, and two conjuncts in step 4's example, the possible delta bags
-    would be ``(1, 2)``, meaning one phosphorylation and two acetylations, or
-    ``(2, 1)``.
+    would be ``(1, 2)`` (one phosphorylation and two acetylations), or
+    ``(2, 1)`` (two phosphorylations and one acetylation).
 6.  Choose a locus.
 7.  Choose the N-terminal endpoint of a possible candidate peptide within that
     locus.
 8.  Choose the C-terminal endpoint, determining the candidate peptide. Once
-    this is done, the mass of the modified candidate peptide is fixed.
+    this is done, the mass of the modified candidate peptide is fixed, as we
+    know the peptide residues and the number of each kind of modification.
 9.  Determine the set of candidate spectra (if any) that have a precursor
     mass close enough to the mass of the modified candidate peptide.
 10.  Choose, one by one, the potential modifications for each candidate
@@ -79,12 +85,12 @@ Greylag's search algorithm looks like this
 There are a number of advantages to this inside-out approach.  Most
 importantly, it allows us to hoist a significant amount of the search out of
 the performance-critical loop, thus allowing quite a bit of the search to be
-implemented in a high-level language without significant loss of performance.
-This is a significant benefit because high-level code is much easier to write,
-understand, make correct, debug, and modify.
+implemented in a high-level language without loss of performance.  This is a
+great benefit because high-level code is much easier to write, understand,
+make correct, debug, and modify.
 
-For a typical search, in the traditional described above, step 2 and all
-subsequent steps will be executed millions of times, thus pretty much
+For a typical search, in the traditional algorithm described above, step 2 and
+all subsequent steps will be executed millions of times, thus pretty much
 requiring a low-level implementation.
 
 In the greylag approach, steps 1 through 5 will be executed a relatively small
@@ -92,16 +98,17 @@ number of times, perhaps a few thousand times (though typically far fewer).
 This means that they are not particularly time-critical, and can be
 implemented in high-level code.  Steps 6 through 11 must still be implemented
 in a low-level language, but the code required is smaller and simpler because
-part of the work has already been done in the high-level portion.
+part of the work has already been done in the high-level portion.  In fact,
+the vast proportion of run time is spent in step 11 for most searches.
 
-There are several other advantages to the inside-out approach.  Because a
-number of common calculations are being lifted out of the inner loop, it's
+There are several other minor advantages to the inside-out approach.  Because
+a number of common calculations are being lifted out of the inner loop, it's
 probably a little more efficient than the straightforward approach.
 
 It also makes possible an incremental approach to modification search.  Since
 zero modifications are searched first, then one, then two, *etc*., one could
 potentially search for a fixed amount of time and then stop, knowing that the
-most interesting combinations will have been searched first.
+most likely combinations will have been searched first.
 
 There is one potential disadvantage to the inside-out approach, which is that
 more total work will be done by the modification assignment performed in step
@@ -110,8 +117,8 @@ not to be a problem in practice, probably because the cost of the final
 scoring step tends to dwarf the costs of the previous steps.
 
 
-* Specific Implementation technologies and tradeoffs
-
+Specific Implementation technologies and tradeoffs
+--------------------------------------------------
 
 * Python
 * C++ vs C

@@ -91,7 +91,7 @@ def generate_marked_sequence(match_name_map, mass_trace, peptide_sequence):
             trace.pop()
 
 
-def print_spectrum(f, mod_name_map, sp_name, sp_matches):
+def print_spectrum(f, mod_name_map, sp_name, sp_matches, enhanced=False):
     """Print the lines (S/M/L/A*) associated with the given spectrum."""
     spectrum, sp_best_matches = sp_matches
 
@@ -138,16 +138,18 @@ def print_spectrum(f, mod_name_map, sp_name, sp_matches):
                                          marked_sequence,
                                          match['C_peptide_flank'])),
                                'U'])
-        if match.get('mass_regime_index', 0) != 0:
-            print >> f, "AR\t%s" % match['mass_regime_index']
-        if match.get('pca_delta', 0) != 0:
-            print >> f, "APCA\t%s" % match['pca_delta']
-        for mt in match.get('mass_trace', []):
-            name = (match_name_map[(match['peptide_sequence'][mt['position']],
-                                    mt['delta'])][0])
-            fs = ["AM", mt['position'], round(mt['delta'], 5),
-                  name if name else '']
-            print >> f, '\t'.join(str(v) for v in fs)
+
+        if enhanced:
+            if match.get('mass_regime_index', 0) != 0:
+                print >> f, "AR\t%s" % match['mass_regime_index']
+            if match.get('pca_delta', 0) != 0:
+                print >> f, "APCA\t%s" % match['pca_delta']
+            for mt in match.get('mass_trace', []):
+                name = (match_name_map[(match['peptide_sequence'][mt['position']],
+                                        mt['delta'])][0])
+                fs = ["AM", mt['position'], round(mt['delta'], 5),
+                      name if name else '']
+                print >> f, '\t'.join(str(v) for v in fs)
 
         assert len(match['sequence_name']) == len(match['peptide_begin'])
         for sn, pb in zip(match['sequence_name'], match['peptide_begin']):
@@ -162,6 +164,8 @@ def main(args=sys.argv[1:]):
     pa("-d", "--output-directory", dest="output_directory",
        help="directory where output files are written [default is '.']",
        metavar="DIR")
+    pa("-e", "--enhanced-output", action="store_true", dest="enhanced_output",
+       help="include extra DTASelect-incompatible information in output")
     pa("-v", "--verbose", action="store_true", dest="verbose",
        help="be verbose")
     pa("--dump", action="store_true", dest="dump",
@@ -211,7 +215,8 @@ def main(args=sys.argv[1:]):
             print_regime_manifest(sqtf, r['mass regime manifest'])
             for match in matches:
                 if match[0][0] == spectrum_n:
-                    print_spectrum(sqtf, mod_name_map, match[0][1], match[1])
+                    print_spectrum(sqtf, mod_name_map, match[0][1], match[1],
+                                   options.enhanced_output)
 
 
 if __name__ == '__main__':
