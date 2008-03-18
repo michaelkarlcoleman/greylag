@@ -130,6 +130,8 @@ TASK QUEUE
 * Try to test against MyriMatch (results should be similar)
 
 
+* How should greylag-validate handle I/L, P/V, etc?
+
 
 = M2 =========================================================================
 

@@ -31,8 +31,6 @@ __copyright__ = '''
              USA
 '''
 
-__version__ = "0.0"
-
 
 import contextlib
 import cPickle
@@ -40,6 +38,8 @@ import optparse
 import os.path
 from pprint import pprint
 import sys
+
+from greylag import VERSION
 
 
 def warn(s):
@@ -109,7 +109,7 @@ def main(args=sys.argv[1:]):
     parser = optparse.OptionParser(usage=
                                    "usage: %prog [options] [<result-file>...]"
                                    " <output-result-file>",
-                                   description=__doc__, version=__version__)
+                                   description=__doc__, version=VERSION)
     pa = parser.add_option
     pa("-f", "--files-on-stdin", action="store_true", dest="files_on_stdin",
        help="read filenames to be merged from stdin, one per line, instead of"

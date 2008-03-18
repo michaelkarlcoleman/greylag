@@ -20,8 +20,6 @@ some purposes.
 
 """
 
-__version__ = "$Id: db-shuffle,v 1.8 2006/09/26 14:59:40 mkc Exp $"
-
 
 import fileinput
 import optparse

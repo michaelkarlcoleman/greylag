@@ -31,8 +31,6 @@ __copyright__ = '''
              USA
 '''
 
-__version__ = "0.0"
-
 
 from collections import defaultdict
 import contextlib
@@ -42,6 +40,8 @@ import optparse
 import os.path
 from pprint import pprint
 import sys
+
+from greylag import VERSION
 
 
 def warn(s):
@@ -53,7 +53,7 @@ def error(s):
 def print_header(f, r):
     """Output H lines."""
     print >> f, "H\tSQTGenerator\tgreylag"
-    print >> f, "H\tSQTGeneratorVersion\t%s" % __version__
+    print >> f, "H\tSQTGeneratorVersion\t%s" % VERSION
     for db in r['databases']:
         print >> f, "H\tDatabase\t%s" % db
     for pk, pv in sorted(r['parameters'].items()):
@@ -159,7 +159,7 @@ def print_spectrum(f, mod_name_map, sp_name, sp_matches, enhanced=False):
 def main(args=sys.argv[1:]):
     parser = optparse.OptionParser(usage=
                                    "usage: %prog [options] <result-file>",
-                                   description=__doc__, version=__version__)
+                                   description=__doc__, version=VERSION)
     pa = parser.add_option
     pa("-d", "--output-directory", dest="output_directory",
        help="directory where output files are written [default is '.']",

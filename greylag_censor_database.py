@@ -33,8 +33,6 @@ __copyright__ = '''
              USA
 '''
 
-__version__ = "0.0"
-
 
 import contextlib
 import cPickle
@@ -44,6 +42,7 @@ import os.path
 import re
 import sys
 
+from greylag import VERSION
 
 ##FIX
 import greylag_chase
@@ -68,7 +67,7 @@ def main(args=sys.argv[1:]):
         print __copyright__
         sys.exit(0)
     if options.version:
-        print __version__
+        print VERSION
         sys.exit(0)
 
     if len(args) != 1:

@@ -38,8 +38,6 @@ __copyright__ = '''
              USA
 '''
 
-__version__ = "0.0"
-
 
 from collections import defaultdict
 import fileinput
@@ -47,6 +45,9 @@ import optparse
 from pprint import pprint
 import string
 import sys
+
+
+from greylag import VERSION
 
 
 def warn(s):
@@ -106,6 +107,32 @@ def mark(options, thresholds, sp_scores, sqt_fns):
                     fs[10] = 'N' + fs[10][1:]
                 line = '\t'.join(fs)
             sys.stdout.write(line)
+    except:
+        inplace_warning()
+        raise
+
+
+def kill(options, thresholds, sp_scores, sqt_fns):
+    """Remove, in-place, spectra not meeting score and delta thresholds."""
+
+    spectrum_no = -1
+    remove_spectrum = False             # remove this spectrum
+
+    try:
+        for line in fileinput.input(sqt_fns, inplace=1, backup='.bak'):
+            if line.startswith("S\t"):
+                spectrum_no += 1
+                sps = sp_scores[spectrum_no]
+                if sps:
+                    charge, score, delta = sp_scores[spectrum_no]
+                    remove_spectrum = (charge in thresholds
+                                       and score != None
+                                       and (score < thresholds[charge][0]
+                                            or delta < thresholds[charge][1]))
+                else:
+                    remove_spectrum = True
+            if not remove_spectrum:
+                sys.stdout.write(line)
     except:
         inplace_warning()
         raise
@@ -355,7 +382,7 @@ def calculate_combined_thresholds(options, z_scores):
 def main(args=sys.argv[1:]):
     parser = optparse.OptionParser(usage=
                                    "usage: %prog [options] <sqt-file>...",
-                                   description=__doc__, version=__version__)
+                                   description=__doc__, version=VERSION)
     pa = parser.add_option
     DEFAULT_DECOY_PREFIX = "SHUFFLED_"
     pa("--decoy-prefix", dest="decoy_prefix", default=DEFAULT_DECOY_PREFIX,
@@ -384,6 +411,9 @@ def main(args=sys.argv[1:]):
        " according to filtering")
     pa("--reset-marks", action="store_true", dest="reset_marks",
        help="rewrite the input files, changing all validation marks to 'U'")
+    pa("-k", "--kill", action="store_true", dest="kill",
+       help="rewrite the input files, removing spectra that don't pass"
+       " validation, according to filtering")
     pa("--copyright", action="store_true", dest="copyright",
        help="print copyright and exit")
     (options, args) = parser.parse_args(args=args)
@@ -398,8 +428,9 @@ def main(args=sys.argv[1:]):
 
     if not (0.0 <= options.fdr < 0.5):
         error("--fdr must be within range [0.0, 0.5)")
-    if options.mark and options.reset_marks:
-        error("only one of --mark and --reset-marks may be specified")
+    if (sum(1 for x in (options.mark, options.reset_marks, options.kill) if x)
+        > 1):
+        error("only one of --mark, --reset-marks, --kill may be specified")
 
     if options.reset_marks:
         reset_marks(options, args)
@@ -426,6 +457,9 @@ def main(args=sys.argv[1:]):
 
         for charge, score, delta in spectrum_scores:
             print '#S', charge, score, delta
+
+    if options.kill:
+        kill(options, thresholds, spectrum_scores, args)
 
     if options.mark:
         mark(options, thresholds, spectrum_scores, args)
