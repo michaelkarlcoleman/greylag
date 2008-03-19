@@ -41,7 +41,7 @@ import os.path
 from pprint import pprint
 import sys
 
-from greylag import VERSION
+import greylag
 
 
 def warn(s):
@@ -50,17 +50,92 @@ def error(s):
     sys.exit('error: ' + s)
 
 
+def generate_leaves(tree):
+    """Given a tree made of lists, yield the leaves.
+
+    >>> list(generate_leaves([(1,2,3)]))
+    [(1, 2, 3)]
+    >>> list(generate_leaves([[[(1,2,3)]], (4,5)]))
+    [(1, 2, 3), (4, 5)]
+
+    """
+    if not isinstance(tree, list):
+        yield tree
+        return
+    for b in tree:
+        for l in generate_leaves(b):
+            yield l
+
+
+# Example legacy headers:
+# H       Database        /foo/bar/db.fasta
+# H       PrecursorMasses AVG
+# H       FragmentMasses  MONO
+# H       StaticMod       C=160.1388
+# H       DiffMod M*=+16.0
+# H       DiffMod STY#=+80.0
+
+def print_legacy_headers(f, r):
+    """Output legacy H lines that readers of traditional SQT files may
+    expect.  Warns if multiple databases, or multiple or isotopic mass regimes
+    are present.
+    """
+
+    if len(r['databases']) > 1:
+        warn("multiple databases present")
+    for db in r['databases']:
+        print >> f, "H\tDatabase\t%s" % db
+
+    precursor_masses, fragment_masses = 'MONO', 'MONO'
+    mass_regimes = r['parameters']['mass_regimes']
+    if len(mass_regimes) > 1:
+        warn("multiple mass regimes present--legacy SQT headers will be based"
+             "on just the first")
+    parent_regime, fragment_regime = mass_regimes[0]
+    if parent_regime[1] or fragment_regime[1]:
+        warn("isotopic mass regimes present--ignored for legacy SQT headers")
+    assert parent_regime[0] in ('MONO', 'AVG')
+    assert fragment_regime[0] in ('MONO', 'AVG')
+    print >> f, "H\tPrecursorMasses\t%s" % parent_regime[0]
+    print >> f, "H\tFragmentMasses\t%s" % fragment_regime[0]
+
+    # FIX: merge this with mass calculation code in
+    #      greylag.initialize_spectrum_parameters?
+    # FIX: currently assuming MONO only (what would be better?)
+    static = dict((res, greylag.formula_mass(greylag.RESIDUE_FORMULA[res]))
+                  for res in greylag.RESIDUES)
+    for m in r['parameters']['pervasive_mods']:
+        if isinstance(m[1], float):
+            static[m[3]] += m[0] * m[1]
+        else:
+            static[m[3]] += m[0] * greylag.formula_mass(m[1])
+    # all residues get a StaticMod because our figures are more exact than the
+    # "default" ones
+    for res in static:
+        print >> f, "H\tStaticMod\t%s=%s" % (res, static[res])
+
+    diffs = set(generate_leaves(r['parameters']['potential_mods']))
+    for m in diffs:
+        symbol = m[5]
+        if not symbol:
+            warn("unmarked potential mod present--omitting")
+            continue
+        if isinstance(m[1], float):
+            delta = m[0] * m[1]
+        else:
+            delta = m[0] * greylag.formula_mass(m[1])
+        print >> f, "H\tDiffMod\t%s%s=%+f" % (m[3], m[5], delta)
+
+
 def print_header(f, r):
     """Output H lines."""
     print >> f, "H\tSQTGenerator\tgreylag"
-    print >> f, "H\tSQTGeneratorVersion\t%s" % VERSION
-    for db in r['databases']:
-        print >> f, "H\tDatabase\t%s" % db
+    print >> f, "H\tSQTGeneratorVersion\t%s" % greylag.VERSION
+
+    print_legacy_headers(f, r)
+
     for pk, pv in sorted(r['parameters'].items()):
         print >> f, "H\tParameter\t%s\t%s" % (pk, pv)
-    # FIX: are these necessary?
-    # H       StaticMod       C=160.1388
-    # H       DiffMod TNA*=+2.0
 
 
 def print_regime_manifest(f, regime_manifest):
@@ -161,7 +236,7 @@ def print_spectrum(f, mod_name_map, sp_name, sp_matches, enhanced=False):
 def main(args=sys.argv[1:]):
     parser = optparse.OptionParser(usage=
                                    "usage: %prog [options] <result-file>",
-                                   description=__doc__, version=VERSION)
+                                   description=__doc__, version=greylag.VERSION)
     pa = parser.add_option
     pa("-d", "--output-directory", dest="output_directory",
        help="directory where output files are written [default is '.']",
@@ -171,7 +246,7 @@ def main(args=sys.argv[1:]):
     pa("-v", "--verbose", action="store_true", dest="verbose",
        help="be verbose")
     pa("--dump", action="store_true", dest="dump",
-       help="dump the result file (for debugging)")
+       help="just dump the result file to stdout (for debugging)")
     pa("--copyright", action="store_true", dest="copyright",
        help="print copyright and exit")
     (options, args) = parser.parse_args(args=args)
