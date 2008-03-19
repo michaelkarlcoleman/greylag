@@ -120,6 +120,8 @@ def kill(options, thresholds, sp_scores, sqt_fns):
 
     try:
         for line in fileinput.input(sqt_fns, inplace=1, backup='.bak'):
+            if fileinput.isfirstline():
+                remove_spectrum = False
             if line.startswith("S\t"):
                 spectrum_no += 1
                 sps = sp_scores[spectrum_no]
