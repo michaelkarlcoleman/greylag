@@ -87,7 +87,9 @@ def generate_marked_sequence(match_name_map, mass_trace, peptide_sequence):
     for n, r in enumerate(peptide_sequence):
         yield r
         while trace and trace[-1]['position'] == n:
-            yield match_name_map[(r, trace[-1]['delta'])][1]
+            mark = match_name_map[(r, trace[-1]['delta'])][1]
+            if mark:                    # None if no mark char for this mod
+                yield mark
             trace.pop()
 
 
