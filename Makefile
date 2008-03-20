@@ -8,7 +8,7 @@
 # Developed with swig 1.3.31, g++ 3.4.6/4.1.2, libstdc++.so.6
 
 
-.PHONY: all modsyms install clean tags check release
+.PHONY: all modsyms install install_scripts clean tags check release
 .DELETE_ON_ERROR:
 
 
@@ -72,11 +72,13 @@ tags :: TAGS
 TAGS : $(MODULE).cpp $(MODULE).hpp
 	etags $^
 
-# FIX: we could compile the .py files here
-install :: all
-	[ -d $(DEST) ] || install -d $(DEST)
+install :: all install_scripts
 	install -p _$(MODULE).so $(DEST)
 	install -p --mode=444 $(MODULE).py $(DEST)
+
+# FIX: we could compile the .py files here
+install_scripts ::
+	[ -d $(DEST) ] || install -d $(DEST)
 	install -p --mode=444 greylag.py $(DEST)
 	install -p greylag_shuffle_database.py $(DEST)/greylag-shuffle-database
 	install -p greylag_chase.py $(DEST)/greylag-chase
