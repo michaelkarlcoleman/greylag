@@ -42,6 +42,11 @@ import sys
 from greylag import VERSION
 
 
+# gc kills our performance, so disable it.  gc only matters for cycles, which
+# we (hope we) don't create.  See the gc module docs.
+import gc; gc.disable()
+
+
 def warn(s):
     print >> sys.stderr, 'warning:', s
 def error(s):

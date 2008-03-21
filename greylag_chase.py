@@ -62,6 +62,11 @@ from greylag import *
 import cgreylag
 
 
+# gc possibly harms performance here, so disable it.  gc only matters for
+# cycles, which we (hope we) don't create.  See the gc module docs.
+import gc; gc.disable()
+
+
 def error(s, *args):
     "fatal error"
     # if we're unit testing, just throw an exception
