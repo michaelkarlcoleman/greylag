@@ -47,7 +47,11 @@ import string
 import sys
 
 
-from greylag import VERSION
+# allow this script to be run even if not "installed"
+try:
+    from greylag import VERSION
+except:
+    VERSION = 'unknown'
 
 
 def warn(s):
