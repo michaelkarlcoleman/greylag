@@ -815,6 +815,10 @@ def main(args=sys.argv[1:]):
     # FIX: if we're not making progress, drop connection (optionally exit)
     while True:
         asyncore.loop(timeout=options.timeout, count=1, use_poll=True)
+
+        # FIX: this shouldn't happen, but currently it is
+        if not asyncore.socket_map:
+            error("oops, no listener, exiting")
         time.sleep(0.01)                # FIX: failsafe
 
     info("exiting")
