@@ -923,7 +923,7 @@ def main(args=sys.argv[1:]):
           'proton mass' : PROTON_MASS,
           'modification conjuncts' : mod_conjunct_triples,
           'argv' : sys.argv }
-    with contextlib.closing(open(result_fn, 'w')) as result_file:
+    with contextlib.closing(open(result_fn, 'wb')) as result_file:
         pk = pickle.Pickler(result_file, pickle.HIGHEST_PROTOCOL)
         pk.fast = 1                     # stipulate no circular references
         pk.dump(d)

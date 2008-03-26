@@ -33,7 +33,7 @@ __copyright__ = '''
 
 
 import contextlib
-import cPickle
+import cPickle as pickle
 import optparse
 import os.path
 from pprint import pprint
@@ -149,8 +149,8 @@ def main(args=sys.argv[1:]):
 
     # spectrum name -> match list/spectrum info
     matches = {}
-    with contextlib.closing(open(result_fn_0)) as r_file:
-        r0 = cPickle.load(r_file)
+    with contextlib.closing(open(result_fn_0), 'rb') as r_file:
+        r0 = pickle.load(r_file)
     total_comparisons = r0['total comparisons']
     keep = r0['parameters']['best_result_count']
     matches = r0['matches']
@@ -158,8 +158,8 @@ def main(args=sys.argv[1:]):
         print >> sys.stderr, "loaded", result_fn_0
 
     for additional_result_fn in result_fn_1_N:
-        with contextlib.closing(open(additional_result_fn)) as r1_file:
-            r1 = cPickle.load(r1_file)
+        with contextlib.closing(open(additional_result_fn), 'rb') as r1_file:
+            r1 = pickle.load(r1_file)
         check_consistency(r0, r1)
         total_comparisons += r1['total comparisons']
         keep = max(keep, r1['parameters']['best_result_count'])
@@ -170,8 +170,8 @@ def main(args=sys.argv[1:]):
 
     r0['matches'] = matches
     r0['total comparisons'] = total_comparisons
-    with contextlib.closing(open(output_fn, 'w')) as output_file:
-        pk = cPickle.Pickler(output_file, cPickle.HIGHEST_PROTOCOL)
+    with contextlib.closing(open(output_fn, 'wb')) as output_file:
+        pk = pickle.Pickler(output_file, pickle.HIGHEST_PROTOCOL)
         pk.fast = 1                     # stipulate no circular references
         pk.dump(r0)
     if options.verbose:
