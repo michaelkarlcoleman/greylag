@@ -316,6 +316,7 @@ def p_proportion(x): return 0 <= x <= 1
 PARAMETER_INFO = {
     "databases" : (str, None),
     "mass_regimes" : (mass_regime_list, "MONO"),
+    "mass_regime_debug_delta" : (float, 0),
     "pervasive_mods" : (fixed_mod_list, ""),
     "potential_mods" : (potential_mod_list, ""),
     "potential_mod_limit" : (int, 2, p_nonnegative),

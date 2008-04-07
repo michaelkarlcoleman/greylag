@@ -376,6 +376,16 @@ matches output for each spectrum.
 The default value is ``5``.
 
 
+``mass_regime_debug_delta``
+---------------------------
+
+This parameter is only for debugging use.  The value is a float and will be
+added to the mass of every residue, across all mass regimes.  The purpose is
+to support certain potential modification test scenarios.
+
+The default value is ``0``, which gives normal behavior.
+
+
 
 Detailed Command Descriptions
 -----------------------------

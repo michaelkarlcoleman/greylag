@@ -202,7 +202,8 @@ def initialize_spectrum_parameters(options, GLP, mass_regimes, fixed_mod_map):
             for r in RESIDUES_W_BRACKETS:
                 m = 0
                 if r in RESIDUES:
-                    m = formula_mass(RESIDUE_FORMULA[r], atmass)
+                    m = (formula_mass(RESIDUE_FORMULA[r], atmass)
+                         + GLP["mass_regime_debug_delta"])
                 if n == 1:
                     regime_manifest.append((rn, r, m))
                 rmod = fixed_mod_map.get(r)
