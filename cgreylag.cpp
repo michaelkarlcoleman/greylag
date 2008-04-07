@@ -821,8 +821,9 @@ search_run(const search_context &context, const sequence_run &sequence_run,
 	  p_mass -= fixed_parent_mass[run_sequence[i]];
       p_end = end_index;
 
-
-      //std::cerr << "peptide: " << std::string(run_sequence, begin_index, peptide_size) << " p_mass: " << p_mass << std::endl;
+//       std::cerr << "peptide: "
+// 		<< std::string(run_sequence, begin_index, peptide_size)
+// 		<< " p_mass: " << p_mass << std::endl;
 
       int status = search_peptide(context, p_mass, m, run_sequence,
 				  begin_index, peptide_size, stats,
