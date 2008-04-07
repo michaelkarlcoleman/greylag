@@ -173,6 +173,10 @@ def initialize_spectrum_parameters(options, GLP, mass_regimes, fixed_mod_map):
     fixed_mod_map maps, for example, 'M' to (1, 'O', False, 'M', 'oxidation').
     """
 
+    # This function can be called multiple times to reinitialize for a new
+    # search, though probably everything else (previous matches) ought to be
+    # "forgotten" at that point, too.
+
     # This is the size of vectors that are indexed by residues (A-Z) or
     # special characters ('[]').
     RESIDUE_LIMIT = max(ord(c) for c in 'Z[]') + 1
@@ -184,6 +188,11 @@ def initialize_spectrum_parameters(options, GLP, mass_regimes, fixed_mod_map):
     regime_manifest = []
 
     global MASS_REGIME_ATOMIC_MASSES
+    # clear previous state
+    MASS_REGIME_ATOMIC_MASSES = []
+    CP.parent_mass_regime.clear()
+    CP.fragment_mass_regime.clear()
+
     for rn, regime_pair in enumerate(mass_regimes):
         assert len(regime_pair) == 2    # parent and fragment
         info('mass regime: %s', regime_pair)
