@@ -125,8 +125,67 @@ Specific Implementation technologies and tradeoffs
 * SWIG vs Python extension vs ctypes vs Pyrex
 
 
+Greylag versus other Search Programs
+------------------------------------
+
+
+Generation of Peptide Modification Combinations and Limiting Search Depth
+=========================================================================
+
+Greylag generates peptide modification combinations using depth first search
+(DFS), which means that memory usage is minimal (logarithmic).  The only real
+limit is run time, which is necessarily exponential with respect to search
+depth.  Greylag limits search depth by explicitly limiting the total number of
+modifications (modified residues) per peptide.
+
+Greylag will not generate modified combinations for which there is no spectrum
+having a suitable precursor mass.  So, for example, in considering a peptide
+'AAAAAAAAAXXXXXXXDDDDDDDDD' with (say) mass 1200.00 and possible modifications
+A+10 and D+9, the modified mass would be 1286.00 for five +10 and four +9
+modifications.  If there are no actual spectra that have precursor mass close
+to 1286.00, greylag will not attempt to generate the specific modification
+combinations (*e.g.*, 'AA*AA*A*A*AAA*XXXXXXXD%DD%D%DDDDD%'), thus saving some
+running time.  Of the alternative programs, only SEQUEST appears to implement
+a similar optimization.
+
+SEQUEST appears also to use DFS and limits search depth in a similar way,
+except that the depth of each kind (*e.g.*, oxidation) of modification is
+limited separately.  The version of SEQUEST we have ("v.27 (rev.9)") can
+simultaneously search at most three kinds of modification.
+
+X!Tandem also uses DFS, using a recursion-free "state engine" approach that
+also uses minimal memory.  Rather than explicitly limiting search depth, it
+places a limit (of 4096) on the number of combinations searched for each
+peptide.  In the simple case, this means that X!Tandem will consider at most
+12 modifications per peptide.  (It's not clear to us how terminal
+modifications and other advanced modifications such as point mutations figure
+in this.)
+
+This limit is not a parameter of the program and appears to be undocumented,
+so users may not realize that larger modification sets are silently ignored.
+Also, since the limit cannot be adjusted (short of recompiling the program),
+X!Tandem cannot do more shallow--and therefore much faster--searches such as
+searching for peptides with at most two methionine oxidations.  (Balancing this
+somewhat, X!Tandem does provide a unique "refinement" algorithm, but that is
+orthogonal to the considerations of this section.)
+
+OMSSA appears to use breadth-first search on a per-peptide basis to generate
+modification combinations, and uses a combination limit similar to that of
+X!Tandem.  This means that it will use an amount of memory linear in the
+number of combinations, which will be exponential in search depth.  This would
+limit search to a depth of 25 or so on current hardware, but it's not clear
+whether this matters in practice.
+
+MyriMatch uses DFS and a depth limit like that of greylag.
+
+As a final detail, the implementations of X!Tandem, OMSSA, and MyriMatch
+appear to also limit the maximum number of modifications per peptide to the
+machine word size: 32 on a 32-bit machine and 64 on a 64-bit machine.  (The
+corresponding limit for greylag is at least one billion.)
 
 
 Shotgun Proteomics Principles
 -----------------------------
+
+
 
