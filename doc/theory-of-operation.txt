@@ -74,7 +74,7 @@ Greylag's search algorithm looks like this
 8.  Choose the C-terminal endpoint, determining the candidate peptide. Once
     this is done, the mass of the modified candidate peptide is fixed, as we
     know the peptide residues and the number of each kind of modification.
-9.  Determine the set of candidate spectra (if any) that have a precursor
+9.  Choose, one by one, the candidate spectra (if any) that have a precursor
     mass close enough to the mass of the modified candidate peptide.
 10.  Choose, one by one, the potential modifications for each candidate
      peptide residue position, subject to the choices made in previous steps.
@@ -90,16 +90,17 @@ great benefit because high-level code is much easier to write, understand,
 make correct, debug, and modify.
 
 For a typical search, in the traditional algorithm described above, step 2 and
-all subsequent steps will be executed millions of times, thus pretty much
-requiring a low-level implementation.
+all subsequent steps will be executed millions of times, thus requiring a
+low-level implementation.
 
 In the greylag approach, steps 1 through 5 will be executed a relatively small
-number of times, perhaps a few thousand times (though typically far fewer).
-This means that they are not particularly time-critical, and can be
-implemented in high-level code.  Steps 6 through 11 must still be implemented
-in a low-level language, but the code required is smaller and simpler because
-part of the work has already been done in the high-level portion.  In fact,
-the vast proportion of run time is spent in step 11 for most searches.
+number of times, perhaps as much as few thousand times for complex searches,
+but far fewer for basic searches.  This means that they are not particularly
+time-critical, and can be implemented in high-level code.  Steps 6 through 11
+must still be implemented in a low-level language, but the code required is
+smaller and simpler because part of the work has already been done in the
+high-level portion.  In fact, the vast proportion of run time is spent in step
+11 for most searches.
 
 There are several other minor advantages to the inside-out approach.  Because
 a number of common calculations are being lifted out of the inner loop, it's
@@ -112,9 +113,9 @@ most likely combinations will have been searched first.
 
 There is one potential disadvantage to the inside-out approach, which is that
 more total work will be done by the modification assignment performed in step
-11, versus what happens in step 4 of the straightforward approach.  This seems
+10, versus what happens in step 4 of the straightforward approach.  This seems
 not to be a problem in practice, probably because the cost of the final
-scoring step tends to dwarf the costs of the previous steps.
+scoring in step 11 tends to dwarf the costs of the previous steps.
 
 
 Specific Implementation technologies and tradeoffs

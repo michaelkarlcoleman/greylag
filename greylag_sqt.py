@@ -34,7 +34,7 @@ __copyright__ = '''
 
 from collections import defaultdict
 import contextlib
-import cPickle
+import cPickle as pickle
 import math
 import optparse
 import os.path
@@ -264,8 +264,8 @@ def main(args=sys.argv[1:]):
         parser.print_help()
         sys.exit(1)
 
-    with contextlib.closing(open(args[0])) as r_file:
-        r = cPickle.load(r_file)
+    with contextlib.closing(open(args[0]), 'rb') as r_file:
+        r = pickle.load(r_file)
 
     if options.dump:
         pprint(r)
