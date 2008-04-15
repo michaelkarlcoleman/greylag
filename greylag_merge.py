@@ -149,7 +149,7 @@ def main(args=sys.argv[1:]):
 
     # spectrum name -> match list/spectrum info
     matches = {}
-    with contextlib.closing(open(result_fn_0), 'rb') as r_file:
+    with contextlib.closing(open(result_fn_0, 'rb')) as r_file:
         r0 = pickle.load(r_file)
     total_comparisons = r0['total comparisons']
     keep = r0['parameters']['best_result_count']
@@ -158,7 +158,7 @@ def main(args=sys.argv[1:]):
         print >> sys.stderr, "loaded", result_fn_0
 
     for additional_result_fn in result_fn_1_N:
-        with contextlib.closing(open(additional_result_fn), 'rb') as r1_file:
+        with contextlib.closing(open(additional_result_fn, 'rb')) as r1_file:
             r1 = pickle.load(r1_file)
         check_consistency(r0, r1)
         total_comparisons += r1['total comparisons']

@@ -264,7 +264,7 @@ def main(args=sys.argv[1:]):
         parser.print_help()
         sys.exit(1)
 
-    with contextlib.closing(open(args[0]), 'rb') as r_file:
+    with contextlib.closing(open(args[0], 'rb')) as r_file:
         r = pickle.load(r_file)
 
     if options.dump:
