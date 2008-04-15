@@ -364,7 +364,7 @@ def calculate_combined_thresholds(options, z_scores):
                 reals, decoys = thresholds[charge][2], thresholds[charge][3]
                 total_reals += reals
                 total_decoys += decoys
-                print ("%+d: score %s, delta %s -> %s real ids, %s decoys"
+                print ("%+d: score %f, delta %.6f -> %s real ids, %s decoys"
                        " (fdr %.4f)"
                        % (charge, score_threshold, delta_threshold,
                           reals, decoys,
