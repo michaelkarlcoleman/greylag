@@ -148,12 +148,12 @@ and reasonably recent versions of g++ and libstdc++, and make.  Recent Linux
 distributions will likely have sufficiently new versions, but you may have to
 install some of them.  Under Ubuntu or Debian, this should suffice::
 
-    $ sudo apt-get install python swig g++ make
+    $ sudo apt-get install python{,-dev} swig g++ make
 
 If you also want to run the test suite and build the documentation, add::
 
-    $ sudo apt-get install python-nose python-profiler python-docutils
-           texlive-latex-base
+    $ sudo apt-get install python-{nose,profiler,docutils}
+    $ sudo apt-get install texlive-latex-{extra,recommended} texlive-lang-french
 
 Greylag was developed and tested on GNU/Linux, but in principle it should work
 (perhaps with minor modifications) under other flavors of Unix, Mac OS X, and
