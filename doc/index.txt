@@ -25,9 +25,8 @@ Features
 --------
 
 - **No arbitrary limits:** Greylag can search any number of modifications
-  simultaneously, subject only to user patience.  It can also simultaneously
-  search multiple potential modifications on the same residue (*e.g.*, K+14,
-  K+16, K+28).
+  simultaneously, and can simultaneously search multiple potential
+  modifications on the same residue (*e.g.*, K+14, K+16, K+28).
 
 - **User-friendly notation:** The search configuration file has a simple,
   easy-to-read format.  Here is a typical configuration file for LCQ spectra::
@@ -106,8 +105,12 @@ Features
 
 - **Emphasis on correctness:** Greylag carefully checks the parameters
   specified in the search configuration file and on the command line, and also
-  the format of the spectrum files.  The goal is to never allow errors to pass
-  silently.
+  the format of the spectrum files.
+
+  More generally, greylag is designed to never crash or silently give
+  incorrect results with respect to its input.  Depending on its input, it may
+  run "forever" or exceed available memory, but if it completes the results
+  will be correct.  (This is the goal--bug reports are welcome.)
 
   Greylag's source code has been carefully checked for errors, and its test
   suite includes dozens of unit tests.
