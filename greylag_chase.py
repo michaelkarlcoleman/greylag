@@ -435,6 +435,8 @@ def set_parameters(arg, options):
     mod_conjunct_triples = get_mod_conjunct_triples(GLP["potential_mods"],
                                                     GLP["potential_mod_limit"],
                                                     GLP["mass_regimes"])
+    if len(mod_conjunct_triples) >= sys.maxint-8:
+        error("too many conjunct triples")
     GLP[">mod_conjunct_triples"] = mod_conjunct_triples
 
     info("%s unique potential modification conjuncts",

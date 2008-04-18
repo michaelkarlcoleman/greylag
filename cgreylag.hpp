@@ -278,12 +278,13 @@ public:
 
 
 struct mass_trace_item {
-  int position;
-  double delta;
+  int position;			// residue position within peptide
+  int conjunct_item_index; 	// index within conjunct specified by conjunct_index
 
   // grrrr
   bool operator==(const mass_trace_item &x) const {
-    return this->position == x.position and this->delta == x.delta;
+    return this->position == x.position
+      and this->conjunct_item_index == x.conjunct_item_index;
   }
 };
 

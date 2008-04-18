@@ -646,7 +646,7 @@ choose_residue_mod(const search_context &context, match &m,
 	  continue;
 	db_remaining[db_index] -= 1;
 	mass_list[i] = save_pos_mass + context.delta_bag_delta[db_index];
-	mtl.item.delta = context.delta_bag_delta[db_index];
+	mtl.item.conjunct_item_index = db_index;
 	choose_residue_mod(context, m, &mtl, mass_list, candidate_spectra,
 			   stats, db_remaining,
 			   remaining_positions_to_choose-1, i+1);
