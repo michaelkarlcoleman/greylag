@@ -367,23 +367,50 @@ def search_adjusting_fdr(options, z_scores):
         fdr_result = 1 - PPV(total_reals, total_decoys)
         return fdr_result, thresholds, charges, total_reals, total_decoys
 
-    low_fdr, high_fdr = options.fdr, min(2*options.fdr, 0.4999999999999)
-    low_results = try_fdr(low_fdr)
-    high_results = try_fdr(high_fdr)
+    # FIX: Does this generate enough additional real ids to be worth the
+    # computational cost?
+    FDR_INFLATION_FACTOR = 1.1
+    assert FDR_INFLATION_FACTOR > 1
+
+    low_fdr, high_fdr = options.fdr, options.fdr * FDR_INFLATION_FACTOR
+    low_results, high_results = try_fdr(low_fdr), try_fdr(high_fdr)
     initial_total_reals = low_results[3]
+
+    for i in range(32):
+        if high_fdr >= 0.5:
+            break
+        high_results = try_fdr(high_fdr)
+        if options.debug:
+            print ("adjust infl fdr %s %s -> %s"
+                   % (low_fdr, high_fdr, high_results[0]))
+        if high_results[0] >= options.fdr:
+            break
+        low_fdr, low_results = high_fdr, high_results
+        high_fdr *= FDR_INFLATION_FACTOR
+    else:
+        warn("FDR adjustment inflation failed")
 
     #    #
     #    l        g            h
     #   l       g         h
     #    #
 
+    CONVERGENCE_FACTOR = 0.01
     for i in range(32):
-        if abs(high_fdr - low_fdr) <= 0.01*options.fdr:
+        assert high_fdr >= low_fdr
+        if (high_fdr - low_fdr) <= CONVERGENCE_FACTOR*options.fdr:
             break
         guess_fdr = (high_fdr + low_fdr) / 2.0
+
+        # interpolation isn't always better?
+        #guess_fdr = (low_fdr
+        #             + (((options.fdr - low_results[0])
+        #                 / (high_results[0] - low_results[0]))
+        #                * (high_fdr - low_fdr)))
+
         guess_results = try_fdr(guess_fdr)
         if options.debug:
-            print ("%s %s %s -> %s"
+            print ("adjust fdr %s %s %s -> %s"
                    % (low_fdr, guess_fdr, high_fdr, guess_results[0]))
         if guess_results[0] > options.fdr:
             high_fdr, high_results = guess_fdr, guess_results
