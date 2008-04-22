@@ -367,14 +367,14 @@ def calculate_combined_thresholds(options, z_scores):
                 print ("%+d: score %f, delta %.6f -> %s real ids, %s decoys"
                        " (fdr %.4f)"
                        % (charge, score_threshold, delta_threshold,
-                          reals, decoys,
-                          1 - PPV(thresholds[charge][2],
-                                  thresholds[charge][3])))
+                          reals, decoys, 0.5 * (1 - PPV(reals, decoys))))
         else:
             warn("could not calculate thresholds for %+d" % charge)
 
     if not options.list_peptides:
-        print "# total: %s real ids, %s decoys" % (total_reals, total_decoys)
+        print ("# total: %s real ids, %s decoys (fdr %.4f)"
+               % (total_reals, total_decoys,
+                  0.5 * (1 - PPV(total_reals, total_decoys))))
 
     return thresholds
 
@@ -455,8 +455,8 @@ def main(args=sys.argv[1:]):
 
     if options.debug:
         print ('%s passing spectra, of which %s are not decoys'
-               % (len(spectrum_scores), sum(len(z_scores[x])
-                                            for x in z_scores)))
+               % (sum(1 for x in spectrum_scores if x),
+                  sum(len(z_scores[x]) for x in z_scores)))
 
     thresholds = calculate_combined_thresholds(options, z_scores)
 
