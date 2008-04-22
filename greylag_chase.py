@@ -169,15 +169,7 @@ def generate_delta_bag_counts(mod_count, conjunct_length):
                                 [0] * conjunct_length)
 
 
-def set_context_conjuncts(context, mass_regime_index, N_cj, C_cj, R_cj):
-    assert len(N_cj) < 1 and len(C_cj) < 1, "not yet implemented"
-
-    context.N_delta = 0
-    if N_cj:
-        context.N_delta = N_cj[0][6][mass_regime_index][1]
-    context.C_delta = 0
-    if C_cj:
-        context.C_delta = C_cj[0][6][mass_regime_index][1]
+def set_context_conjuncts(context, mass_regime_index, R_cj):
     context.delta_bag_lookup.clear()
     context.delta_bag_lookup.resize(ord('Z')+1)
     context.delta_bag_delta.clear()
@@ -209,7 +201,7 @@ def search_all(context, mod_limit, mod_conjunct_triples, score_statistics):
                     if pca_res and N_cj:
                         continue    # mutually exclusive, for now
                     context.conjunct_index = cji
-                    set_context_conjuncts(context, mr_index, N_cj, C_cj, R_cj)
+                    set_context_conjuncts(context, mr_index, R_cj)
                     debug("cj_triple: N=%s C=%s R=%s", N_cj, C_cj, R_cj)
                     for delta_bag in generate_delta_bag_counts(mod_count,
                                                                len(R_cj)):
