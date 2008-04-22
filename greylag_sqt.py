@@ -149,31 +149,24 @@ def print_regime_manifest(f, regime_manifest):
         print >> f, "R\t%s\t%s\t%s" % (regime_no, residue, mass)
 
 
-def generate_marked_sequence(match_name_map, mass_trace, peptide_sequence):
+def generate_marked_sequence(marks, peptide_sequence):
     """Yield the characters in a marked version of peptide_sequence.
 
-    >>> ''.join(generate_marked_sequence({}, [], 'ASDF'))
+    >>> ''.join(generate_marked_sequence({}, 'ASDF'))
     'ASDF'
-    >>> ''.join(generate_marked_sequence({('S', 80) : ('phosphorylation', '*')},
-    ...                                  [{'position' : 1, 'delta' : 80}],
-    ...                                  'ASDF'))
+    >>> ''.join(generate_marked_sequence({ 1 : '*' }, 'ASDF'))
     'AS*DF'
 
     """
 
     # FIX: handle [ ]
-    trace = sorted(mass_trace,
-                   key=lambda x: (x['position'], x['delta']), reverse=True)
-    for n, r in enumerate(peptide_sequence):
-        yield r
-        while trace and trace[-1]['position'] == n:
-            mark = match_name_map[(r, trace[-1]['delta'])][1]
-            if mark:                    # None if no mark char for this mod
-                yield mark
-            trace.pop()
+    for n, c in enumerate(peptide_sequence):
+        yield c
+        yield marks.get(n, '')
 
 
-def print_spectrum(f, mod_name_map, sp_name, sp_matches, enhanced=False):
+def print_spectrum(f, modification_conjucts, sp_name, sp_matches,
+                   enhanced=False):
     """Print the lines (S/M/L/A*) associated with the given spectrum."""
     spectrum, sp_best_matches = sp_matches
 
@@ -199,12 +192,26 @@ def print_spectrum(f, mod_name_map, sp_name, sp_matches, enhanced=False):
         rank = rank_map[score]
         score_delta = (best_score - score) / best_score
 
-        match_name_map = mod_name_map[(match.get('mass_regime_index', 0),
-                                       match.get('conjunct_index', 0))]
-        marked_sequence \
-            = ''.join(generate_marked_sequence(match_name_map,
-                                               match.get('mass_trace', []),
-                                               match['peptide_sequence']))
+        mass_regime_index = match.get('mass_regime_index', 0)
+        conjunct_index = match.get('conjunct_index', 0)
+
+        am_lines = []
+        marks = {}
+        for mt in match.get('mass_trace', []):
+            conjunct_item = modification_conjucts[conjunct_index][2][mt['conjunct_item_index']]
+            mark = conjunct_item[5]
+            if mark:
+                assert mt['position'] not in marks, "not yet implemented"
+                marks[mt['position']] = mark
+            if enhanced:
+                name = conjunct_item[4] or ''
+                delta = conjunct_item[6][mass_regime_index][1]
+                am_lines.append(["AM", mt['position'], round(delta, 8), name])
+
+        marked_sequence = match['peptide_sequence']
+        if marks:
+            marked_sequence = ''.join(generate_marked_sequence(marks,
+                                                               marked_sequence))
 
         # FIX: also need M lines for fixed mods, terminal mods, isotope mods
         # (N15), etc.
@@ -222,16 +229,12 @@ def print_spectrum(f, mod_name_map, sp_name, sp_matches, enhanced=False):
                                'U'])
 
         if enhanced:
-            if match.get('mass_regime_index', 0) != 0:
-                print >> f, "AR\t%s" % match['mass_regime_index']
+            if mass_regime_index != 0:
+                print >> f, "AR\t%s" % mass_regime_index
             if match.get('pca_delta', 0) != 0:
                 print >> f, "APCA\t%s" % match['pca_delta']
-            for mt in match.get('mass_trace', []):
-                name = (match_name_map[(match['peptide_sequence'][mt['position']],
-                                        mt['delta'])][0])
-                fs = ["AM", mt['position'], round(mt['delta'], 5),
-                      name if name else '']
-                print >> f, '\t'.join(str(v) for v in fs)
+            for am_line in sorted(am_lines):
+                print >> f, '\t'.join(str(v) for v in am_line)
 
         assert len(match['sequence_name']) == len(match['peptide_begin'])
         for sn, pb in zip(match['sequence_name'], match['peptide_begin']):
@@ -277,18 +280,6 @@ def main(args=sys.argv[1:]):
     matches = r['matches'].items()
     matches.sort()
 
-    # (regime index, conjunct index) -> (residue, delta)
-    #                                                -> (mod name, mod marker)
-    mod_name_map = defaultdict(dict)
-    for regime in range(len(r['mass regime atomic masses'])):
-        for cj_n, (N_cj, C_cj, R_cj) in enumerate(r['modification conjuncts']):
-            assert not N_cj and not C_cj, "not yet implemented"
-            for cj in R_cj:
-                for res in cj[3]:
-                    mod_name_map[(regime, cj_n)][(res, cj[6][regime][1])] \
-                        = (cj[4], cj[5])
-    #pprint(mod_name_map.items())
-
     for spectrum_n, spectrum_fn in enumerate(spectrum_fns):
         assert os.path.dirname(spectrum_fn) == ''
         sqt_fn = os.path.splitext(spectrum_fn)[0] + '.sqt'
@@ -297,7 +288,8 @@ def main(args=sys.argv[1:]):
             print_regime_manifest(sqtf, r['mass regime manifest'])
             for match in matches:
                 if match[0][0] == spectrum_n:
-                    print_spectrum(sqtf, mod_name_map, match[0][1], match[1],
+                    print_spectrum(sqtf, r['modification conjuncts'],
+                                   match[0][1], match[1],
                                    options.enhanced_output)
 
 
