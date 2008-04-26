@@ -208,6 +208,7 @@ def get_spectrum_info(decoy_prefix, minimum_trypticity, spectra):
         current_delta = None
         current_peptide_trypticity = None
         current_state = set()
+        current_loci = set()
         highest_rank_seen = 0
         best_peptide_seen = None
         current_peptide = None
@@ -259,7 +260,9 @@ def get_spectrum_info(decoy_prefix, minimum_trypticity, spectra):
                 break
 
             for L_line in L_lines:
-                if L_line.split('\t')[1].startswith(decoy_prefix):
+                locus = L_line.split('\t')[1]
+                current_loci.add(locus)
+                if locus.startswith(decoy_prefix):
                     current_state.add('decoy')
                 else:
                     current_state.add('real')
@@ -277,7 +280,8 @@ def get_spectrum_info(decoy_prefix, minimum_trypticity, spectra):
                                   current_score, current_delta, current_state,
                                   current_peptide,
                                   strip_mods(current_peptide),
-                                  actual_mass, actual_mass-predicted_mass))
+                                  actual_mass, actual_mass-predicted_mass,
+                                  frozenset(current_loci)))
 
     return spectrum_info
 
@@ -376,13 +380,92 @@ def calculate_combined_thresholds(fdr, options, spectrum_info):
     return thresholds
 
 
+def flatten(gen_of_gens):
+    for gen in gen_of_gens:
+        for item in gen:
+            yield item
+
+
+def redundancy_filter(options, spectrum_info):
+    if options.minimum_spectra_per_locus < 2:
+        return spectrum_info[:]
+
+    # si = (spectrum_no, spectrum_name, charge, score, delta, state,
+    #       peptide, stripped_peptide, actual_mass, mass_delta, loci)
+
+    Rs = sorted(flatten(((locus, si) for locus in si[10])
+                        for si in spectrum_info))
+
+    result = set()
+    for locus, locus_Rs in itertools.groupby(Rs, key=lambda x: x[0]):
+        list_locus_si = [ si for locus, si in locus_Rs ]
+        if len(list_locus_si) < options.minimum_spectra_per_locus:
+            continue
+        result |= set(list_locus_si)
+
+    return sorted(result)
+
+
+def saturate(spectrum_info, saturation_spectrum_info):
+    peptides = set(si[7] for si in spectrum_info)
+    # FIX: does this actually need to be sorted?
+    sat_si = sorted(ssi for ssi in saturation_spectrum_info
+                    if ssi[7] in peptides)
+    print ("saturation (w/%s): %s -> %s"
+           % (len(saturation_spectrum_info), len(spectrum_info), len(sat_si)))
+    return sat_si
+
+
+def debug_fdr(si):
+    print len(si), sum(1 for x in si if x[5] == 'real'), sum(1 for x in si if x[5] == 'decoy')
+
+
+def try_fdr(fdr_guess, options, remaining_spectrum_info, saturation_spectrum_info=None):
+    print "try_fdr:", fdr_guess
+    debug_fdr(remaining_spectrum_info)
+
+    remaining_spectrum_info_1 = None
+    while True:
+        thresholds = calculate_combined_thresholds(fdr_guess, options,
+                                                   remaining_spectrum_info)
+        remaining_spectrum_info = [ si for si in remaining_spectrum_info
+                                    if (si[2] in thresholds
+                                        and si[3] >= thresholds[si[2]][0]
+                                        and si[4] >= thresholds[si[2]][1]) ]
+        debug_fdr(remaining_spectrum_info)
+        if remaining_spectrum_info == remaining_spectrum_info_1:
+            break
+        remaining_spectrum_info_1 = redundancy_filter(options,
+                                                      remaining_spectrum_info)
+        debug_fdr(remaining_spectrum_info_1)
+        if len(remaining_spectrum_info_1) == len(remaining_spectrum_info):
+            break
+        remaining_spectrum_info = remaining_spectrum_info_1
+
+    if saturation_spectrum_info:
+        remaining_spectrum_info_1 = saturate(remaining_spectrum_info_1,
+                                             saturation_spectrum_info)
+        debug_fdr(remaining_spectrum_info_1)
+
+    total_reals = sum(1 for si in remaining_spectrum_info_1
+                      if si[5] == 'real')
+    total_decoys = sum(1 for si in remaining_spectrum_info_1
+                       if si[5] == 'decoy')
+    #total_reals = sum(thresholds[charge][2] for charge in thresholds)
+    #total_decoys = sum(thresholds[charge][3] for charge in thresholds)
+    fdr_result = 1 - PPV(total_reals, total_decoys)
+
+    return (fdr_result, thresholds, total_reals, total_decoys,
+            remaining_spectrum_info_1)
+
+
 # FIX: at various points here we may have a goal of a minimum number of real
 # ids, based on goal FDR or whatever.  We can pass this inward to do
 # branch-and-bound, which may save time.
 
 # FIX: this is now somewhat slower than before--any way to speed it up?
 
-def search_adjusting_fdr(options, spectrum_info):
+def search_adjusting_fdr(options, spectrum_info_0):
     """Repeatedly calculate thresholds while adjusting FDR, looking for an FDR
     guess that results in an appropriate goal FDR.  This might be needed
     because the thresholds found for per-charge FDRs will be saturated or have
@@ -390,38 +473,35 @@ def search_adjusting_fdr(options, spectrum_info):
     a list of items from spectrum_info that are considered "valid".
     """
 
-    def try_fdr(fdr_guess):
-        thresholds = calculate_combined_thresholds(fdr_guess, options,
-                                                   spectrum_info)
-        total_reals = sum(thresholds[charge][2] for charge in thresholds)
-        total_decoys = sum(thresholds[charge][3] for charge in thresholds)
-        fdr_result = 1 - PPV(total_reals, total_decoys)
-        return fdr_result, thresholds, total_reals, total_decoys
-
     # FIX: Does this generate enough additional real ids to be worth the
     # computational cost?
-    FDR_INFLATION_FACTOR = 1.1
+    #FDR_INFLATION_FACTOR = 1.1
+    FDR_INFLATION_FACTOR = 2
     assert FDR_INFLATION_FACTOR > 1
 
+    spectrum_info = redundancy_filter(options, spectrum_info_0)
+
     low_fdr = options.fdr
-    low_results = try_fdr(low_fdr)
+    # FIX: spectrum_info_0 has already been filtered for tryptic status
+    # Should we use an unfiltered set instead?
+    low_results = try_fdr(low_fdr, options, spectrum_info, spectrum_info_0)
 
     if options.adjust_fdr:
-        high_fdr = options.fdr * FDR_INFLATION_FACTOR
-        high_results = try_fdr(high_fdr)
+        high_fdr = min(1.0, options.fdr * FDR_INFLATION_FACTOR)
+        high_results = try_fdr(high_fdr, options, spectrum_info,
+                               spectrum_info_0)
         initial_total_reals = low_results[2]
 
         for i in range(32):
-            if high_fdr >= 0.5:
-                break
-            high_results = try_fdr(high_fdr)
             if options.debug:
                 print ("adjust infl fdr %s %s -> %s"
                        % (low_fdr, high_fdr, high_results[0]))
             if high_results[0] >= options.fdr:
                 break
             low_fdr, low_results = high_fdr, high_results
-            high_fdr *= FDR_INFLATION_FACTOR
+            high_fdr = min(1.0, high_fdr * FDR_INFLATION_FACTOR)
+            high_results = try_fdr(high_fdr, options, spectrum_info,
+                                   spectrum_info_0)
         else:
             warn("FDR adjustment inflation failed")
 
@@ -431,6 +511,7 @@ def search_adjusting_fdr(options, spectrum_info):
         #    #
 
         CONVERGENCE_FACTOR = 0.01
+        assert CONVERGENCE_FACTOR > 0
         for i in range(32):
             assert high_fdr >= low_fdr
             if (high_fdr - low_fdr) <= CONVERGENCE_FACTOR*options.fdr:
@@ -443,7 +524,8 @@ def search_adjusting_fdr(options, spectrum_info):
             #                 / (high_results[0] - low_results[0]))
             #                * (high_fdr - low_fdr)))
 
-            guess_results = try_fdr(guess_fdr)
+            guess_results = try_fdr(guess_fdr, options, spectrum_info,
+                                    spectrum_info_0)
             if options.debug:
                 print ("adjust fdr %s %s %s -> %s"
                        % (low_fdr, guess_fdr, high_fdr, guess_results[0]))
@@ -454,18 +536,14 @@ def search_adjusting_fdr(options, spectrum_info):
         else:
             warn("FDR adjustment convergence failed")
 
-    fdr_result, thresholds, total_reals, total_decoys = low_results
-
-    valid_spectrum_info = [ si for si in spectrum_info
-                            if (si[2] in thresholds
-                                and si[3] >= thresholds[si[2]][0]
-                                and si[4] >= thresholds[si[2]][1]) ]
+    (fdr_result, thresholds, total_reals,
+     total_decoys, valid_spectrum_info) = low_results
 
     if options.list_peptides:
         valid_spectrum_info.sort(key=lambda x: x[1])
         for (spectrum_no, spectrum_name, charge, score, delta, state,
              peptide, stripped_peptide, actual_mass,
-             mass_delta) in valid_spectrum_info:
+             mass_delta, loci) in valid_spectrum_info:
             print ("%+d %s %s %s %.8f %.8f"
                    % (charge, spectrum_name, state, peptide, actual_mass,
                       mass_delta))
@@ -513,12 +591,12 @@ def main(args=sys.argv[1:]):
        default='0', dest="minimum_trypticity",
        help="drop peptides with too few tryptic ends"
        " (2=fully tryptic, 1=semi-tryptic, 0=any)", metavar="TRYPTICITY")
-    DEFAULT_MINIMUM_PEPTIDES_PER_LOCUS = 1
-    pa("-p", "--minimum-peptides-per-locus", dest="minimum_peptides_per_locus",
-       type="int", default=DEFAULT_MINIMUM_PEPTIDES_PER_LOCUS,
-       help="only loci with this level of peptide coverage are included, and"
-       " peptides not associated with such a locus are excluded"
-       " [default=%s]" % DEFAULT_MINIMUM_PEPTIDES_PER_LOCUS,
+    DEFAULT_MINIMUM_SPECTRA_PER_LOCUS = 1
+    pa("-p", "--minimum-spectra-per-locus", dest="minimum_spectra_per_locus",
+       type="int", default=DEFAULT_MINIMUM_SPECTRA_PER_LOCUS,
+       help="only loci with at least this many spectra are included, and"
+       " spectra not associated with such a locus are excluded"
+       " [default=%s]" % DEFAULT_MINIMUM_SPECTRA_PER_LOCUS,
        metavar="COUNT")
     #pa("--graph", dest="graph",
     #   help='create distribution graphs, using the specified prefix',
@@ -541,7 +619,7 @@ def main(args=sys.argv[1:]):
         print __copyright__
         sys.exit(0)
 
-    if len(args) < 1 or options.minimum_peptides_per_locus < 0:
+    if len(args) < 1 or options.minimum_spectra_per_locus < 0:
         parser.print_help()
         sys.exit(1)
 
@@ -567,7 +645,7 @@ def main(args=sys.argv[1:]):
     if options.debug:
         print ('%s passing spectra, of which %s are not decoys'
                % (len(spectrum_info),
-                  sum(1 for si in spectrum_info if si[4] == 'real')))
+                  sum(1 for si in spectrum_info if si[5] == 'real')))
 
     # valid_spectrum_info is the list of spectrum_info elements that have been
     # chosen as "valid"
@@ -577,7 +655,7 @@ def main(args=sys.argv[1:]):
         valid_spectrum_info.sort()
         for (spectrum_no, spectrum_name, charge, score, delta, state,
              peptide, stripped_peptide, actual_mass,
-             mass_delta) in valid_spectrum_info:
+             mass_delta, loci) in valid_spectrum_info:
             print '#S', charge, score, delta
 
     if options.mark or options.kill:
