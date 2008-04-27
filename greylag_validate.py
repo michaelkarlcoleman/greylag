@@ -222,6 +222,7 @@ def get_spectrum_info(decoy_prefix, minimum_trypticity, spectra):
             peptide = M_fields[9].strip().upper() # e.g., A.B@CD*.-
             #delta = float(M_fields[4])
             #sp_rank = int(M_fields[2])
+            assert score >= 0 and rank >= 1
 
             if rank > highest_rank_seen + 1:
                 # ignore aux top SpRank hits, because delta confounds
@@ -402,8 +403,18 @@ def redundancy_filter(options, spectrum_info):
         if len(list_locus_si) < options.minimum_spectra_per_locus:
             continue
         result |= set(list_locus_si)
-
     return sorted(result)
+
+
+def saturate_by_prefix_suffix(spectrum_info, saturation_spectrum_info):
+    PREFIX_LENGTH = 16          # empirically seems good
+    peptide_prefixes = set(si[7][:PREFIX_LENGTH] for si in spectrum_info)
+    sat_si = sorted(ssi for ssi in saturation_spectrum_info
+                    if ssi[7][:PREFIX_LENGTH] in peptide_prefixes)
+
+    print ("saturation by prefix (w/%s): %s -> %s"
+           % (len(saturation_spectrum_info), len(spectrum_info), len(sat_si)))
+    return sat_si
 
 
 def saturate(spectrum_info, saturation_spectrum_info):
@@ -413,7 +424,8 @@ def saturate(spectrum_info, saturation_spectrum_info):
                     if ssi[7] in peptides)
     print ("saturation (w/%s): %s -> %s"
            % (len(saturation_spectrum_info), len(spectrum_info), len(sat_si)))
-    return sat_si
+    return saturate_by_prefix_suffix(sat_si, saturation_spectrum_info)
+    #return sat_si
 
 
 def debug_fdr(si):
@@ -476,7 +488,7 @@ def search_adjusting_fdr(options, spectrum_info_0):
     # FIX: Does this generate enough additional real ids to be worth the
     # computational cost?
     #FDR_INFLATION_FACTOR = 1.1
-    FDR_INFLATION_FACTOR = 2
+    FDR_INFLATION_FACTOR = 3
     assert FDR_INFLATION_FACTOR > 1
 
     spectrum_info = redundancy_filter(options, spectrum_info_0)
@@ -516,13 +528,21 @@ def search_adjusting_fdr(options, spectrum_info_0):
             assert high_fdr >= low_fdr
             if (high_fdr - low_fdr) <= CONVERGENCE_FACTOR*options.fdr:
                 break
-            guess_fdr = (high_fdr + low_fdr) / 2.0
+            #guess_fdr = (high_fdr + low_fdr) / 2.0
 
             # interpolation isn't always better?
             #guess_fdr = (low_fdr
             #             + (((options.fdr - low_results[0])
             #                 / (high_results[0] - low_results[0]))
             #                * (high_fdr - low_fdr)))
+
+            # Bias is empirically determined.  It's supposed to speed
+            # convergence, but should not affect the results.
+            # FIX: better method possible?
+            GUESS_BIAS = 1.15
+            prop = ((options.fdr - low_results[0])
+                    / (high_results[0] - low_results[0]))
+            guess_fdr = low_fdr + prop**GUESS_BIAS * (high_fdr - low_fdr)
 
             guess_results = try_fdr(guess_fdr, options, spectrum_info,
                                     spectrum_info_0)
@@ -539,28 +559,28 @@ def search_adjusting_fdr(options, spectrum_info_0):
     (fdr_result, thresholds, total_reals,
      total_decoys, valid_spectrum_info) = low_results
 
-    if options.list_peptides:
+    if options.output_peptides:
         valid_spectrum_info.sort(key=lambda x: x[1])
         for (spectrum_no, spectrum_name, charge, score, delta, state,
              peptide, stripped_peptide, actual_mass,
              mass_delta, loci) in valid_spectrum_info:
-            print ("%+d %s %s %s %.8f %.8f"
-                   % (charge, spectrum_name, state, peptide, actual_mass,
-                      mass_delta))
+            print >> options.output_peptides, \
+                ("%+d %s %s %s %.8f %.8f"
+                 % (charge, spectrum_name, state, peptide, actual_mass,
+                    mass_delta))
 
-    if not options.list_peptides:
-        for charge in sorted(thresholds.keys()):
-            score_threshold, delta_threshold = thresholds[charge][0:2]
-            reals, decoys = thresholds[charge][2:4]
-            print ("%+d: score %f, delta %.6f -> %s real ids, %s decoys"
-                   " (fdr %.4f)"
-                   % (charge, score_threshold, delta_threshold,
-                      reals, decoys, 0.5 * (1 - PPV(reals, decoys))))
-        print ("# total: %s real ids, %s decoys (fdr %.4f)"
-               % (total_reals, total_decoys, fdr_result / 2.0))
-        if options.adjust_fdr:
-            print ("# (FDR adjustment found %s more real ids)"
-                   % (total_reals - initial_total_reals))
+    for charge in sorted(thresholds.keys()):
+        score_threshold, delta_threshold = thresholds[charge][0:2]
+        reals, decoys = thresholds[charge][2:4]
+        print ("%+d: score %f, delta %.6f -> %s real ids, %s decoys"
+               " (fdr %.4f)"
+               % (charge, score_threshold, delta_threshold,
+                  reals, decoys, 0.5 * (1 - PPV(reals, decoys))))
+    print ("# total: %s real ids, %s decoys (fdr %.4f)"
+           % (total_reals, total_decoys, fdr_result / 2.0))
+    if options.adjust_fdr:
+        print ("# (FDR adjustment found %s more real ids)"
+               % (total_reals - initial_total_reals))
 
     return valid_spectrum_info
 
@@ -585,8 +605,9 @@ def main(args=sys.argv[1:]):
        " cases)")
     pa("-v", "--verbose", action="store_true", dest="verbose",
        help="be verbose")
-    pa("--list-peptides", action="store_true", dest="list_peptides",
-       help="print information about passing peptides")
+    pa("--output-peptides", dest="output_peptides",
+       help="output information about passing peptides to specified file"
+       " ('-' for stdout)", metavar="FILENAME")
     pa("-t", "--minimum-trypticity", type="choice", choices=('0', '1', '2'),
        default='0', dest="minimum_trypticity",
        help="drop peptides with too few tryptic ends"
@@ -632,6 +653,12 @@ def main(args=sys.argv[1:]):
     if options.reset_marks:
         write_spectra_to_files(reset_marks(generate_spectra_from_files(args)))
         return
+
+    if options.output_peptides:
+        if options.output_peptides == '-':
+            options.output_peptides = sys.stdout
+        else:
+            options.output_peptides = open(options.output_peptides, 'w')
 
     # This is to translate the "effective" FDR, which is the rate after decoys
     # have been stripped out of the results (which is what users really care
