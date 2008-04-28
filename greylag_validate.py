@@ -72,7 +72,6 @@ def generate_spectra_from_files(sqt_filenames):
     """
     for sqt_filename in sqt_filenames:
         with open(sqt_filename) as sqtf:
-            sqt_filename = os.path.splitext(sqt_filename)[0]
             H_lines = []
             S_line, ML_lines = None, []
             for line in sqtf:
@@ -202,7 +201,8 @@ def get_spectrum_info(decoy_prefix, minimum_trypticity, spectra):
         S_fields = S_line.split('\t')
         current_charge = int(S_fields[3])
         actual_mass = float(S_fields[6])
-        spectrum_name = '.'.join([sqt_filename] + S_fields[1:4])
+        spectrum_name = '.'.join([os.path.splitext(sqt_filename)[0]]
+                                 + S_fields[1:4])
 
         current_score = None
         current_delta = None
