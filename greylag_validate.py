@@ -305,6 +305,8 @@ def PPV(reals, decoys):
     false_positives = 2*decoys
     true_positives = reals - decoys
 
+    if true_positives <= 0:
+        return 0
     return float(true_positives) / (true_positives + false_positives)
 
 
@@ -454,7 +456,7 @@ def try_fdr(fdr_guess, options, remaining_spectrum_info, saturation_spectrum_inf
             break
         remaining_spectrum_info = remaining_spectrum_info_1
 
-    if saturation_spectrum_info:
+    if not options.no_saturation and saturation_spectrum_info:
         remaining_spectrum_info_1 = saturate(remaining_spectrum_info_1,
                                              saturation_spectrum_info)
         debug_fdr(remaining_spectrum_info_1)
@@ -512,6 +514,8 @@ def search_adjusting_fdr(options, spectrum_info_0):
                 break
             low_fdr, low_results = high_fdr, high_results
             high_fdr = min(1.0, high_fdr * FDR_INFLATION_FACTOR)
+            if high_fdr == 1.0:
+                break
             high_results = try_fdr(high_fdr, options, spectrum_info,
                                    spectrum_info_0)
         else:
@@ -528,21 +532,19 @@ def search_adjusting_fdr(options, spectrum_info_0):
             assert high_fdr >= low_fdr
             if (high_fdr - low_fdr) <= CONVERGENCE_FACTOR*options.fdr:
                 break
-            #guess_fdr = (high_fdr + low_fdr) / 2.0
 
-            # interpolation isn't always better?
-            #guess_fdr = (low_fdr
-            #             + (((options.fdr - low_results[0])
-            #                 / (high_results[0] - low_results[0]))
-            #                * (high_fdr - low_fdr)))
-
+            # - seems to be slower than the naive method?
             # Bias is empirically determined.  It's supposed to speed
             # convergence, but should not affect the results.
             # FIX: better method possible?
-            GUESS_BIAS = 1.15
-            prop = ((options.fdr - low_results[0])
-                    / (high_results[0] - low_results[0]))
-            guess_fdr = low_fdr + prop**GUESS_BIAS * (high_fdr - low_fdr)
+            #GUESS_BIAS = 1.15
+            #prop = ((options.fdr - low_results[0])
+            #        / (high_results[0] - low_results[0]))
+            #prop = min(1, max(0, prop))
+            #guess_fdr = low_fdr + prop**GUESS_BIAS * (high_fdr - low_fdr)
+
+            ####
+            guess_fdr = (high_fdr + low_fdr) / 2.0
 
             guess_results = try_fdr(guess_fdr, options, spectrum_info,
                                     spectrum_info_0)
@@ -603,6 +605,8 @@ def main(args=sys.argv[1:]):
        help="try to adjust internal FDR to achieve a final FDR closer to"
        " requested FDR (this takes longer, but may find more read ids in some"
        " cases)")
+    pa("--no-saturation", action="store_true", dest="no_saturation",
+       help="skip peptide saturation")
     pa("-v", "--verbose", action="store_true", dest="verbose",
        help="be verbose")
     pa("--output-peptides", dest="output_peptides",
