@@ -650,7 +650,7 @@ def main(args=sys.argv[1:]):
        " spectra not associated with such a locus are excluded"
        " [default=%s]" % DEFAULT_MINIMUM_SPECTRA_PER_LOCUS,
        metavar="COUNT")
-    DEFAULT_MAXIMUM_SP_RANK = 10
+    DEFAULT_MAXIMUM_SP_RANK = 1000000
     pa("--maximum-sp-rank", dest="maximum_sp_rank", type="int",
        default=DEFAULT_MAXIMUM_SP_RANK,
        help="drop peptides with greater Sp rank (the secondary rank in sqt"
