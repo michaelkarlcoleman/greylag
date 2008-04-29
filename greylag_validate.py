@@ -42,6 +42,7 @@ __copyright__ = '''
 
 from collections import defaultdict
 import itertools
+import logging; from logging import debug, info, warning
 import optparse
 import os
 from pprint import pprint
@@ -51,17 +52,17 @@ import sys
 import time
 
 
-# allow this script to be run even if not "installed"
-try:
-    from greylag import VERSION
-except:
-    VERSION = 'unknown'
+from greylag import VERSION, set_logging
 
 
-def warn(s):
-    print >> sys.stderr, 'warning:', s
-def error(s):
-    sys.exit('error: ' + s)
+def error(s, *args):
+    "fatal error"
+    # if we're unit testing, just throw an exception
+    if __name__ != "__main__":
+        raise Exception((s + " (fatal error)") % args)
+    logging.error(s, *args)
+    sys.exit(1)
+
 
 
 def generate_spectra_from_files(sqt_filenames):
@@ -370,9 +371,8 @@ def calculate_combined_thresholds(fdr, options, spectrum_info):
                 r = calculate_inner_threshold(fdr, charge, spinfo0)
                 threshold, real_count, decoy_count = r
                 if threshold != None:
-                    if options.debug:
-                        print '#', charge, threshold, this_value, \
-                            real_count, decoy_count
+                    debug('# %s %s %s %s %s', charge, threshold, this_value,
+                          real_count, decoy_count)
                     if (charge not in thresholds
                         or real_count > thresholds[charge][2]):
                         thresholds[charge] = (threshold, this_value,
@@ -414,8 +414,8 @@ def saturate_by_prefix_suffix(spectrum_info, saturation_spectrum_info):
     sat_si = sorted(ssi for ssi in saturation_spectrum_info
                     if ssi[7][:PREFIX_LENGTH] in peptide_prefixes)
 
-    print ("saturation by prefix (w/%s): %s -> %s"
-           % (len(saturation_spectrum_info), len(spectrum_info), len(sat_si)))
+    info("saturation by prefix (w/%s): %s -> %s",
+         len(saturation_spectrum_info), len(spectrum_info), len(sat_si))
     return sat_si
 
 
@@ -424,10 +424,9 @@ def saturate(spectrum_info, saturation_spectrum_info):
     # FIX: does this actually need to be sorted?
     sat_si = sorted(ssi for ssi in saturation_spectrum_info
                     if ssi[7] in peptides)
-    print ("saturation (w/%s): %s -> %s"
-           % (len(saturation_spectrum_info), len(spectrum_info), len(sat_si)))
+    info("saturation (w/%s): %s -> %s", len(saturation_spectrum_info),
+         len(spectrum_info), len(sat_si))
     return saturate_by_prefix_suffix(sat_si, saturation_spectrum_info)
-    #return sat_si
 
 
 def fdr_stats(spectrum_info):
@@ -436,14 +435,14 @@ def fdr_stats(spectrum_info):
     fdr = 1 - PPV(reals, decoys)
     return fdr, reals, decoys
 
-def debug_fdr(msg, si):
-    print msg,
-    print ' '.join(str(x) for x in fdr_stats(si))
-
+def debug_fdr(options, msg, si):
+    if options.verbose:
+        fdr, reals, decoys = fdr_stats(si)
+        info('%s %s %s %s', msg, fdr, reals, decoys)
 
 def try_fdr(fdr_guess, options, remaining_spectrum_info, saturation_spectrum_info=None):
-    print "try_fdr:", fdr_guess
-    debug_fdr("initial", remaining_spectrum_info)
+    info("trying FDR = %s", fdr_guess)
+    debug_fdr(options, "initial", remaining_spectrum_info)
 
     remaining_spectrum_info_1 = None
     while True:
@@ -453,12 +452,12 @@ def try_fdr(fdr_guess, options, remaining_spectrum_info, saturation_spectrum_inf
                                     if (si[2] in thresholds
                                         and si[3] >= thresholds[si[2]][0]
                                         and si[4] >= thresholds[si[2]][1]) ]
-        debug_fdr("after thresholding", remaining_spectrum_info)
+        debug_fdr(options, "after thresholding", remaining_spectrum_info)
         if remaining_spectrum_info == remaining_spectrum_info_1:
             break
         remaining_spectrum_info_1 = redundancy_filter(options,
                                                       remaining_spectrum_info)
-        debug_fdr("after redundancy", remaining_spectrum_info_1)
+        debug_fdr(options, "after redundancy", remaining_spectrum_info_1)
         if len(remaining_spectrum_info_1) == len(remaining_spectrum_info):
             break
         remaining_spectrum_info = remaining_spectrum_info_1
@@ -468,7 +467,7 @@ def try_fdr(fdr_guess, options, remaining_spectrum_info, saturation_spectrum_inf
     if not options.no_saturation and saturation_spectrum_info:
         remaining_spectrum_info_s = saturate(remaining_spectrum_info_1,
                                              saturation_spectrum_info)
-        debug_fdr("after saturation", remaining_spectrum_info_s)
+        debug_fdr(options, "after saturation", remaining_spectrum_info_s)
         fdr_result_s, total_reals_s, total_decoys_s = fdr_stats(remaining_spectrum_info_s)
         #if True or fdr_result_s <= fdr_result:
         #    fdr_result, total_reals, total_decoys = fdr_result_s, total_reals_s, total_decoys_s
@@ -517,9 +516,8 @@ def search_adjusting_fdr(options, spectrum_info_0):
         initial_total_reals = low_results[2]
 
         for i in range(32):
-            if options.debug:
-                print ("adjust infl fdr %s %s -> %s"
-                       % (low_fdr, high_fdr, high_results[0]))
+            info("adjust infl fdr %s %s -> %s", low_fdr, high_fdr,
+                 high_results[0])
             if high_results[0] >= options.fdr:
                 break
             low_fdr, low_results = high_fdr, high_results
@@ -529,7 +527,7 @@ def search_adjusting_fdr(options, spectrum_info_0):
             high_results = try_fdr(high_fdr, options, spectrum_info,
                                    spectrum_info_0)
         else:
-            warn("FDR adjustment inflation failed")
+            warning("FDR adjustment inflation failed")
 
         #    #
         #    l        g            h
@@ -558,15 +556,14 @@ def search_adjusting_fdr(options, spectrum_info_0):
 
             guess_results = try_fdr(guess_fdr, options, spectrum_info,
                                     spectrum_info_0)
-            if options.debug:
-                print ("adjust fdr %s %s %s -> %s"
-                       % (low_fdr, guess_fdr, high_fdr, guess_results[0]))
+            info("adjust fdr %s %s %s -> %s", low_fdr, guess_fdr, high_fdr,
+                 guess_results[0])
             if guess_results[0] > options.fdr:
                 high_fdr, high_results = guess_fdr, guess_results
             else:
                 low_fdr, low_results = guess_fdr, guess_results
         else:
-            warn("FDR adjustment convergence failed")
+            warning("FDR adjustment convergence failed")
 
     return low_results
 
@@ -582,7 +579,7 @@ def search_with_possible_saturation(options, spectrum_info):
         if fdr_result <= options.fdr:
             break
         if saturate:
-            print '*** could not achieve FDR with saturation, retrying without'
+            info('could not achieve FDR with saturation, retrying without')
             options.no_saturation = True
 
     if options.output_peptides:
@@ -598,15 +595,14 @@ def search_with_possible_saturation(options, spectrum_info):
     for charge in sorted(thresholds.keys()):
         score_threshold, delta_threshold = thresholds[charge][0:2]
         reals, decoys = thresholds[charge][2:4]
-        print ("%+d: score %f, delta %.6f -> %s real ids, %s decoys"
-               " (fdr %.4f)"
-               % (charge, score_threshold, delta_threshold,
-                  reals, decoys, 0.5 * (1 - PPV(reals, decoys))))
-    print ("# total: %s real ids, %s decoys (fdr %.4f)"
-           % (total_reals, total_decoys, fdr_result / 2.0))
+        info("%+d: score %f, delta %.6f -> %s real ids, %s decoys (fdr %.4f)",
+             charge, score_threshold, delta_threshold, reals, decoys,
+             0.5 * (1 - PPV(reals, decoys)))
     if not options.no_adjust_fdr:
-        print ("# (FDR adjustment found %s more real ids)"
-               % (total_reals - initial_total_reals))
+        info("FDR adjustment found %s extra real ids",
+             total_reals - initial_total_reals)
+    print ("%s real ids, %s decoys (FDR = %.4f)"
+           % (total_reals, total_decoys, fdr_result / 2.0))
 
     return valid_spectrum_info
 
@@ -633,6 +629,9 @@ def main(args=sys.argv[1:]):
        help="skip peptide saturation")
     pa("-v", "--verbose", action="store_true", dest="verbose",
        help="be verbose")
+    pa("-q", "--quiet", action="store_true", dest="quiet", help="no warnings")
+    pa("-l", "--logfile", dest="logfile",
+       help="log to FILE instead of stderr", metavar="FILE")
     pa("--output-peptides", dest="output_peptides",
        help="output information about passing peptides to specified file"
        " ('-' for stdout)", metavar="FILENAME")
@@ -687,6 +686,8 @@ def main(args=sys.argv[1:]):
 
     options.minimum_trypticity = int(options.minimum_trypticity)
 
+    set_logging(options)
+
     if options.reset_marks:
         write_spectra_to_files(reset_marks(generate_spectra_from_files(args)),
                                args)
@@ -703,13 +704,14 @@ def main(args=sys.argv[1:]):
     # about), into our internal FDR, which includes decoys.
     options.fdr *= 2
 
+    info("reading spectra")
     spectrum_info = get_spectrum_info(options,
                                       generate_spectra_from_files(args))
 
     if options.debug:
-        print ('%s passing spectra, of which %s are not decoys'
-               % (len(spectrum_info),
-                  sum(1 for si in spectrum_info if si[5] == 'real')))
+        debug('%s passing spectra, of which %s are not decoys',
+              len(spectrum_info), sum(1 for si in spectrum_info
+                                      if si[5] == 'real'))
 
     # valid_spectrum_info is the list of spectrum_info elements that have been
     # chosen as "valid"
@@ -720,7 +722,7 @@ def main(args=sys.argv[1:]):
         for (spectrum_no, spectrum_name, charge, score, delta, state,
              peptide, stripped_peptide, actual_mass,
              mass_delta, loci) in valid_spectrum_info:
-            print '#S', charge, score, delta
+            debug('#S %s %s %s', charge, score, delta)
 
     if options.mark or options.kill:
         # Note that we are intentionally reading the input files again here,
