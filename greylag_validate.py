@@ -568,8 +568,22 @@ def search_adjusting_fdr(options, spectrum_info_0):
         else:
             warn("FDR adjustment convergence failed")
 
-    (fdr_result, thresholds, total_reals,
-     total_decoys, valid_spectrum_info) = low_results
+    return low_results
+
+
+def search_with_possible_saturation(options, spectrum_info):
+
+    for saturate in (True, False):
+        if saturate and options.no_saturation:
+            continue
+        results = search_adjusting_fdr(options, spectrum_info)
+        (fdr_result, thresholds,
+         total_reals, total_decoys, valid_spectrum_info) = results
+        if fdr_result <= options.fdr:
+            break
+        if saturate:
+            print '*** could not achieve FDR with saturation, retrying without'
+            options.no_saturation = True
 
     if options.output_peptides:
         valid_spectrum_info.sort(key=lambda x: x[1])
@@ -699,7 +713,7 @@ def main(args=sys.argv[1:]):
 
     # valid_spectrum_info is the list of spectrum_info elements that have been
     # chosen as "valid"
-    valid_spectrum_info = search_adjusting_fdr(options, spectrum_info)
+    valid_spectrum_info = search_with_possible_saturation(options, spectrum_info)
 
     if options.debug:
         valid_spectrum_info.sort()
