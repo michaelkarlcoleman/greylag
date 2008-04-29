@@ -565,6 +565,10 @@ def search_adjusting_fdr(options, spectrum_info_0):
         else:
             warning("FDR adjustment convergence failed")
 
+    if not options.no_adjust_fdr:
+        info("FDR adjustment found %s extra real ids",
+             low_results[2] - initial_total_reals)
+
     return low_results
 
 
@@ -598,11 +602,11 @@ def search_with_possible_saturation(options, spectrum_info):
         info("%+d: score %f, delta %.6f -> %s real ids, %s decoys (fdr %.4f)",
              charge, score_threshold, delta_threshold, reals, decoys,
              0.5 * (1 - PPV(reals, decoys)))
-    if not options.no_adjust_fdr:
-        info("FDR adjustment found %s extra real ids",
-             total_reals - initial_total_reals)
-    print ("%s real ids, %s decoys (FDR = %.4f)"
-           % (total_reals, total_decoys, fdr_result / 2.0))
+
+    if not options.quiet:
+        print ("%s real ids, %s decoys (FDR = %.4f) [p%s]"
+               % (total_reals, total_decoys, fdr_result / 2.0,
+                  options.minimum_spectra_per_locus))
 
     return valid_spectrum_info
 
@@ -727,10 +731,12 @@ def main(args=sys.argv[1:]):
     if options.mark or options.kill:
         # Note that we are intentionally reading the input files again here,
         # to avoid having to keep them all in memory.
+        info("rewriting spectrum files")
         write_spectra_to_files(set_marks(options, valid_spectrum_info,
                                          generate_spectra_from_files(args),
                                          options.kill),
                                args)
+        info("finished rewriting")
 
 
 if __name__ == '__main__':
