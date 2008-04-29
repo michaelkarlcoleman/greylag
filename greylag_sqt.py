@@ -150,19 +150,27 @@ def print_regime_manifest(f, regime_manifest):
 
 
 def generate_marked_sequence(marks, peptide_sequence):
-    """Yield the characters in a marked version of peptide_sequence.
+    """Yield the characters in a marked version of peptide_sequence.  If there
+    is both a terminal mark and a mark on a terminal residue, the latter is
+    omitted.
 
     >>> ''.join(generate_marked_sequence({}, 'ASDF'))
     'ASDF'
-    >>> ''.join(generate_marked_sequence({ 1 : '*' }, 'ASDF'))
-    'AS*DF'
+    >>> ''.join(generate_marked_sequence({ 'N' : '^', 1 : '*' }, 'ASDF'))
+    'A^S*DF'
+    >>> ''.join(generate_marked_sequence({ 'N' : '^', 0 : '*' }, 'ASDF'))
+    'A^SDF'
 
     """
 
-    # FIX: handle [ ]
     for n, c in enumerate(peptide_sequence):
         yield c
-        yield marks.get(n, '')
+        if n == 0 and 'N' in marks:
+            yield marks.get('N')
+        elif n == len(peptide_sequence)-1 and 'C' in marks:
+            yield marks.get('C')
+        else:
+            yield marks.get(n, '')
 
 
 def print_spectrum(f, modification_conjucts, sp_name, sp_matches,
@@ -195,7 +203,7 @@ def print_spectrum(f, modification_conjucts, sp_name, sp_matches,
         mass_regime_index = match.get('mass_regime_index', 0)
         conjunct_index = match.get('conjunct_index', 0)
 
-        am_lines = []
+        am_lines = []                   # residue mods
         marks = {}
         for mt in match.get('mass_trace', []):
             conjunct_item = modification_conjucts[conjunct_index][2][mt['conjunct_item_index']]
@@ -207,6 +215,28 @@ def print_spectrum(f, modification_conjucts, sp_name, sp_matches,
                 name = conjunct_item[4] or ''
                 delta = conjunct_item[6][mass_regime_index][1]
                 am_lines.append(["AM", mt['position'], round(delta, 8), name])
+
+        at_lines = []                   # terminal mods
+        N_conjunct_item = modification_conjucts[conjunct_index][0]
+        if N_conjunct_item:
+            assert len(N_conjunct_item) == 1
+            mark = N_conjunct_item[0][5]
+            if mark:
+                marks['N'] = mark
+            if enhanced:
+                name = conjunct_item[4] or ''
+                delta = conjunct_item[6][mass_regime_index][1]
+                at_lines.append(["AT", 'N', round(delta, 8), name])
+        C_conjunct_item = modification_conjucts[conjunct_index][1]
+        if C_conjunct_item:
+            assert len(C_conjunct_item) == 1
+            mark = C_conjunct_item[0][5]
+            if mark:
+                marks['C'] = mark
+            if enhanced:
+                name = conjunct_item[4] or ''
+                delta = conjunct_item[6][mass_regime_index][1]
+                at_lines.append(["AT", 'C', round(delta, 8), name])
 
         marked_sequence = match['peptide_sequence']
         if marks:
@@ -235,6 +265,8 @@ def print_spectrum(f, modification_conjucts, sp_name, sp_matches,
                 print >> f, "APCA\t%s" % match['pca_delta']
             for am_line in sorted(am_lines):
                 print >> f, '\t'.join(str(v) for v in am_line)
+            for at_line in at_lines:
+                print >> f, '\t'.join(str(v) for v in at_line)
 
         assert len(match['sequence_name']) == len(match['peptide_begin'])
         for sn, pb in zip(match['sequence_name'], match['peptide_begin']):
