@@ -33,7 +33,7 @@ import sys
 import cgreylag
 
 
-VERSION = "0.1"
+VERSION = "0.1.1"
 
 
 # handle to the singleton parameter object shared with the C++ module
