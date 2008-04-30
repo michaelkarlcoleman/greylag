@@ -635,7 +635,7 @@ def print_mass_error_histogram(valid_spectrum_info):
     for (spectrum_no, spectrum_name, charge, score, delta, state, peptide,
          stripped_peptide, actual_mass, mass_delta,
          loci) in valid_spectrum_info:
-        hist[round(delta)] += 1
+        hist[round(mass_delta)] += 1
 
     pairs_most_first = sorted(((bin, hist[bin]) for bin in hist),
                               key=lambda x: x[1], reverse=True)
