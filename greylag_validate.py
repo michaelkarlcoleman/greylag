@@ -627,7 +627,7 @@ def main(args=sys.argv[1:]):
        metavar="PROPORTION")
     pa("--no-adjust-fdr", action="store_true", dest="no_adjust_fdr",
        help="skip adjustment of internal FDR to achieve a final FDR closer to"
-       " requested FDR (which takes longer, but may find more read ids in"
+       " requested FDR (which takes longer, but may find more real ids in"
        " some cases)")
     pa("--no-saturation", action="store_true", dest="no_saturation",
        help="skip peptide saturation")
