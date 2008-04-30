@@ -255,8 +255,10 @@ def get_spectrum_info(options, spectra):
             # Choose delta from first M line such that peptide differs from
             # peptide in initial (top) M line.  We consider differently
             # modified versions of the same peptide to be different (at least
-            # for now).
-            if peptide != current_peptide:
+            # for now).  But, if there are two peptides that differ only in
+            # their choice of I (isoleucine) or L (leucine), consider them
+            # identical and keep looking for a delta.
+            if peptide.replace('I', 'L') != current_peptide.replace('I', 'L'):
                 current_delta = delta
                 break
 
@@ -516,7 +518,7 @@ def search_adjusting_fdr(options, spectrum_info_0):
         initial_total_reals = low_results[2]
 
         for i in range(32):
-            info("adjust infl fdr %s %s -> %s", low_fdr, high_fdr,
+            debug("adjust infl fdr %s %s -> %s", low_fdr, high_fdr,
                  high_results[0])
             if high_results[0] >= options.fdr:
                 break
@@ -556,7 +558,7 @@ def search_adjusting_fdr(options, spectrum_info_0):
 
             guess_results = try_fdr(guess_fdr, options, spectrum_info,
                                     spectrum_info_0)
-            info("adjust fdr %s %s %s -> %s", low_fdr, guess_fdr, high_fdr,
+            debug("adjust fdr %s %s %s -> %s", low_fdr, guess_fdr, high_fdr,
                  guess_results[0])
             if guess_results[0] > options.fdr:
                 high_fdr, high_results = guess_fdr, guess_results
