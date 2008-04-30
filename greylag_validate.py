@@ -750,8 +750,8 @@ def main(args=sys.argv[1:]):
     options.fdr *= 2
 
     info("reading spectra")
-    spectrum_info = get_spectrum_info(options,
-                                      generate_spectra_from_files(args))
+    spectrum_info = list(get_spectrum_info(options,
+                                           generate_spectra_from_files(args)))
 
     # valid_spectrum_info is the list of spectrum_info elements that have been
     # chosen as "valid"
