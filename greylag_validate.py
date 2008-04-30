@@ -613,6 +613,26 @@ def search_with_possible_saturation(options, spectrum_info):
     return valid_spectrum_info
 
 
+def print_mass_error_histogram(valid_spectrum_info):
+    hist = defaultdict(int)
+
+    for (spectrum_no, spectrum_name, charge, score, delta, state, peptide,
+         stripped_peptide, actual_mass, mass_delta,
+         loci) in valid_spectrum_info:
+        hist[round(delta)] += 1
+
+    pairs_most_first = sorted(((bin, hist[bin]) for bin in hist),
+                              key=lambda x: x[1], reverse=True)
+
+    total = sum(count for bin, count in pairs_most_first)
+
+    cumulative_total = 0
+    for bin, count in pairs_most_first:
+        cumulative_total += count
+        print '# %+d\t%s\t%.3f' % (bin, count,
+                                   (float(cumulative_total) / total))
+
+
 def main(args=sys.argv[1:]):
     parser = optparse.OptionParser(usage=
                                    "usage: %prog [options] <sqt-file>...",
@@ -661,6 +681,9 @@ def main(args=sys.argv[1:]):
     #pa("--graph", dest="graph",
     #   help='create distribution graphs, using the specified prefix',
     #   metavar="PATH PREFIX")
+    pa("-M", "--mass-error-histogram", action="store_true",
+       dest="mass_error_histogram",
+       help="print a histogram of mass errors (1-Da-wide bins)")
     pa("--debug", action="store_true", dest="debug",
        help="show debug output")
     pa("--mark", action="store_true", dest="mark",
@@ -722,6 +745,9 @@ def main(args=sys.argv[1:]):
     # valid_spectrum_info is the list of spectrum_info elements that have been
     # chosen as "valid"
     valid_spectrum_info = search_with_possible_saturation(options, spectrum_info)
+
+    if options.mass_error_histogram:
+        print_mass_error_histogram(valid_spectrum_info)
 
     if options.debug:
         valid_spectrum_info.sort()
