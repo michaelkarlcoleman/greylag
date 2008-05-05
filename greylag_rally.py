@@ -40,11 +40,11 @@ __copyright__ = '''
 import asynchat
 import asyncore
 import ConfigParser
-import contextlib
 import cPickle as pickle
 import errno
 import exceptions
 import heapq
+import itertools
 import logging; from logging import debug, info, warning
 import optparse
 import os
@@ -52,6 +52,7 @@ from pprint import pprint, pformat
 import re
 import socket
 import sys
+import tempfile
 import time
 
 from greylag import *
@@ -384,14 +385,13 @@ def validate_parameters(parameters, parameter_info=PARAMETER_INFO):
 
     unknown_parameters = set(parameters) - set(parameter_info)
     if unknown_parameters:
-        warning("%s unknown parameter(s):\n %s"
-                % (len(unknown_parameters),
-                   pformat(sorted(list(unknown_parameters)))))
+        warning("%s unknown parameter(s):\n %s", len(unknown_parameters),
+                pformat(sorted(list(unknown_parameters))))
     return pmap
 
 
 # about 100/s, probably fast enough (just transmitting takes longer?)
-def read_spectra_from_ms2_files(spectrum_fns):
+def generate_spectra_from_ms2_files(spectrum_fns):
     """Read ms2 files, yielding tuples (file_index, physical_index, index,
     name, mass, charge, peaks).  The indexes are 0-based.  Mass and charge are
     returned as strings, and peaks is the newline-embedded peak block from the
@@ -399,12 +399,14 @@ def read_spectra_from_ms2_files(spectrum_fns):
     """
     header_re = re.compile(r'^:', re.MULTILINE)
 
+    # open all files immediately, in case one is not accessible
+    spectrum_fn_files = [ (fn, open(fn)) for fn in spectrum_fns ]
+
     physical_index = 0
     index = 0
     pending_headers = []
-    for file_index, spfn in enumerate(spectrum_fns):
-        with open(spfn) as specfile:
-            contents = specfile.read()
+    for file_index, (spfn, spfile) in enumerate(spectrum_fn_files):
+        contents = spfile.read()
         for block in header_re.split(contents)[1:]:
             b = block.split('\n', 2)
             if len(b) != 3:
@@ -427,29 +429,29 @@ def read_spectra_from_ms2_files(spectrum_fns):
             error("malformed ms2 file '%s' (headers at end?)" % spfn)
 
 
-def check_ms2_files(spectrum_fns):
-    ms2_re = re.compile(r'^((:.*\n[1-9]\d*\.\d+ [1-9]\d*\r?\n)+(\d+\.\d+ \d(\.\d+)?\r?\n)+)+$')
-
-    for file_index, spfn in enumerate(spectrum_fns):
-        with open(spfn) as specfile:
-            contents = specfile.read()
-        info("checking '%s' (%s bytes)" % (spfn, len(contents)))
-        if not ms2_re.match(contents):
-            error("invalid ms2 file '%s'" % spfn)
+def count_ms2_spectra(spectrum_fns):
+    """Return count of ms2 spectra, for ETA calculation, etc."""
+    return sum(open(fn).read().count(':') for fn in spectrum_fns)
 
 
-# def check_ms2_spectra(spectra):
-#     mass_re = re.compile(r'[1-9]\d*\.\d+')
-#     charge_re = re.compile(r'[1-9]\d*')
-#     peaks_re = re.compile(r'([1-9]\d*\.\d+\ \d+(\.\d+)?\n)+')
+# This uses too much RAM...
+# def check_ms2_files(spectrum_fns):
+#     """Verify that the spectrum files are well-formed, calling error if not."""
 
-#     for file_index, physical_index, index, name, mass, charge, peaks in spectra:
-#         if not mass_re.match(mass):
-#             error("invalid ms2 mass '%s'" % mass)
-#         if not charge_re.match(charge):
-#             error("invalid ms2 charge '%s'" % charge)
-#         if not peaks_re.match(peaks):
-#             error("invalid ms2 peaks '%s'" % peaks)
+#     ms2_re = re.compile(r'''
+#         ^(
+#           (:.*\n
+#            [1-9]\d*\.\d+\ [1-9]\d*\r?\n)+
+#           (\d+\.\d+\ \d+(\.\d+)?\r?\n)+
+#          )+$
+#                          ''', re.VERBOSE)
+
+#     for file_index, spfn in enumerate(spectrum_fns):
+#         with open(spfn) as specfile:
+#             contents = specfile.read()
+#         info("SKIP checking '%s' (%s bytes)", spfn, len(contents))
+#         #if not ms2_re.match(contents):
+#         #    error("invalid ms2 file '%s'", spfn)
 
 
 # FIX: optionally print peak statistics?  (slow?)
@@ -478,13 +480,22 @@ class chase_client(asynchat.async_chat):
     pickled_parameters = None
     pickled_sequences = None
 
-    # heapq of (submitcount, lastsubmittime, spectrum) for all spectra not
-    # yet searched.  submitcount is the number of time this spectrum has been
-    # submitted to a chasers.  This can be greater than one because we plan
-    # for any chaser to fail.  We don't decrement submitcount--it's just a
-    # hint as to which spectra should be searched next.  lastsubmittime is
-    # provided so that we can submit the least-recently submitted spectrum.
+    spectrum_generator = None
+
+    # (host, port) -> (submittime, [ spectrum, ... ])
+    # tracks the spectra each chase_client is currently searching
+    spectra_in_progress = {}
+
+    # heapq of (lastsubmittime, spectrum) for spectra submitted (at least
+    # once) and (possibly) not yet completed.  lastsubmittime is provided so
+    # that we can submit the least recently submitted spectrum next.
+    # Not populated until spectrum_generator has been exhausted (to avoid
+    # keeping lots of spectra in memory).
     spectrum_queue = None
+
+    # set of spectrum_no's of spectra already searched (only those searched
+    # since we populated spectrum_queue)
+    searched_spectra = set()
 
     # number of spectra for which results not yet received
     spectra_to_go = None
@@ -493,9 +504,11 @@ class chase_client(asynchat.async_chat):
     # can be adjusted upwards for efficiency.
     spectrum_batch_size = 1
 
-    # Reply for each searched spectrum, indexed by spectrum.id (1-based).
-    # None if no reply yet.
-    results = []
+    # file on which to write pickled results
+    result_file = None
+    # index of result_file
+    # [ (spectrum_id, offset, length), ... ]
+    result_file_index = []
 
     @classmethod
     def set_parameters(self, parameters):
@@ -508,21 +521,33 @@ class chase_client(asynchat.async_chat):
         self.pickled_sequences = pickle.dumps(sequences)
 
     @classmethod
-    def set_spectra(self, spectra):
+    def set_result_file(self, result_file):
+        assert self.result_file == None, "no change once set"
+        self.result_file = result_file
+
+    @classmethod
+    def set_spectra(self, spectrum_generator, spectra_to_go):
         """Fix the list of spectra to be searched, which must be done before
         any clients are created (and cannot be changed later).
         """
-        assert self.spectrum_queue == None, "no change once set"
-        self.spectrum_queue = [ (0, 0, spectrum) for spectrum in spectra ]
-        heapq.heapify(self.spectrum_queue)
-        self.results = [None] * (len(spectra) + 1)
-        self.spectra_to_go = len(spectra)
+        assert self.spectrum_generator == None, "no change once set"
+        self.spectrum_generator = spectrum_generator
+        self.spectra_to_go = spectra_to_go
+
+    @classmethod
+    def _remember_result(self, spectrum_id, result):
+        offset = self.result_file.tell()
+        pickle.dump(result, self.result_file, pickle.HIGHEST_PROTOCOL)
+        length = self.result_file.tell() - offset
+        self.result_file_index.append((spectrum_id, offset, length))
+        self.searched_spectra.add(spectrum_id)
+        self.spectra_to_go -= 1
 
 
     def __init__(self, host, port):
         asynchat.async_chat.__init__(self)
         assert self.pickled_parameters and self.pickled_sequences
-        assert self.spectrum_queue
+        assert self.spectrum_generator
         self.host = host
         self.port = port
 
@@ -531,7 +556,6 @@ class chase_client(asynchat.async_chat):
 
         self.banner = None
 
-        self.submit_count = 0           # number of submits to this client
         self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
         self.set_keep_alive()
         self.connect((host, port))
@@ -566,36 +590,51 @@ class chase_client(asynchat.async_chat):
 
     def _submit_search(self):
         "send a search to client"
-        self.submit_count += 1
-        submit_spectra = []
+
+        batch_size = self.spectrum_batch_size
 
         # start slow, to get chasers going immediately, then increase batch
         # size to increase master efficiency (and level load)
         #batch_size = min(self.spectrum_batch_size,
         #                 4**min(self.submit_count-1,10))
-        batch_size = self.spectrum_batch_size
 
-        if self.spectrum_queue:
-            # on each retry round, divide batch size by four
-            batch_size = max(1, (batch_size
-                                 / 2**min(64, 2*self.spectrum_queue[0][0])))
+        #if self.spectrum_queue:
+        #    # on each retry round, divide batch size by four
+        #    batch_size = max(1, (batch_size
+        #                         / 2**min(64, 2*self.spectrum_queue[0][0])))
 
-        while self.spectrum_queue and len(submit_spectra) < batch_size:
-            count, _submittime, spectrum = heapq.heappop(self.spectrum_queue)
-            # spectrum = (file_index, physical_index, index,
-            #             name, mass, charge, peaks)
-            if self.results[spectrum[2]] != None:
-                continue                # already have search result
-            heapq.heappush(self.spectrum_queue,
-                           (count+1, time.time(), spectrum))
-            submit_spectra.append(spectrum)
+        # get some never-searched spectra, if there are any
+        submit_spectra = list(itertools.islice(self.spectrum_generator,
+                                               batch_size))
         if submit_spectra:
+            self.spectra_in_progress[(self.host, self.port)] = (time.time(),
+                                                                submit_spectra)
+        else:
+            if self.spectrum_queue == None:
+                # move spectra_in_progress to spectrum_queue
+                self.__class__.spectrum_queue = []
+                for t, subsp in self.spectra_in_progress.values():
+                    for sp in subsp:
+                        heapq.heappush(self.spectrum_queue, (t, sp))
+                self.__class__.spectra_in_progress = None
+
+            # generate submit_spectra from spectrum_queue
+            while self.spectrum_queue and len(submit_spectra) < batch_size:
+                _submittime, spectrum = heapq.heappop(self.spectrum_queue)
+                # spectrum = (file_index, physical_index, index, name, mass,
+                #             charge, peaks)
+                if spectrum[2] in self.searched_spectra:
+                    continue            # already have search result
+                heapq.heappush(self.spectrum_queue, (time.time(), spectrum))
+                submit_spectra.append(spectrum)
+
+        if submit_spectra:
+            debug("submitting %s spectra (%s not yet retired)",
+                  len(submit_spectra), self.spectra_to_go)
             self._send_command('spectra', pickle.dumps(submit_spectra))
             self._send_command('search', pickle.dumps(None))
         else:
             self.close()
-        debug("submitting %s spectra (%s not yet retired)"
-              % (len(submit_spectra), len(self.spectrum_queue)))
 
     def _receive_response(self):
         r = ''.join(self.ibuffer)
@@ -604,7 +643,7 @@ class chase_client(asynchat.async_chat):
 
 
     def handle_connect(self):
-        debug("connecting to %s:%s" % (self.host, self.port))
+        debug("connecting to %s:%s", self.host, self.port)
 
     def handle_expt(self):
         pass
@@ -617,20 +656,22 @@ class chase_client(asynchat.async_chat):
             error("received keyboard interrupt")
         if exc == socket.error:
             if why[0] == errno.ECONNREFUSED:
-                debug("no chaser at %s:%s (connection refused)"
-                      % (self.host, self.port))
+                debug("no chaser at %s:%s (connection refused)", self.host,
+                      self.port)
             else:
-                info("network error on connection %s:%s (%s %s)"
-                     % (self.host, self.port, exc, why))
-                debug("  traceback: %s" % asyncore.compact_traceback()[3])
+                info("network error on connection %s:%s (%s %s)", self.host,
+                     self.port, exc, why)
+                debug("  traceback: %s", asyncore.compact_traceback()[3])
         else:
-            info("unexpected error on connection %s:%s (%s %s)"
-                 % (self.host, self.port, exc, why))
-            info("  traceback: %s" % asyncore.compact_traceback()[3])
+            info("unexpected error on connection %s:%s (%s %s)", self.host,
+                 self.port, exc, why)
+            info("  traceback: %s", asyncore.compact_traceback()[3])
 
 
     def handle_close(self):
-        self.__class__.dead_clients.append((time.time(), self.host, self.port))
+        # FIX
+        #self.__class__.dead_clients.append((time.time(), self.host, self.port))
+        self.dead_clients.append((time.time(), self.host, self.port))
         asynchat.async_chat.handle_close(self)
 
 
@@ -642,12 +683,12 @@ class chase_client(asynchat.async_chat):
             self.banner = self._receive_response()
             banner_words = self.banner.split()
             if banner_words[0] != 'greylag':
-                warning("%s:%s is not a greylag-chase" % (self.host, self.port))
+                warning("%s:%s is not a greylag-chase", self.host, self.port)
                 self.handle_close()
                 return
             if banner_words[2:3] != ['ready']:
-                debug("greylag-chase %s:%s is serving %s"
-                      % (self.host, self.port, banner_words[3:4]))
+                debug("greylag-chase %s:%s is serving %s", self.host,
+                      self.port, banner_words[3:4])
                 self.handle_close()
                 return
             # now we can start talking
@@ -660,7 +701,7 @@ class chase_client(asynchat.async_chat):
             reply = self._receive_response()
             reply_words = reply.split()
             if reply_words[0] == 'error':
-                warning("%s:%s gave '%s'" % (self.host, self.port, reply))
+                warning("%s:%s gave '%s'", self.host, self.port, reply)
                 self.handle_close()
                 return
 
@@ -671,27 +712,14 @@ class chase_client(asynchat.async_chat):
         result = pickle.loads(self._receive_response())
 
         #debug("received: %s" % result)
+        # FIX: check that multiply searched spectra had same results
         for noise_sp_id in result['noise_spectrum_ids']:
-            if self.__class__.results[noise_sp_id] != None:
-                warning("got differing filter results [id=%s]" % noise_sp_id)
-                continue
-            self.__class__.spectra_to_go -= 1
-            self.__class__.results[noise_sp_id] = False
+            if noise_sp_id not in self.searched_spectra:
+                self._remember_result(noise_sp_id, False)
 
         for sp_id, sp_matches in result['matches'].iteritems():
-            if self.__class__.results[sp_id] != None:
-                if self.__class__.results[sp_id] != False:
-                    pass
-                    # FIX
-                    #warning("got differing results [id=%s]" % sp_id)
-                    #debug("r0:\n%s\nr1:\n%s\n"
-                    #      % (self.__class__.results[sp_id],
-                    #         sp_matches))
-                else:
-                    warning("got differing filter results [id=%s]" % sp_id)
-            else:
-                self.__class__.spectra_to_go -= 1
-            self.__class__.results[sp_id] = sp_matches
+            if sp_id not in self.searched_spectra:
+                self._remember_result(sp_id, sp_matches)
 
         self.set_terminator('\n')
         self._submit_search()
@@ -748,7 +776,10 @@ def main(args=sys.argv[1:]):
 
     info("starting on %s", socket.gethostname())
 
+    # check early that we can open result files
     result_fn = 'chase_%s.glw' % options.job_id
+    result_file = open(result_fn, 'wb')
+    temp_result_file = tempfile.TemporaryFile(dir='.', prefix=result_fn+'-')
 
     # read chaser (host, port) listener list
     try:
@@ -810,37 +841,34 @@ def main(args=sys.argv[1:]):
         db_representation = ("name",
                              [ (db, file_sha1(db)) for db in databases ])
 
-    info("FIX checking spectra")
+    # FIX: is this worth doing here?
+    #info("checking spectrum files")
     #check_ms2_files(spectrum_fns)
-    info("checked")
+    #info("spectrum files okay")
 
-    info("reading spectra")
-    spectra = list(read_spectra_from_ms2_files(spectrum_fns))
+    spectrum_count = count_ms2_spectra(spectrum_fns)
 
-    if spectra:
-        info("read %s spectra" % len(spectra))
-        # print_spectrum_statistics(spectra)
-    else:
+    if not spectrum_count:
         error("no input spectra")
+    info("counted %s spectra", spectrum_count)
 
-    # FIX: gather these statistics from chasers?
-    #if spectra:
-    #    info("after filtering:")
+    # FIX: gather these statistics from chasers? (!)
+    # before/after filtering...
     #    print_spectrum_statistics(spectra)
-
-    score_statistics = [] * len(spectra)
 
     # now connect to chasers and loop until done (or timeout)
     chase_client.set_parameters(GLP)
     chase_client.set_sequences(db_representation)
-    chase_client.set_spectra(spectra)
+    chase_client.set_spectra(generate_spectra_from_ms2_files(spectrum_fns),
+                             spectrum_count)
+    chase_client.set_result_file(temp_result_file)
 
     # Trivial strategy: Hand each client 1/10th of their likely workload in
     # each batch.  If client crashes, we haven't lost too much work.
     # Making this value larger keeps polling efficient and lets us handle a
     # large number of clients.  If it's too large, though, we're need more RAM
     # for temporary storage of pythonized spectra.
-    chase_client.spectrum_batch_size = min(100, max(1, int(0.1 * len(spectra)
+    chase_client.spectrum_batch_size = min(100, max(1, int(0.1 * spectrum_count
                                                            / len(hosts))))
 
     # FIX: this is actually faster (?)
@@ -852,40 +880,37 @@ def main(args=sys.argv[1:]):
     #chase_client.ac_in_buffer_size = 620000
     #chase_client.ac_out_buffer_size = 620000
 
-    if spectra:
-        for host, port in hosts:
-            chase_client(host, port)
-    else:
-        warning("no spectra after filtering")
+    for host, port in hosts:
+        chase_client(host, port)
 
-    # retry dead clients after 60s
+    # retry time for dead clients (in seconds)
     retryafter = 60
-    #retryafter = 10
 
     start_time = time.time()
     laststatus = 0
     while True:
         asyncore.loop(count=1, timeout=retryafter, use_poll=True)
-        if not chase_client.spectrum_queue:
+        if chase_client.spectrum_queue == []:
             break
 
         now = time.time()
 
         if now - laststatus >= 10:
             eta_minutes = ((now - start_time)
-                           / (len(spectra) - chase_client.spectra_to_go + 0.1)
+                           / (spectrum_count - chase_client.spectra_to_go
+                              + 0.1)
                            * chase_client.spectra_to_go / 60.0)
-            info("%s spectra to search, %s chasers, ETA %dm"
-                 % (chase_client.spectra_to_go, len(asyncore.socket_map),
-                    int(eta_minutes)))
+            info("%s spectra to search, %s chasers, ETA %dm",
+                 chase_client.spectra_to_go, len(asyncore.socket_map),
+                 int(eta_minutes))
             laststatus = now
 
         while (chase_client.dead_clients
                and chase_client.dead_clients[0][0] < now - retryafter):
-            debug("died %s restart %s" % (chase_client.dead_clients[0][0], now))
+            debug("died %s restart %s", chase_client.dead_clients[0][0], now)
             dt, host, port = heapq.heappop(chase_client.dead_clients)
             chase_client(host, port)
-        if not asyncore.socket_map and chase_client.spectrum_queue:
+        if not asyncore.socket_map and chase_client.dead_clients:
             debug("sleeping")
             time.sleep(max(0, retryafter - (now
                                             - chase_client.dead_clients[0][0])))
@@ -905,30 +930,35 @@ def main(args=sys.argv[1:]):
 
     info("writing result file '%s'", result_fn)
 
-    # sp = (file_index, physical_index, index, name, mass, charge, peaks)
-    result_matches = dict(((sp[0], sp[3]), chase_client.results[sp[2]])
-                          for sp in spectra if chase_client.results[sp[2]])
-
+    pk = pickle.Pickler(result_file, pickle.HIGHEST_PROTOCOL)
+    pk.fast = 1                         # stipulate no circular references
     mod_conjunct_triples = get_mod_conjunct_triples(GLP["potential_mods"],
                                                     GLP["potential_mod_limit"],
                                                     GLP["mass_regimes"])
+    pk.dump({ 'version' : VERSION,
+              'total comparisons' : 0,
+              'spectrum files' : base_spectrum_fns,
+              'databases' : databases,
+              'parameters' : GLP,
+              'mass regime atomic masses' : MASS_REGIME_ATOMIC_MASSES,
+              'mass regime manifest' : sorted(regime_manifest),
+              'proton mass' : PROTON_MASS,
+              'modification conjuncts' : mod_conjunct_triples,
+              'argv' : sys.argv })
 
-    d = { 'version' : VERSION,
-          'matches' : result_matches,
-          'total comparisons' : 0, # total_comparisons,
-          'spectrum files' : base_spectrum_fns,
-          'databases' : databases,
-          'parameters' : GLP,
-          'mass regime atomic masses' : MASS_REGIME_ATOMIC_MASSES,
-          'mass regime manifest' : sorted(regime_manifest),
-          'proton mass' : PROTON_MASS,
-          'modification conjuncts' : mod_conjunct_triples,
-          'argv' : sys.argv }
-    with contextlib.closing(open(result_fn, 'wb')) as result_file:
-        pk = pickle.Pickler(result_file, pickle.HIGHEST_PROTOCOL)
-        pk.fast = 1                     # stipulate no circular references
-        pk.dump(d)
+    temp_result_file.flush()            # unneeded?
+    for sp_id, offset, length in sorted(chase_client.result_file_index):
+        temp_result_file.seek(offset)
+        r = temp_result_file.read(length)
+        assert len(r) == length
+        result_file.write(r)
 
+    # sp = (file_index, physical_index, index, name, mass, charge, peaks)
+    #result_matches = dict(((sp[0], sp[3]), chase_client.results[sp[2]])
+    #                      for sp in spectra if chase_client.results[sp[2]])
+
+    pk.dump('complete')                 # so reader can tell file not truncated
+    result_file.close()                 # force any file error to occur now
     info("finished")
 
 
