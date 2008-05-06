@@ -390,6 +390,12 @@ def validate_parameters(parameters, parameter_info=PARAMETER_INFO):
     return pmap
 
 
+def file_contents(filename):
+    """Return the contents of the file."""
+    with open(filename) as f:
+        return f.read()
+
+
 # about 100/s, probably fast enough (just transmitting takes longer?)
 def generate_spectra_from_ms2_files(spectrum_fns):
     """Read ms2 files, yielding tuples (file_index, physical_index, index,
@@ -399,14 +405,15 @@ def generate_spectra_from_ms2_files(spectrum_fns):
     """
     header_re = re.compile(r'^:', re.MULTILINE)
 
-    # open all files immediately, in case one is not accessible
-    spectrum_fn_files = [ (fn, open(fn)) for fn in spectrum_fns ]
+    # check open-ability of all files immediately, to avoid surprises later
+    for fn in spectrum_fns:
+        open(fn).close()
 
     physical_index = 0
     index = 0
     pending_headers = []
-    for file_index, (spfn, spfile) in enumerate(spectrum_fn_files):
-        contents = spfile.read()
+    for file_index, spfn in enumerate(spectrum_fns):
+        contents = file_contents(spfn)
         for block in header_re.split(contents)[1:]:
             b = block.split('\n', 2)
             if len(b) != 3:
@@ -431,7 +438,7 @@ def generate_spectra_from_ms2_files(spectrum_fns):
 
 def count_ms2_spectra(spectrum_fns):
     """Return count of ms2 spectra, for ETA calculation, etc."""
-    return sum(open(fn).read().count(':') for fn in spectrum_fns)
+    return sum(file_contents(fn).count(':') for fn in spectrum_fns)
 
 
 # This uses too much RAM...
