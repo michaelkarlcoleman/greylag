@@ -396,7 +396,8 @@ def file_sha1(filename):
     except:
         return "no checksum--libs missing"
     h = hashlib.sha1()
-    h.update(open(filename).read())
+    with open(filename) as f:
+        h.update(f.read())
     return h.digest()
 
 
@@ -417,15 +418,15 @@ def read_fasta_files(filenames):
                         yield (locusname, defline, ''.join(seqs), filename)
                     elif seqs:
                         error("bad format: line precedes initial defline"
-                              " in '%s'" % filename)
+                              " in '%s'", filename)
                     defline = line[1:]
                     locusname_rest = defline.split(None, 1)
                     if not locusname_rest:
-                        error("empty locus name not allowed in '%s'" % filename)
+                        error("empty locus name not allowed in '%s'", filename)
                     locusname = locusname_rest[0]
                     if locusname in loci_seen:
                         error("locus name '%s' is not unique in the search"
-                              " database(s) in '%s'" % (locusname, filename))
+                              " database(s) in '%s'", locusname, filename)
                     loci_seen.add(locusname)
                     seqs = []
                 else:

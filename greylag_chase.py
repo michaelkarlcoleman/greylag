@@ -228,10 +228,10 @@ def search_all(context, mod_limit, mod_conjunct_triples, score_statistics):
                                   + CP.fragment_mass_regime[mr_index].water_mass)
                         context.fragment_C_fixed_mass = f_C_fx
 
-                        info("MC=%s MR=%s PCA=%s CJ=%s DB=%s"
-                             % (mod_count, mr_index, pca_res, cji, delta_bag))
-                        debug("p_fx %s f_N_fx %s f_C_fx %s"
-                              % (p_fx, f_N_fx, f_C_fx))
+                        info("MC=%s MR=%s PCA=%s CJ=%s DB=%s", mod_count,
+                             mr_index, pca_res, cji, delta_bag)
+                        debug("p_fx %s f_N_fx %s f_C_fx %s", p_fx, f_N_fx,
+                             f_C_fx)
 
                         score_statistics.evaluation_count = 0
                         cgreylag.spectrum.search_runs(context,
@@ -413,8 +413,6 @@ def results_dump(fasta_db, score_statistics, searchable_spectra):
 
 
 def set_parameters(arg, options):
-    warning("FIX: make sure commands reset old state (leaks?)")
-
     global GLP
     GLP = arg
     fixed_mod_map = dict((r[3], r) for r in GLP["pervasive_mods"])
@@ -449,7 +447,7 @@ def set_sequences(arg):
     if arg[0] == 'name':
         checked = [ (db, file_sha1(db)) for db, cksum in arg[1] ]
         if checked != arg[1]:
-            error("database checksum does not match [%s]" % (checked, arg[1]))
+            error("database checksum does not match [%s]", (checked, arg[1]))
         # [(locusname, defline, seq, filename), ...]
         fasta_db = list(read_fasta_files([db for db, cksum in arg[1]]))
     else:
@@ -509,7 +507,7 @@ def set_spectra(arg):
 
     ### create SWIG spectrum objects, for C++ access
     # FIX: are physical_index and index even needed?
-    debug("parsing %s spectra" % len(py_spectra))
+    debug("parsing %s spectra", len(py_spectra))
     spectra = [ make_swig_spectrum(sp) for sp in py_spectra ]
     debug("parsed")
     spectra.sort(key=lambda x: x.mass)
@@ -525,8 +523,8 @@ def set_spectra(arg):
     def print_spectrum_statistics(spectra):
         info("  %s spectra (mass range %s - %s)", len(spectra),
              spectra[0].mass, spectra[-1].mass)
-        info("  peak stats: %s..%s..%s..%s..%s (mean=%.2f)"
-             % peak_statistics(spectra))
+        info("  peak stats: %s..%s..%s..%s..%s (mean=%.2f)",
+             peak_statistics(spectra))
 
     if spectra:
         info("read spectra:")
