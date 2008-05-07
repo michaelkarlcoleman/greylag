@@ -32,8 +32,6 @@ __copyright__ = '''
 '''
 
 
-from collections import defaultdict
-import contextlib
 import cPickle as pickle
 import math
 import optparse
@@ -173,12 +171,11 @@ def generate_marked_sequence(marks, peptide_sequence):
             yield marks.get(n, '')
 
 
-def print_spectrum(f, modification_conjucts, sp_name, sp_matches,
-                   enhanced=False):
+def print_spectrum(f, modification_conjucts, result, enhanced=False):
     """Print the lines (S/M/L/A*) associated with the given spectrum."""
-    spectrum, sp_best_matches = sp_matches
+    spectrum, sp_best_matches = result
 
-    scan_low, scan_high, charge = sp_name.rsplit('.', 2)
+    scan_low, scan_high, charge = spectrum['name'].rsplit('.', 2)
     print >> f, '\t'.join(str(v) for v in
                           ["S", scan_low, scan_high, charge, 0, 'honk',
                            spectrum['mass'],
@@ -273,6 +270,29 @@ def print_spectrum(f, modification_conjucts, sp_name, sp_matches,
             print >> f, 'L\t%s\t%s' % (sn, pb)
 
 
+def dump_result_file(result_file):
+    """Pretty-print result file contents."""
+    try:
+        r = None
+        while True:
+            r = pickle.load(result_file)
+            pprint(r)
+    except EOFError, e:
+        if r != 'complete':
+            error("result file truncated or invalid")
+
+
+def generate_results(result_file):
+    while True:
+        try:
+            r = pickle.load(result_file)
+        except EOFError:
+            error("result file truncated or invalid")
+        if r == 'complete':
+            return
+        yield r
+
+
 def main(args=sys.argv[1:]):
     parser = optparse.OptionParser(usage=
                                    "usage: %prog [options] <result-file>",
@@ -299,30 +319,34 @@ def main(args=sys.argv[1:]):
         parser.print_help()
         sys.exit(1)
 
-    with contextlib.closing(open(args[0], 'rb')) as r_file:
-        r = pickle.load(r_file)
+    result_file = open(args[0], 'rb')
 
     if options.dump:
-        pprint(r)
+        dump_result_file(result_file)
         return
 
-    spectrum_fns = r['spectrum files']
+    header = pickle.load(result_file)
+
+    spectrum_fns = header['spectrum files']
     assert len(spectrum_fns) == len(set(spectrum_fns)) # check uniqueness
+    assert all(os.path.dirname(fn) == '' for fn in spectrum_fns)
 
-    matches = r['matches'].items()
-    matches.sort()
+    basenames = [ os.path.splitext(spectrum_fn)[0]
+                  for spectrum_fn in spectrum_fns ]
 
-    for spectrum_n, spectrum_fn in enumerate(spectrum_fns):
-        assert os.path.dirname(spectrum_fn) == ''
-        sqt_fn = os.path.splitext(spectrum_fn)[0] + '.sqt'
-        with open(sqt_fn, 'w') as sqtf:
-            print_header(sqtf, r)
-            print_regime_manifest(sqtf, r['mass regime manifest'])
-            for match in matches:
-                if match[0][0] == spectrum_n:
-                    print_spectrum(sqtf, r['modification conjuncts'],
-                                   match[0][1], match[1],
-                                   options.enhanced_output)
+    # spectrum file index -> sqt file
+    spectrum_filemap = dict((n, open(fn+'.sqt', 'w'))
+                            for n, fn in enumerate(basenames))
+
+    for sqt_file in spectrum_filemap.values():
+        print_header(sqt_file, header)
+        print_regime_manifest(sqt_file, header['mass regime manifest'])
+
+    for result in generate_results(result_file):
+        if result:
+            print_spectrum(spectrum_filemap[result[0]['file_id']],
+                           header['modification conjuncts'], result,
+                           options.enhanced_output)
 
 
 if __name__ == '__main__':
