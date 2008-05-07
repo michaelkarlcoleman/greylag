@@ -45,8 +45,6 @@ __copyright__ = '''
 '''
 
 
-import asynchat
-import asyncore
 import cPickle as pickle
 import errno
 import logging; from logging import debug, info, warning
@@ -56,7 +54,6 @@ from pprint import pprint, pformat
 import re
 import socket
 import sys
-import time
 
 from greylag import *
 import cgreylag
@@ -565,9 +562,11 @@ def set_spectra(arg):
     return noise_spectrums_ids
 
 
-def perform_search(context, fasta_db, noise_spectrum_ids):
+def perform_search(state):
+
     results = { 'modification conjuncts' : GLP[">mod_conjunct_triples"],
-                'argv' : sys.argv, 'noise_spectrum_ids' : noise_spectrum_ids,
+                'argv' : sys.argv,
+                'noise_spectrum_ids' : state['noise_spectrum_ids'],
                 'matches' : {}, 'total comparisons' : 0 }
 
     spectra_count = len(cgreylag.cvar.spectrum_searchable_spectra)
@@ -580,11 +579,11 @@ def perform_search(context, fasta_db, noise_spectrum_ids):
                                             GLP["best_result_count"])
 
     info("searching")
-    search_all(context, GLP["potential_mod_limit"],
+    search_all(state['context'], GLP["potential_mod_limit"],
                GLP[">mod_conjunct_triples"], score_statistics)
 
     info("returning result")
-    results['matches'] = results_dump(fasta_db, score_statistics,
+    results['matches'] = results_dump(state['fasta_db'], score_statistics,
                                       cgreylag.cvar.spectrum_searchable_spectra)
     results['total comparisons'] = score_statistics.candidate_spectrum_count
 
@@ -600,164 +599,72 @@ def perform_search(context, fasta_db, noise_spectrum_ids):
 
 
 
+# inspired by Beazley's generator talk
+def listen_for_connections(port, port_count):
+    """Listen on a port from the range [port, port+port_count) and yield a
+    series of connections."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-class chase_listener(asyncore.dispatcher):
+    for p in range(port, port+port_count):
+        try:
+            s.bind(('', p))             # socket.INADDR_ANY?
+            s.listen(5)
+            info("listening on port %s", p)
+            break
+        except socket.error, e:
+            if e[0] == errno.EADDRINUSE:
+                continue
+            raise
+    else:
+        error("could not listen, all specified ports in use")
 
-    def __init__(self, port, port_count):
-        asyncore.dispatcher.__init__(self)
-        self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.set_reuse_addr()
-        for p in range(port, port+port_count):
-            try:
-                self.bind(('', p))      # socket.INADDR_ANY?
-                self.listen(5)
-                info("listening on port %s" % p)
-                break
-            except socket.error, e:
-                if e[0] == errno.EADDRINUSE:
-                    continue
-                raise
-        else:
-            error("could not listen, all specified ports in use")
+    while True:
+        client_socket, client_addr = s.accept()
+        info("received connection from %s", client_addr)
 
+        # try to better notice reboots, net failures, etc
+        try:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE,
+                         s.getsockopt(socket.SOL_SOCKET,
+                                      socket.SO_KEEPALIVE) | 1)
+        except socket.error:
+            pass
 
-    def writable(self):
-        return False                    # is this needed?
-
-    def handle_accept(self):
-        sock, addr = self.accept()
-        info("received connection from %s" % (addr,))
-        chase_server(sock, addr)
+        yield client_socket
 
 
 # FIX: give cleaner diagnostics on protocol failure?
 
-class chase_server(asynchat.async_chat):
 
-    # The user we're already serving, or None.  If we're serving someone,
-    # further connections will be disconnected after a quick status message
-    now_serving = None
-
-    # optparse options
-    options = None
+def reset_state(state):
+    state.clear()
+    cgreylag.spectrum.set_searchable_spectra([])
 
 
-    def __init__(self, sock, addr):
-        asynchat.async_chat.__init__(self, conn=sock)
-        self.addr = addr
-
-        self.ibuffer = []
-        self.set_terminator('\n')
-
-        self.set_keep_alive()
-
-        self.push('greylag %s ' % VERSION)
-        if self.now_serving != None:
-            self.push('serving %s count %s\n' % (self.now_serving, 0))
-            info("busy--closing connection from %s" % (self.addr,))
-            self.close_when_done()
-            return
-
-        # Set to a command word (e.g., 'search') if we've read the command and
-        # are now looking for its argument.
-        command = None
-
-        self.__class__.now_serving = 'somebody'
-        self.push('ready (honk) count %s\n' % 0)
-
-    def set_keep_alive(self):
-        # try to better notice reboots, net failures, etc
-        try:
-            self.socket.setsockopt(
-                socket.SOL_SOCKET, socket.SO_KEEPALIVE,
-                self.socket.getsockopt(socket.SOL_SOCKET,
-                                       socket.SO_KEEPALIVE) | 1
-                )
-        except socket.error:
-            pass
-
-
-    def readable(self):
-        return self.now_serving != None and not self.writable()
-
-
-    def _receive_response(self):
-        r = ''.join(self.ibuffer)
-        self.ibuffer = []
-        return r
-
-    def handle_expt(self):
-        #self.handle_error()
-        pass
-
-    def handle_error(self):
-        info("closing connection from %s (connection error)" % (self.addr,))
-        self.__class__.now_serving = None
-        asynchat.async_chat.handle_error(self)
-
-    def handle_close(self):
-        info("closing connection from %s" % (self.addr,))
-        self.__class__.now_serving = None
-        asynchat.async_chat.handle_close(self)
-
-
-    def collect_incoming_data(self, data):
-        self.ibuffer.append(data)
-
-    def found_terminator(self):
-        if self.get_terminator() == '\n':
-            command_line = self._receive_response()
-            command_words = command_line.split()
-            assert len(command_words) == 2
-            self.command = command_words[0]
-            self.set_terminator(int(command_words[1]))
-            return
-        assert self.command
-        arg = pickle.loads(self._receive_response())
-        r = self._handle_command(self.command, arg)
-        self.command = None
-        self.set_terminator('\n')
-        if not r:
-            return
-        response, response_arg = r
-        assert response in ('found', 'error')
-        if response == 'error':
-            self.push('error %s\n' % response_arg)
-            self.close_when_done()
-            return
-        self.push('found ')
-        pickled_argument = pickle.dumps(response_arg)
-        self.push("%s\n" % len(pickled_argument))
-        self.push(pickled_argument)
-
-
-    def _reset_state(self):
-        self.fasta_db = None
-        self.context = None
-        cgreylag.spectrum.set_searchable_spectra([])
-
-
-    def _handle_command(self, command, arg):
-        """Handle received command/arg.  Returns a pair (response, arg) or
-        None.
-        """
-        if command == 'parameters':
-            self._reset_state()
-            set_parameters(arg, self.options)
-            return None
-        elif command == 'sequences':
-            self.context, self.fasta_db = set_sequences(arg)
-            return None
-        elif command == 'spectra':
-            self.noise_spectrum_ids = set_spectra(arg)
-            return None
-        elif command == 'search':
-            #currently ignore arg
-            results = perform_search(self.context, self.fasta_db,
-                                     self.noise_spectrum_ids)
-            return 'found', results
-        else:
-            assert False, "unknown command '%s'" % command
+def handle_command(options, state, command, arg):
+    """Handle command/arg from client, returning (response, response_arg) or
+    None.  State that persists across commands is stored in 'state', or on the
+    C++ side with cgreylag.spectrum.set_searchable_spectra().
+    """
+    if command == 'parameters':
+        reset_state(state)
+        set_parameters(arg, options)
+        return None
+    elif command == 'sequences':
+        context, fasta_db = set_sequences(arg)
+        state['context'] = context
+        state['fasta_db'] = fasta_db
+        return None
+    elif command == 'spectra':
+        state['noise_spectrum_ids'] = set_spectra(arg)
+        return None
+    elif command == 'search':
+        #currently ignore arg
+        results = perform_search(state)
+        return 'found', results
+    else:
+        assert False, "unknown command '%s'" % command
 
 
 def main(args=sys.argv[1:]):
@@ -772,10 +679,10 @@ def main(args=sys.argv[1:]):
     pa("--port-count", dest="port_count", type="int",
        default=DEFAULT_PORT_COUNT,
        help="number of ports to try [default=%s]" % DEFAULT_PORT_COUNT)
-    DEFAULT_TIMEOUT = 600
-    pa("--timeout", dest="timeout", type="int",
-       default=DEFAULT_TIMEOUT,
-       help="inactivity timeout [default=%ss]" % DEFAULT_TIMEOUT)
+    #DEFAULT_TIMEOUT = 600
+    #pa("--timeout", dest="timeout", type="int",
+    #   default=DEFAULT_TIMEOUT,
+    #   help="inactivity timeout [default=%ss]" % DEFAULT_TIMEOUT)
     pa("-q", "--quiet", action="store_true", dest="quiet", help="no warnings")
     pa("-p", "--show-progress", action="store_true", dest="show_progress",
        help="show running progress")
@@ -803,17 +710,52 @@ def main(args=sys.argv[1:]):
 
     info("starting on %s", socket.gethostname())
 
-    chase_server.options = options
-    chase_listener(options.port, options.port_count)
+    state = {}
+    for client in listen_for_connections(options.port, options.port_count):
+        try:
+            client_f_to = client.makefile('w')
+            client_f_from = client.makefile('r')
 
-    # FIX: if we're not making progress, drop connection (optionally exit)
-    while True:
-        asyncore.loop(timeout=options.timeout, count=1, use_poll=True)
+            print >> client_f_to, "greylag %s ready" % VERSION
+            client_f_to.flush()
 
-        # FIX: this shouldn't happen, but currently it is
-        if not asyncore.socket_map:
-            error("oops, no listener, exiting")
-        time.sleep(0.01)                # FIX: failsafe
+            # new client--clear all prior state
+            reset_state(state)
+
+            while True:
+                command_line = client_f_from.readline()
+                if not command_line:
+                    info("client closed connection")
+                    break
+                command, arg_length = command_line.split()
+                arg = pickle.loads(client_f_from.read(int(arg_length)))
+                r = handle_command(options, state, command, arg)
+                if not r:
+                    continue
+                response, response_arg = r
+                if response == 'error':
+                    print >> client_f_to, 'error', response_arg
+                    break
+                assert response == 'found'
+                p_response_arg = pickle.dumps(response_arg)
+                print >> client_f_to, 'found', len(p_response_arg)
+                client_f_to.write(p_response_arg)
+                client_f_to.flush()
+
+        except socket.error, e:
+            info("closing connection on error [%s]", e)
+        except Exception, e:
+            try: print >> client_f_to, ('error [%s "%s"]'
+                                        % (sys.exc_info()[0], e))
+            except: pass
+            raise
+        finally:
+            try: client_f_to.close()
+            except: pass
+            try: client_f_from.close()
+            except: pass
+            try: client.close()
+            except: pass
 
     info("exiting")
 
