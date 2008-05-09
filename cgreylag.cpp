@@ -584,7 +584,8 @@ evaluate_peptide(const search_context &context, match &m,
     for (const mass_trace_list *p=mtlp; p; p=p->next)
       m.mass_trace.push_back(p->item);
 
-    // If this is duplicate, just append to the existing match and return
+    // If this is duplicate, just append to the existing match and continue
+    bool duplicate = false;
     for (std::vector<match>::reverse_iterator rit
 	   = sp_best_matches.rbegin(); rit != sp_best_matches.rend(); rit++)
       if (score_equal(rit->score, m.score)
@@ -594,15 +595,18 @@ evaluate_peptide(const search_context &context, match &m,
 	  and rit->mass_trace == m.mass_trace) {
 	rit->peptide_begin.push_back(m.peptide_begin[0]);
 	rit->sequence_name.push_back(m.sequence_name[0]);
-	return;
+	duplicate = true;
+	break;
       }
 
     // Otherwise, insert this match in the correct position
-    assert(sp_best_matches.size() >= 1);
-    std::vector<match>::reverse_iterator rit = sp_best_matches.rbegin();
-    for (;rit+1 != sp_best_matches.rend() and (rit+1)->score > m.score; rit++)
-      *rit = *(rit+1);
-    *rit = m;
+    if (not duplicate) {
+      assert(sp_best_matches.size() >= 1);
+      std::vector<match>::reverse_iterator rit = sp_best_matches.rbegin();
+      for (;rit+1 != sp_best_matches.rend() and (rit+1)->score > m.score; rit++)
+	*rit = *(rit+1);
+      *rit = m;
+    }
   }
 }
 
