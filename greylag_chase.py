@@ -523,8 +523,8 @@ def set_spectra(arg):
     def print_spectrum_statistics(spectra):
         info("  %s spectra (mass range %s - %s)", len(spectra),
              spectra[0].mass, spectra[-1].mass)
-        info("  peak stats: %s..%s..%s..%s..%s (mean=%.2f)",
-             peak_statistics(spectra))
+        info("  peak stats: %s..%s..%s..%s..%s (mean=%.2f)"
+             % peak_statistics(spectra))
 
     if spectra:
         info("read spectra:")
