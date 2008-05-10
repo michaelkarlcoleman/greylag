@@ -71,6 +71,8 @@ def error(s, *args):
     logging.error(s, *args)
     sys.exit(1)
 
+# fatal for rally, but chase just disconnects
+chase_error = error
 
 # name -> value map of processed greylag config parameters
 GLP = {}
