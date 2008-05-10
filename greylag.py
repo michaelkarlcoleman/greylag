@@ -363,12 +363,12 @@ def cleavage_motif_re(motif):
     motif_re = re.compile(r'(\||(\[(X|[A-WYZ]+)\])|({([A-WYZ]+)}))')
     parts = [ p[0] for p in motif_re.findall(motif) ]
     if ''.join(parts) != motif:
-        error('invalid cleavage motif pattern')
+        chase_error('invalid cleavage motif pattern')
     i = 0
     for part in parts:
         if part == '|':
             if cleavage_pos != None:
-                error ("invalid cleavage motif pattern" " (multiple '|'s)")
+                chase_error("invalid cleavage motif pattern" " (multiple '|'s)")
             cleavage_pos = i
             continue
         if part == '[X]':
@@ -390,7 +390,7 @@ def cleavage_motif_re(motif):
 
 
 def file_sha1(filename):
-    """Return the (binary) SHA1 digest of the given file."""
+    """Return the (hex) SHA1 digest of the given file."""
     try:
         import hashlib
     except:
@@ -398,7 +398,7 @@ def file_sha1(filename):
     h = hashlib.sha1()
     with open(filename) as f:
         h.update(f.read())
-    return h.digest()
+    return h.hexdigest()
 
 
 def read_fasta_files(filenames):
@@ -417,16 +417,18 @@ def read_fasta_files(filenames):
                     if defline != None:
                         yield (locusname, defline, ''.join(seqs), filename)
                     elif seqs:
-                        error("bad format: line precedes initial defline"
-                              " in '%s'", filename)
+                        chase_error("bad format: line precedes initial defline"
+                                    " in '%s'", filename)
                     defline = line[1:]
                     locusname_rest = defline.split(None, 1)
                     if not locusname_rest:
-                        error("empty locus name not allowed in '%s'", filename)
+                        chase_error("empty locus name not allowed in '%s'",
+                                    filename)
                     locusname = locusname_rest[0]
                     if locusname in loci_seen:
-                        error("locus name '%s' is not unique in the search"
-                              " database(s) in '%s'", locusname, filename)
+                        chase_error("locus name '%s' is not unique in the"
+                                    " search database(s) in '%s'", locusname,
+                                    filename)
                     loci_seen.add(locusname)
                     seqs = []
                 else:

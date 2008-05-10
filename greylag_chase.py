@@ -65,12 +65,20 @@ import gc; gc.disable()
 
 
 def error(s, *args):
-    "fatal error"
+    "fatal error --> exit with error"
     # if we're unit testing, just throw an exception
     if __name__ != "__main__":
         raise Exception((s + " (fatal error)") % args)
     logging.error(s, *args)
     sys.exit(1)
+
+class ChaseException(Exception): pass
+
+def chase_error(s, *args):
+    "error --> disconnect from client"
+    logging.error(s, *args)
+    raise ChaseException((s + " (disconnecting)") % args)
+
 
 
 # Try to drop dead immediately on SIGINT (control-C), instead of normal Python
@@ -423,7 +431,7 @@ def set_parameters(arg, options):
                                                     GLP["potential_mod_limit"],
                                                     GLP["mass_regimes"])
     if len(mod_conjunct_triples) >= sys.maxint-8:
-        error("too many conjunct triples")
+        chase_error("too many conjunct triples")
     GLP[">mod_conjunct_triples"] = mod_conjunct_triples
 
     info("%s unique potential modification conjuncts",
@@ -435,8 +443,8 @@ def set_parameters(arg, options):
     cleavage_pattern, cleavage_position \
                       = cleavage_motif_re(GLP["cleavage_motif"])
     if cleavage_position == None:
-        error("cleavage site '%s' is missing '|'",
-              GLP["protein, cleavage site"])
+        chase_error("cleavage site '%s' is missing '|'",
+                    GLP["protein, cleavage site"])
     cleavage_pattern = re.compile(cleavage_pattern)
     GLP[">cleavage_pattern"] = cleavage_pattern
     GLP[">cleavage_position"] = cleavage_position
@@ -447,7 +455,8 @@ def set_sequences(arg):
     if arg[0] == 'name':
         checked = [ (db, file_sha1(db)) for db, cksum in arg[1] ]
         if checked != arg[1]:
-            error("database checksum does not match [%s]", (checked, arg[1]))
+            chase_error("database checksum does not match [%s]",
+                        (checked, arg[1]))
         # [(locusname, defline, seq, filename), ...]
         fasta_db = list(read_fasta_files([db for db, cksum in arg[1]]))
     else:
@@ -464,9 +473,9 @@ def set_sequences(arg):
     max_run_length = max(len(r[3]) for r in db)
     info("max run length is %s residues", max_run_length)
     if max_run_length > sys.maxint:
-        error("runs longer than %s not yet supported", max_run_length)
+        chase_error("runs longer than %s not yet supported", max_run_length)
     if not db:
-        error("no database sequences")
+        chase_error("no database sequences")
 
     context = cgreylag.search_context()
     context.nonspecific_cleavage = (GLP["cleavage_motif"] == "[X]|[X]")
@@ -727,7 +736,10 @@ def main(args=sys.argv[1:]):
                     break
                 command, arg_length = command_line.split()
                 arg = pickle.loads(client_f_from.read(int(arg_length)))
-                r = handle_command(options, state, command, arg)
+                try:
+                    r = handle_command(options, state, command, arg)
+                except ChaseException, e:
+                    r = ('error', e)
                 if not r:
                     continue
                 response, response_arg = r
@@ -739,7 +751,6 @@ def main(args=sys.argv[1:]):
                 print >> client_f_to, 'found', len(p_response_arg)
                 client_f_to.write(p_response_arg)
                 client_f_to.flush()
-
         except socket.error, e:
             info("closing connection on error [%s]", e)
         except Exception, e:
