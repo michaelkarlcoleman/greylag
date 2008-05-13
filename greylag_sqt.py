@@ -265,9 +265,8 @@ def print_spectrum(f, modification_conjucts, result, enhanced=False):
             for at_line in at_lines:
                 print >> f, '\t'.join(str(v) for v in at_line)
 
-        assert len(match['sequence_name']) == len(match['peptide_begin'])
-        for sn, pb in zip(match['sequence_name'], match['peptide_begin']):
-            print >> f, 'L\t%s\t%s' % (sn, pb)
+        for sequence_name, peptide_begin in match['loci']:
+            print >> f, 'L\t%s\t%s' % (sequence_name, peptide_begin)
 
 
 def dump_result_file(result_file):

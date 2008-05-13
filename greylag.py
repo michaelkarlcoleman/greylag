@@ -142,9 +142,11 @@ RESIDUES = sorted(RESIDUE_FORMULA.keys())
 RESIDUES_W_BRACKETS = RESIDUES + ['[', ']']
 
 
-# accessed as a global variable (FIX?)
 # [0][1] -> 'H' -> fragment mass of H for regime 0
 MASS_REGIME_ATOMIC_MASSES = []
+
+def dump_mass_regime_atomic_masses():
+    return MASS_REGIME_ATOMIC_MASSES
 
 
 def mass_regime_atomic_masses(spec):

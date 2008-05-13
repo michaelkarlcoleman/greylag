@@ -545,10 +545,13 @@ class chase_client(asynchat.async_chat):
 
     @classmethod
     def _remember_result(self, spectrum_id, result):
-        offset = self.result_file.tell()
-        pickle.dump(result, self.result_file, pickle.HIGHEST_PROTOCOL)
-        length = self.result_file.tell() - offset
-        self.result_file_index.append((spectrum_id, offset, length))
+        if result:
+            offset = self.result_file.tell()
+            del result[0]['id']         # ids differ for future subset files
+            pickle.dump(result, self.result_file, pickle.HIGHEST_PROTOCOL)
+            length = self.result_file.tell() - offset
+            self.result_file_index.append((result[0]['name'], offset, length))
+        assert spectrum_id not in self.searched_spectra
         self.searched_spectra.add(spectrum_id)
         self.spectra_to_go -= 1
 
@@ -944,27 +947,24 @@ def main(args=sys.argv[1:]):
     mod_conjunct_triples = get_mod_conjunct_triples(GLP["potential_mods"],
                                                     GLP["potential_mod_limit"],
                                                     GLP["mass_regimes"])
+
     pk.dump({ 'version' : VERSION,
               'total comparisons' : 0,
               'spectrum files' : base_spectrum_fns,
               'databases' : databases,
               'parameters' : GLP,
-              'mass regime atomic masses' : MASS_REGIME_ATOMIC_MASSES,
+              'mass regime atomic masses' : dump_mass_regime_atomic_masses(),
               'mass regime manifest' : sorted(regime_manifest),
               'proton mass' : PROTON_MASS,
               'modification conjuncts' : mod_conjunct_triples,
               'argv' : sys.argv })
 
     temp_result_file.flush()            # unneeded?
-    for sp_id, offset, length in sorted(chase_client.result_file_index):
+    for sp_name, offset, length in sorted(chase_client.result_file_index):
         temp_result_file.seek(offset)
         r = temp_result_file.read(length)
         assert len(r) == length
         result_file.write(r)
-
-    # sp = (file_index, physical_index, index, name, mass, charge, peaks)
-    #result_matches = dict(((sp[0], sp[3]), chase_client.results[sp[2]])
-    #                      for sp in spectra if chase_client.results[sp[2]])
 
     pk.dump('complete')                 # so reader can tell file not truncated
     result_file.close()                 # force any file error to occur now

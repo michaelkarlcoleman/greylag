@@ -362,7 +362,7 @@ def pythonize_swig_object(o, only_fields=None, skip_fields=[]):
 
 
 def results_dump(fasta_db, score_statistics, searchable_spectra):
-    """Return a result dict mapping spectrum names to (spectrum_metadata,
+    """Return a result dict mapping spectrum ids to (spectrum_metadata,
     best_matches) pairs.
 
     Unneeded fields are stripped.  Some are always removed, while others are
@@ -388,18 +388,13 @@ def results_dump(fasta_db, score_statistics, searchable_spectra):
     # FIX: doing this here because it's much easier after pythonizing
     fix_up_flanking_residues(fasta_db, py_matches)
 
-    # note that both strip functions modify their argument
-    def strip_meta(meta):
-        # these fields are redundant, could strip them
-        #del meta['file_id']
-        #del meta['name']
-        #del meta['charge']
-        return meta
-
+    # note that this function modifies its argument
     def strip_match(match):
         assert len(match['peptide_begin']) == len(match['sequence_name'])
-        if len(match['peptide_begin']) == 0:
-            return None
+        match['loci'] = zip(match['sequence_name'], match['peptide_begin'])
+        del match['peptide_begin']
+        del match['sequence_name']
+
         if match['conjunct_index'] == 0:
             del match['conjunct_index']
         if match['mass_regime_index'] == 0:
@@ -412,10 +407,10 @@ def results_dump(fasta_db, score_statistics, searchable_spectra):
 
     for sp_metadata, sp_matches in zip(py_s_spectra, py_matches):
         sp_key = sp_metadata['id']
-        assert sp_key not in r, "duplicate spectrum id"
+        assert sp_key not in r, "duplicate spectrum id '%s'" % sp_key
         sp_matches_stripped = [ strip_match(m) for m in sp_matches ]
         sp_matches_stripped = [ m for m in sp_matches_stripped if m != None ]
-        r[sp_key] = (strip_meta(sp_metadata), sp_matches_stripped)
+        r[sp_key] = (sp_metadata, sp_matches_stripped)
 
     return r
 
@@ -556,8 +551,8 @@ def set_spectra(arg):
     good_spectra = [ sp for sp in spectra
                      if (len(sp.peaks) >= 10
                          and min_psm <= sp.mass <= max_psm) ]
-    noise_spectrums_ids = (set(sp.id for sp in spectra)
-                           - set(sp.id for sp in good_spectra))
+    noise_spectrum_ids = (set(sp.id for sp in spectra)
+                          - set(sp.id for sp in good_spectra))
 
     if good_spectra:
         info("after filtering:")
@@ -566,7 +561,7 @@ def set_spectra(arg):
         info("no spectra pass filters")
 
     cgreylag.spectrum.set_searchable_spectra(good_spectra)
-    return noise_spectrums_ids
+    return noise_spectrum_ids
 
 
 def perform_search(state):
