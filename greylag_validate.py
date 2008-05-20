@@ -301,6 +301,38 @@ def get_spectrum_info(options, spectra):
                    actual_mass-current_peptide_mass, frozenset(current_loci))
 
 
+# FIX: can this be more succinct?
+def remove_charge_aliases(spectrum_generator):
+    """Given a generator of spectra like get_spectrum_info, for spectra that
+    received multiple id's at different charges, yield only the best id.
+    (Probably unnecessary unless the precursor tolerance is wide.)
+    """
+
+    sp_info_0 = None
+    for sp_info_1 in spectrum_generator:
+        assert sp_info_1[2] < 10, "single-digit charge"
+        if not sp_info_0:
+            sp_info_0 = sp_info_1
+            continue
+        if sp_info_0[1][:-1] != sp_info_1[1][:-1]:
+            yield sp_info_0
+            sp_info_0 = sp_info_1
+            continue
+        # if at least one has sufficiently small mass delta, choose the
+        # one with the smaller
+        if abs(sp_info_0[9]) < abs(sp_info_1[9]) < 10:
+            continue
+        if abs(sp_info_1[9]) < abs(sp_info_0[9]) < 10:
+            sp_info_0 = sp_info_1
+            continue
+        # otherwise choose the better-scoring one
+        if sp_info_0[3] < sp_info_1[3]:
+            sp_info_0 = sp_info_1
+
+    if sp_info_0:
+        yield sp_info_0
+
+
 # General algorithm:
 # - repeat, adjusting fdr upwards (or downwards?) to meet user goal
 #     repeat until set of valid spectra converges:
@@ -752,8 +784,8 @@ def main(args=sys.argv[1:]):
     options.fdr *= 2
 
     info("reading spectra")
-    spectrum_info = list(get_spectrum_info(options,
-                                           generate_spectra_from_files(args)))
+    spectrum_info = list(remove_charge_aliases(get_spectrum_info(options,
+                                                                 generate_spectra_from_files(args))))
 
     # valid_spectrum_info is the list of spectrum_info elements that have been
     # chosen as "valid"
