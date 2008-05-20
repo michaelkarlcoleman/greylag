@@ -220,6 +220,7 @@ def get_spectrum_info(options, spectra):
         current_delta = None
         current_peptide_trypticity = None
         current_sp_rank = None
+        current_peptide_mass = None
         current_state = set()
         current_loci = set()
         highest_rank_seen = 0
@@ -231,7 +232,7 @@ def get_spectrum_info(options, spectra):
 
             rank = int(M_fields[1])
             sp_rank = int(M_fields[2])
-            predicted_mass = float(M_fields[3])
+            peptide_mass = float(M_fields[3])
             score = float(M_fields[5])
             peptide = M_fields[9].strip().upper() # e.g., A.B@CD*.-
             assert score >= 0 and rank >= 1 and sp_rank >= 1
@@ -255,6 +256,7 @@ def get_spectrum_info(options, spectra):
 
             if current_peptide == None:
                 current_peptide = peptide
+                current_peptide_mass = peptide_mass
                 current_peptide_trypticity = 0
                 # NB: K*, R* not tryptic!
                 if (peptide_flanks[0] in ('K', 'R') and peptide[0] != 'P'
@@ -296,7 +298,7 @@ def get_spectrum_info(options, spectra):
             yield (spectrum_no, spectrum_name, current_charge, current_score,
                    current_delta, current_state, current_peptide,
                    strip_mods(current_peptide), actual_mass,
-                   actual_mass-predicted_mass, frozenset(current_loci))
+                   actual_mass-current_peptide_mass, frozenset(current_loci))
 
 
 # General algorithm:
