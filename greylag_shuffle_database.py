@@ -21,12 +21,13 @@ some purposes.
 """
 
 
-import fileinput
+import hashlib
 import optparse
 import random
 import re
-import sha
 import sys
+
+import greylag
 
 
 # change docstring above if this is changed!
@@ -34,8 +35,8 @@ SHUFFLE_PREFIX = 'SHUFFLED_'
 
 
 def warn(message):
-    print >> sys.stderr, "warning: %s [at %s:%s]" \
-          % (message, fileinput.filename(), fileinput.filelineno())
+    print >> sys.stderr, "warning: %s" % message
+
 def error(s):
     sys.exit('error: ' + s)
 
@@ -46,7 +47,7 @@ default_wrap=80
 
 
 def main():
-    parser = optparse.OptionParser(usage="usage: %prog [options] [<file>...]",
+    parser = optparse.OptionParser(usage="usage: %prog [options] <file>",
                                    description=__doc__)
     parser.add_option("-r", "--reverse", action="store_true",
                       dest="reverse",
@@ -66,39 +67,33 @@ def main():
                       metavar="COLUMNS")
     (options, args) = parser.parse_args()
 
+    if len(args) != 1:
+        parser.print_help()
+        sys.exit(1)
+
     random.seed(options.seed)
 
-    defline = None
-    seqs = []
     # locus id -> (defline, hash of sequence)
     seen = {}
-    for line in fileinput.input(args):
-        line = line.strip()
-        if line[:1] == '>':
-            if defline:
-                out(defline, seqs, options, seen)
-            elif seqs:
-                warn("discarding sequence prior to initial defline")
-            defline = line
-            seqs = []
-        else:
-            seqs.append(re.sub(whitespace, '', line))
-    if defline:
-        out(defline, seqs, options, seen)
+
+    for locusname, defline, sequence, filename \
+            in greylag.read_fasta_files([args[0]]):
+        write_locus(options, seen, locusname, defline, sequence)
 
 
-def out(defline, seqs, options, seen):
-    sequence = ''.join(seqs)
-    sequence_hash = sha.new(sequence).digest()
-    locus_id = re.split(r'[ 	]+', defline, 1)[0]
-    if locus_id in seen:
-        seen_defline, seen_hash = seen[locus_id]
+def write_locus(options, seen, locusname, defline, sequence):
+    h = hashlib.sha1()
+    h.update(sequence)
+    sequence_hash = h.digest()
+
+    if locusname in seen:
+        seen_defline, seen_hash = seen[locusname]
         if seen_hash != sequence_hash:
-            error("differing sequence for locus '%s'" % locus_id)
+            error("differing sequence for locus '%s'" % locusname)
         if options.verbose and seen_defline != defline:
-            warn("differing deflines for locus '%s'" % locus_id)
+            warn("differing deflines for locus '%s'" % locusname)
         return
-    seen[locus_id] = (defline, sequence_hash)
+    seen[locusname] = (defline, sequence_hash)
 
     s_list = list(sequence)
     random.seed(options.seed)
@@ -107,11 +102,11 @@ def out(defline, seqs, options, seen):
     else:
         random.shuffle(s_list)
     shuffle_sequence = ''.join(s_list)
-    shuffle_defline = '>' + SHUFFLE_PREFIX + locus_id[1:] + ' FALSE POSITIVE'
+    shuffle_defline = SHUFFLE_PREFIX + locusname + ' FALSE POSITIVE'
     for d, s in [(defline, sequence), (shuffle_defline, shuffle_sequence)]:
         if options.no_original and d == defline:
             continue
-        print d
+        print '>' + d
         if options.wrap:
             for start in range(0, len(s), options.wrap):
                 print s[start:start+options.wrap]
