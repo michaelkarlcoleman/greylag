@@ -36,6 +36,10 @@ import cgreylag
 VERSION = "0.1.1"
 
 
+# prefix added to locus id's for decoy loci
+DEFAULT_DECOY_PREFIX = "SHUFFLED_"
+
+
 # handle to the singleton parameter object shared with the C++ module
 CP = cgreylag.cvar.parameters_the
 

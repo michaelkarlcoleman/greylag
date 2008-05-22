@@ -51,8 +51,7 @@ import string
 import sys
 import time
 
-
-from greylag import VERSION, set_logging
+import greylag
 
 
 def error(s, *args):
@@ -686,12 +685,13 @@ def print_mass_error_histogram(valid_spectrum_info):
 def main(args=sys.argv[1:]):
     parser = optparse.OptionParser(usage=
                                    "usage: %prog [options] <sqt-file>...",
-                                   description=__doc__, version=VERSION)
+                                   description=__doc__, version=greylag.VERSION)
     pa = parser.add_option
-    DEFAULT_DECOY_PREFIX = "SHUFFLED_"
-    pa("--decoy-prefix", dest="decoy_prefix", default=DEFAULT_DECOY_PREFIX,
+    pa("--decoy-prefix", dest="decoy_prefix",
+       default=greylag.DEFAULT_DECOY_PREFIX,
        help='prefix given to locus name of decoy (e.g., shuffled) database'
-       ' sequences [default=%r]' % DEFAULT_DECOY_PREFIX, metavar="PREFIX")
+       ' sequences [default=%r]' % greylag.DEFAULT_DECOY_PREFIX,
+       metavar="PREFIX")
     DEFAULT_FDR = 0.01
     pa("--fdr", dest="fdr", type="float", default=DEFAULT_FDR,
        help="false discovery rate [default=%s] (Note that this is the"
@@ -765,7 +765,7 @@ def main(args=sys.argv[1:]):
 
     options.minimum_trypticity = int(options.minimum_trypticity)
 
-    set_logging(options)
+    greylag.set_logging(options)
 
     if options.reset_marks:
         write_spectra_to_files(reset_marks(generate_spectra_from_files(args)),
