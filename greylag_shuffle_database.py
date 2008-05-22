@@ -20,6 +20,30 @@ some purposes.
 
 """
 
+__copyright__ = '''
+    greylag, a collection of programs for MS/MS protein analysis
+    Copyright (C) 2006-2008  Stowers Institute for Medical Research
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+    Contact: Mike Coleman
+             Stowers Institute for Medical Research
+             1000 East 50th Street
+             Kansas City, Missouri  64110
+             USA
+'''
+
 
 from collections import defaultdict
 import hashlib
@@ -36,11 +60,6 @@ def warn(message):
 
 def error(s):
     sys.exit('error: ' + s)
-
-
-whitespace = re.compile('[ \t]+')
-
-default_wrap=80
 
 
 class abstract_decoy_maker:
@@ -172,11 +191,14 @@ def main():
                       help="don't output original sequences")
     parser.add_option("-v", "--verbose", action="store_true",
                       dest="verbose", help="be verbose")
+    DEFAULT_WRAP = 80
     parser.add_option("-w", "--wrap", dest="wrap", type="int",
-                      default=default_wrap,
+                      default=DEFAULT_WRAP,
                       help="wrap sequence to specified width"
-                      " [default %s, 0 means don't wrap at all]" % default_wrap,
+                      " [default %s, 0 means don't wrap at all]" % DEFAULT_WRAP,
                       metavar="COLUMNS")
+    parser.add_option("--copyright", action="store_true", dest="copyright",
+                      help="print copyright and exit")
     (options, args) = parser.parse_args()
 
     if (len(args) != 1
@@ -209,6 +231,7 @@ def main():
                           % (len(sixmers[0]) - len(common_sixmers),
                              len(sixmers[1]) - len(common_sixmers),
                              len(common_sixmers)))
+
 
 if __name__ == '__main__':
     main()
