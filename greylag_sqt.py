@@ -52,6 +52,9 @@ def warn(s):
 def error(s):
     sys.exit('error: ' + s)
 
+# errors are fatal
+greylag.chase_error = error
+
 
 def generate_leaves(tree):
     """Given a tree made of lists, yield the leaves.

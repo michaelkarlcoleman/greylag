@@ -61,6 +61,9 @@ def warn(message):
 def error(s):
     sys.exit('error: ' + s)
 
+# errors are fatal
+greylag.chase_error = error
+
 
 class abstract_decoy_maker:
     def make(self, s):

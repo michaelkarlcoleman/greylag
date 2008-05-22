@@ -407,39 +407,48 @@ def file_sha1(filename):
     return h.hexdigest()
 
 
+def read_fasta_file(f):
+    """Yield (locusname, defline, sequence) tuples as read from the given
+    FASTA file (uppercasing sequence)."""
+
+    locusname, defline = None, None
+    seqs = []
+
+    for line in f:
+        line = line.strip()
+        if line[:1] == '>':
+            if defline != None:
+                yield (locusname, defline, ''.join(seqs))
+            defline = line[1:]
+            locusname_rest = defline.split(None, 1)
+            locusname = locusname_rest[0] if locusname_rest else ''
+            seqs = []
+        else:
+            if defline == None:
+                chase_error("bad format: line precedes initial defline"
+                            " in '%s'", (f.name if hasattr(f, 'name')
+                                         else 'unknown FASTA file'))
+            seqs.append(line.upper())
+    if defline != None:
+        yield (locusname, defline, ''.join(seqs))
+
+
 def read_fasta_files(filenames):
     """Yield (locusname, defline, sequence, filename) tuples as read from
-    FASTA files (uppercasing sequence)."""
+    FASTA files (uppercasing sequence).  An error is given if locusname is
+    empty or not unique across all sequences."""
 
     loci_seen = set()
 
     for filename in filenames:
-        locusname, defline = None, None
-        seqs = []
         with open(filename) as f:
-            for line in f:
-                line = line.strip()
-                if line[:1] == '>':
-                    if defline != None:
-                        yield (locusname, defline, ''.join(seqs), filename)
-                    elif seqs:
-                        chase_error("bad format: line precedes initial defline"
-                                    " in '%s'", filename)
-                    defline = line[1:]
-                    locusname_rest = defline.split(None, 1)
-                    if not locusname_rest:
-                        chase_error("empty locus name not allowed in '%s'",
-                                    filename)
-                    locusname = locusname_rest[0]
-                    if locusname in loci_seen:
-                        chase_error("locus name '%s' is not unique in the"
-                                    " search database(s) in '%s'", locusname,
-                                    filename)
-                    loci_seen.add(locusname)
-                    seqs = []
-                else:
-                    seqs.append(line.upper())
-            if defline:
-                yield (locusname, defline, ''.join(seqs), filename)
+            for locusname, defline, sequence in read_fasta_file(f):
+                if not locusname:
+                    chase_error("empty locus name not allowed in '%s'",
+                                filename)
+                if locusname in loci_seen:
+                    chase_error("locus name '%s' is not unique in the search"
+                                " database(s) in '%s'", locusname, filename)
+                loci_seen.add(locusname)
 
-
+                yield (locusname, defline, sequence, filename)

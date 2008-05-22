@@ -62,6 +62,8 @@ def error(s, *args):
     logging.error(s, *args)
     sys.exit(1)
 
+# errors are fatal
+greylag.chase_error = error
 
 
 def generate_spectra_from_files(sqt_filenames):

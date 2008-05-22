@@ -80,6 +80,7 @@ install :: all install_scripts
 install_scripts ::
 	[ -d $(DEST) ] || install -d $(DEST)
 	install -p --mode=444 greylag.py $(DEST)
+	install -p greylag_flatten_fasta.py $(DEST)/greylag-flatten-fasta
 	install -p greylag_shuffle_database.py $(DEST)/greylag-shuffle-database
 	install -p greylag_chase.py $(DEST)/greylag-chase
 	install -p greylag_rally.py $(DEST)/greylag-rally
