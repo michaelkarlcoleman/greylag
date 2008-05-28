@@ -33,7 +33,7 @@ import sys
 import cgreylag
 
 
-VERSION = "0.1.1"
+VERSION = "0.1.2"
 
 
 # prefix added to locus id's for decoy loci
