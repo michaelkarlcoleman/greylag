@@ -4,6 +4,24 @@ Release Notes
 =============
 
 
+Version 0.1.2
+-------------
+
+* Fix validation bugs.
+
+* Better ``greylag-chase`` error reporting back to user.
+
+* Add basic Markov shuffle to ``greylag-shuffle-database``.
+
+* Add ``--mass-error-histogram`` to ``greylag-validate``.
+
+* Add ``greylag-flatten-fasta`` utility.
+
+* Reduce RAM and open file requirements of various programs.  In particular,
+  ``greylag-chase`` no longer requires RAM linear in the number of spectra
+  searched.
+
+
 Version 0.1
 -----------
 
@@ -19,6 +37,4 @@ Version 0.1
 See also the TODO file.
 
 
-Version 0.2
------------
 
