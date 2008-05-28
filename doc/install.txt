@@ -1,0 +1,90 @@
+==========================
+Greylag Installation Guide
+==========================
+
+
+Prerequisites
+-------------
+
+Building greylag requires Python_ version 2.5 or later, SWIG_ 1.3.31 or later,
+and reasonably recent versions of g++ and libstdc++, and make.  Recent Linux
+distributions will likely have sufficiently new versions, but you may have to
+install some of them.  Under Ubuntu_ or Debian_ Linux, this should suffice::
+
+    $ sudo apt-get install python{,-dev} swig g++ make
+
+If you also want to run the test suite and build the documentation, add::
+
+    $ sudo apt-get install python-{nose,profiler,docutils}
+    $ sudo apt-get install texlive-latex-{extra,recommended} texlive-lang-french
+
+Greylag was developed and tested on GNU/Linux, but in principle it should work
+(perhaps with minor modifications) under other flavors of Unix, Mac OS X, and
+Cygwin_ on Windows.
+
+.. _Python: http://www.python.org/
+.. _SWIG: http://www.swig.org/
+.. _Ubuntu: http://www.ubuntu.com/
+.. _Debian: http://www.debian.org/
+.. _Cygwin: http://www.cygwin.com/
+
+
+
+Compiling
+---------
+
+For a standard compile, just use
+
+::
+
+    $ make
+
+There are additional options you can try that might give a little extra
+speed--see the Makefile for more details.
+
+Next, run the test suite::
+
+    $ make check
+
+This will run a number of unit tests and several small searches.
+
+Then
+
+::
+
+    $ make install
+
+will install to ``/usr/local/lib/greylag``, or you can use
+
+::
+
+    $ make DEST=/my/favorite/directory install
+
+to install it elsewhere.  Once it's installed, you can add this directory to
+your ``$PATH``, or symlink the programs into an appropriate directory with a
+command like
+
+::
+
+    $ cd /usr/local/bin
+    $ ln -s ../lib/greylag/greylag-* .
+
+(The programs must be able to find the module files: ``greylag.py`` and the
+cgreylag shared library.  The easiest way to arrange this is to place them in
+the same directory as the programs, which the above steps accomplish.)
+
+If ``greylag-chase --help`` gives you a usage message rather than a Python
+error, your installation is probably correct.
+
+If you wish to install the documentation, which is a local copy of the
+website_, use
+
+::
+
+    $ cd doc
+    $ make install
+      ...or...
+    $ make DEST=/my/doc/directory install
+
+
+.. _website: http://www.greylag.org/

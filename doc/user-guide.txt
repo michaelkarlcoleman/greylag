@@ -6,23 +6,92 @@ Greylag User Guide
 Overview
 --------
 
-The basic workflow of greylag is as follows.  First, the spectra are searched
-using ``greylag-rally``, which takes a configuration file and a set of
-spectrum files as input, and generates a glw file as output.  Then, if the
-search has been broken into multiple pieces, ``greylag-merge`` can be used to
-merge the resulting glw files into a single glw file that represents the best
-matches found in all of the spectrum files.  Finally ``greylag-sqt`` is used
-to generate the corresponding sqt output files (one for each input spectrum
-file).
+The basic workflow of greylag is as follows.  First, a shuffled sequence
+database is prepared with ``greylag-shuffle-database``.  This generates a
+sequence database with one decoy sequence for each real sequence, which is
+required by ``greylag-validate``.
+
+Then, the spectra are searched using ``greylag-rally``, which takes a
+configuration file and a set of spectrum files as input, and generates a glw
+file as output.
 
 The ``greylag-rally`` program connects to one or more ``greylag-chase``
 programs running on the same or different hosts, and these worker programs do
 the actual search.  The ``greylag-chase`` programs can be started using any
 convienient means.
 
+If the search has been broken into multiple pieces, ``greylag-merge`` can be
+used to merge the resulting glw files into a single glw file that represents
+the best matches found in all of the spectrum files.
+
+Finally ``greylag-sqt`` is used to generate the corresponding sqt output files
+(one for each input spectrum file) from a glw file.
+
 After the search, the program ``greylag-validate`` can be used to determine a
 set of "valid" identifications that satisfy a specified false discovery rate
-(FDR), assuming that the spectra have been searched against a decoy database.
+(FDR), if the spectra have been searched against a sequence database that
+includes decoys.
+
+The auxilliary program ``greylag-flatten-fasta`` can be used to translate
+FASTA databases to and from a one-line-per-locus format that makes it easier
+to manipulate FASTA files using standard Unix utilities (e.g., ``grep``).
+
+
+Simple Example
+--------------
+
+Here is a transcript for a simple, non-specific search, performed locally on an
+eight-processor machine::
+
+    $ ls
+    greylag.conf  greylag.hosts  test.ms2  yeast.fasta
+    $ cat greylag.conf
+    [greylag]
+    databases = yeast_decoy.fasta
+    mass_regimes = AVG/MONO
+    pervasive_mods = +C2H3ON!@C
+    potential_mods = O@M oxidation '@'
+    potential_mod_limit = 4
+    parent_mz_tolerance = 1.25
+    $ greylag-shuffle-database yeast.fasta > yeast_decoy.fasta
+    six-mers: 2248190 real 2485103 decoy 315491 both
+    $ cat greylag.hosts
+    localhost:10078
+    localhost:10079
+    localhost:10080
+    localhost:10081
+    localhost:10082
+    localhost:10083
+    localhost:10084
+    localhost:10085
+    $ greylag-chase --port-count=8 &
+    [3] 21736
+    $ greylag-chase --port-count=8 &
+    [4] 21737
+    $ greylag-chase --port-count=8 &
+    [5] 21744
+    $ greylag-chase --port-count=8 &
+    [6] 21745
+    $ greylag-chase --port-count=8 &
+    [7] 21746
+    $ greylag-chase --port-count=8 &
+    [8] 21747
+    $ greylag-chase --port-count=8 &
+    [9] 21748
+    $ greylag-chase --port-count=8 &
+    [10] 21755
+    $ greylag-rally --hostfile=greylag.hosts greylag.conf test.ms2
+    $ greylag-sqt chase_unknown.glw
+    $ greylag-validate --kill *.sqt
+    52 real ids, 0 decoys (FDR = 0.0000) [p1]
+
+
+This is just an example.  Different command options and configuration file
+options will be appropriate, depending on the instrument and situation.
+Adding the ``-v`` flag to ``greylag-rally``, for example, will show progress
+during the search.
+
+Use the ``--help`` flag to see documentation for each command.
 
 
 Host File
@@ -48,9 +117,9 @@ Windows .ini files.  The file must begin with the section marker ``[greylag]``.
 See the included example configuration file.
 
 Except for ``databases`` and probably ``pervasive_mods``, all parameters have
-reasonable defaults and often need not be specified.  If a parameter is
-specified more than once in the configuration file, the final occurrence takes
-precedence.
+reasonable defaults and often need not be specified.  Note that if a parameter
+is specified more than once in the configuration file, the final occurrence
+takes precedence.
 
 Here is a detailed description of each parameter.
 
@@ -58,8 +127,8 @@ Here is a detailed description of each parameter.
 -------------
 
 This is a whitespace-separated list of filenames.  Each filename may be an
-absolute or relative path, and the named file must be visible to both
-``greylag-rally`` and ``greylag-chase`` processes.
+absolute or relative path.  *The named file must be visible at this path to
+both the* ``greylag-rally`` *and* ``greylag-chase`` *processes.*
 
 Each file should contain a set of sequences in FASTA format.  Locus names must
 be unique across all database files, to avoid confusion.  Sequence characters
@@ -392,3 +461,5 @@ Detailed Command Descriptions
 
 
 Usage: ``greylag-rally [options] <configuration-file> <ms2-file>...``
+
+[to be completed]

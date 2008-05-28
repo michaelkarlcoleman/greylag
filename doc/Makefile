@@ -6,7 +6,9 @@
 
 DEST = /usr/local/lib/greylag/doc/
 
-DOCS = index.txt release-notes.txt user-guide.txt theory-of-operation.txt
+DOCS = index.txt release-notes.txt install.txt user-guide.txt \
+       theory-of-operation.txt
+
 IMAGES = favicon.png
 HTML = $(addsuffix .html,$(basename $(DOCS)))
 PDF = $(addsuffix .pdf,$(basename $(DOCS)))

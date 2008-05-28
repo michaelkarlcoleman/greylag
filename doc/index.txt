@@ -19,6 +19,11 @@ License`_.
 
 .. _`GNU General Public License`: http://www.gnu.org/licenses/licenses.html#GPL
 
+.. Caution::
+
+   Note that greylag is currently in a "beta" state.  You're welcome to try it
+   out, but be aware that there may still be some bugs and sharp edges.
+
 
 --------
 Features
@@ -75,19 +80,14 @@ Features
   known as pyroglutamic acid) potential modifications, using the method of
   X!Tandem.
 
-- **Incremental search:** If a search for one set of modifications is
-  performed, and then later a search for a second set of modification is
-  done, the two can easily be combined, producing the same result as if the
-  entire search had been done all at once.
-
 - **Concise, high-level implementation:** Greylag is implemented using a
   high-level language for most code, with just performance-critical parts
   implemented in a lower-level language.  The main search programs,
-  ``greylag-rally`` and ``greylag-chase`` comprise around 1600 lines of Python
-  and 700 lines of C++ (as measured by David A. Wheeler's sloccount_).  This
-  is less than a quarter of the size of other search programs for which source
-  code is available, even though greylag has quite a number of additional
-  features.
+  ``greylag-rally`` and ``greylag-chase`` comprise less than 1500 lines of
+  Python_ and 700 lines of C++ (as measured by David A. Wheeler's sloccount_).
+  This is less than a quarter of the size of other search programs for which
+  source code is available, even though greylag has quite a number of
+  additional features.
 
   Greylag's relatively small size, together with the fact that only a small
   part is written in a low-level language, makes it easier to understand,
@@ -99,9 +99,14 @@ Features
   enough to fit into a broad range of cluster scheduling architectures.
 
   The implementation is designed to be fault-tolerant.  The "master" program
-  (``greylag-rally``) will make use of whatever nodes/workers are available,
-  and is not bothered if they appear, disappear, crash, etc., during a
-  processing run.
+  (``greylag-rally``) will make use of whatever running "slave"
+  (``greylag-chase``) instances are available, and will continue even if they
+  appear, disappear, crash, etc., during a processing run.
+
+- **Incremental search:** If a search for one set of modifications is
+  performed, and then later a search for a second set of modification is
+  done, the two can easily be combined, producing the same result as if the
+  entire search had been done all at once.
 
 - **Emphasis on correctness:** Greylag carefully checks the parameters
   specified in the search configuration file and on the command line, and also
@@ -139,30 +144,7 @@ background information on tandem mass spectrum search, is available in the
 __ theory-of-operation.pdf
 
 
-------------
-Installation
-------------
-
-Prerequisites
--------------
-
-Building greylag requires Python version 2.5 or later, SWIG 1.3.31 or later,
-and reasonably recent versions of g++ and libstdc++, and make.  Recent Linux
-distributions will likely have sufficiently new versions, but you may have to
-install some of them.  Under Ubuntu or Debian, this should suffice::
-
-    $ sudo apt-get install python{,-dev} swig g++ make
-
-If you also want to run the test suite and build the documentation, add::
-
-    $ sudo apt-get install python-{nose,profiler,docutils}
-    $ sudo apt-get install texlive-latex-{extra,recommended} texlive-lang-french
-
-Greylag was developed and tested on GNU/Linux, but in principle it should work
-(perhaps with minor modifications) under other flavors of Unix, Mac OS X, and
-Windows/CygWin.
-
-
+---------------
 Getting greylag
 ---------------
 
@@ -185,61 +167,15 @@ You can also pull your own copy with
 .. _git : http://git.or.cz/
 
 
-Compiling
----------
+------------------
+Installing greylag
+------------------
 
-For a standard compile, just use
+See the `Installation Guide`_ (pdf__) for information about the compiling and
+installing the various greylag programs.
 
-::
-
-    $ make
-
-There are additional options you can try for a little extra speed--see the
-Makefile for more details.
-
-Next, run the test suite::
-
-    $ make check
-
-This will run a number of unit tests and several small searches.
-
-Then
-
-::
-
-    $ make install
-
-will install to ``/usr/local/lib/greylag``, or you can use
-
-::
-
-    $ make DEST=/my/favorite/directory install
-
-to install it elsewhere.  Once it's installed, you can add this directory to
-your ``$PATH``, or symlink the programs into an appropriate directory with a
-command like
-
-::
-
-    $ cd /usr/local/bin
-    $ ln -s ../lib/greylag/greylag-* .
-
-(The programs must be able to find the module files: ``greylag.py`` and the
-cgreylag shared library.  The easiest way to arrange this is to place them in
-the same directory as the programs, which the above steps accomplish.)
-
-If ``greylag-chase --help`` gives you a usage message rather than a Python
-error, your installation is probably correct.
-
-If you wish to install the documentation, which is a local copy of the
-website, use
-
-::
-
-    $ cd doc
-    $ make install
-      ...or...
-    $ make DEST=/my/doc/directory install
+.. _`Installation Guide`: install.html
+__ install.pdf
 
 
 -------------
@@ -267,14 +203,18 @@ Credits and Acknowledgements
 
 Greylag would probably not have been possible without access to the source
 code of MyriMatch, X!Tandem, and OMSSA, which their authors have made
-available under various Open Source licenses.
+available under various `Open Source`_ licenses.
+
+.. _`Open Source`: http://www.opensource.org/
 
 Greylag's main spectrum filtering and scoring algorithms are currently based
 closely on those of MyriMatch.  The PCA modification method is based on that
 of X!Tandem.
 
-The initial greylag implementation was written by Mike Coleman at the Stowers
-Institute for Medical Research.
+The initial greylag implementation was written by Mike Coleman, supported by
+the `Stowers Institute for Medical Research`_.
+
+.. _`Stowers Institute for Medical Research`: http://www.stowers-institute.org/
 
 
 .. raw:: html
