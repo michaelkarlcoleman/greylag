@@ -97,6 +97,16 @@ check :: all
 	nosetests --exe --with-doctest $(NOSEFLAGS)
 
 
+# Release steps:
+# - bump version number in greylag.py, commit to master branch
+# - make clean; make; make check
+# - tag with version number
+# - publish website (cd doc; make; make publish)
+# - make release
+# - upload to sourceforge
+# - push master to public git archive
+# - announce to greylag-announce
+
 release :: all
 	@echo "# did you update VERSION in greylag.py?"
 	git-tag -l "v$(VERSION)" || false # no such tag
