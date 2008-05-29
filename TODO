@@ -67,12 +67,6 @@ TASK QUEUE
 ** How to use it
 
 
-* Try DTASelect on greylag SQT files
-** plus mod case
-** sqt-index works?
-** spectrum viewing works?
-** astoria?
-
 
 = M1 =========================================================================
 
@@ -81,14 +75,10 @@ TASK QUEUE
 
 
 
-* Try greylag-validate refinement
-
 * Implement semi-tryptic cleavage
 ** Reputed to be almost as good as tryptic (valid peptide count)?
 
 * Debian/Ubuntu package?
-
-* greylag-validate parent tolerance analysis
 
 * Add docstring for every function
 
@@ -124,13 +114,7 @@ TASK QUEUE
 ** multiple mods
 ** multiple regimes
 
-* Think about how to implement LAFs PTM pipeline
-
-
 * Try to test against MyriMatch (results should be similar)
-
-
-* How should greylag-validate handle I/L, P/V, etc?
 
 
 = M2 =========================================================================
@@ -148,6 +132,8 @@ TASK QUEUE
   try to predict this based on the peptide sequence?  MH probably close
   enough.  What does MyriMatch do?
 
+  new: not clear whether this is really productive, as opposed to just
+  searching a wider window (looking for 16/17 loss might be, though)
 
 * Implement MyriMatch charge-calling algorithm?
 
@@ -155,8 +141,6 @@ TASK QUEUE
 
 
 * Investigate identification differences between greylag and SEQUEST/MM.
-
-* Clean up [,] (N/C-terminal) mass regime calculations
 
 * Pass through the C++ code looking for counts that could conceivably overflow
 ** Fix or add assertions
@@ -175,6 +159,8 @@ TASK QUEUE
 
 * PPM error tolerances (MyriMatch doesn't implement this?)
 
+  Not obvious that this is actually helpful.
+
 * Make --estimate work correctly over cluster.  (Currently takes 6 hours to
   estimate 60--is this worthwhile?  Could we simply estimate one bag and
   multiply by the number of bags??)
@@ -187,10 +173,6 @@ TASK QUEUE
   used by --part-split to generate evenly sized parts.  (Check that file is
   newer than params file and ms2 file arguments, and that all ms2 file
   arguments were estimated.)
-
-* Fix "cleavage C-terminal mass change" issue.  Should this be interpreted as
-  MONO, ! (first fragment regime), or by regime.  Look for similar problems
-  elsewhere.
 
 * Make static '[' mod exclude PCA mods.
 
